@@ -619,6 +619,48 @@ function do_start(array $c): bool
     }
 }
 
+/**
+ * do_delete() — останавливает instance, удаляет TUN и per-instance runtime-файлы.
+ * Вызывается перед удалением записи из config.xml (delItem).
+ */
+function do_delete(string $inst_uuid): bool
+{
+    $c = xray_get_config($inst_uuid);
+    if (empty($c)) {
+        echo "ERROR: Instance {$inst_uuid} not found\n";
+        return false;
+    }
+
+    $tunIface = $c['tun_iface'] ?? 'proxytun2socks0';
+    $name     = $c['name'] ?? $inst_uuid;
+
+    echo "Removing instance {$name} ({$inst_uuid})...\n";
+
+    do_stop($inst_uuid, $tunIface);
+    t2s_cleanup_after_stop($tunIface, $inst_uuid);
+    if (tun_iface_exists($tunIface)) {
+        echo "INFO: Destroying TUN {$tunIface}\n";
+        tun_destroy($tunIface);
+    }
+
+    foreach ([
+        xray_conf_path($inst_uuid),
+        t2s_conf_path($inst_uuid),
+        xray_pid_path($inst_uuid),
+        t2s_pid_path($inst_uuid),
+        xray_lock_path($inst_uuid),
+        xray_stopped_flag($inst_uuid),
+        xray_instance_log($inst_uuid),
+    ] as $path) {
+        if (file_exists($path)) {
+            @unlink($path);
+        }
+    }
+
+    echo "OK: instance resources removed\n";
+    return true;
+}
+
 function do_status(string $inst_uuid = ''): void
 {
     if ($inst_uuid !== '') {
@@ -828,6 +870,13 @@ switch ($action) {
         } finally {
             @unlink($tmpConf);
         }
+
+    case 'delete':
+        if ($inst_uuid === '') {
+            echo "ERROR: instance UUID required for delete\n";
+            exit(1);
+        }
+        exit(do_delete($inst_uuid) ? 0 : 1);
 
     case 'version':
         $ver = file_exists(XRAY_VERSION_FILE) ? trim(file_get_contents(XRAY_VERSION_FILE)) : 'unknown';

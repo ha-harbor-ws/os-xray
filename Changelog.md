@@ -8,6 +8,7 @@ Format: [Semantic Versioning](https://semver.org/).
 ## [3.1.0] - TBD
 ### Fixed
 - **tun2socks "interface already exists"** — перед стартом удаляется stale TUN, если процесс не запущен; после stop — cleanup leftover interface; boot hook делегирует start в `xray-service-control.php`
+- **TUN cleanup on instance delete** — при удалении instance через GUI вызывается `xray delete`: stop, destroy TUN, удаление per-instance конфигов/PID/логов
 ### Added
 - **Per-instance IP stack** — checkboxes `IPv4` / `IPv6` (both allowed) control TUN address assignment and xray DNS/routing strategy
 - **Per-instance DNS servers** — field `dns_servers` (comma-separated) written into generated xray config for each instance

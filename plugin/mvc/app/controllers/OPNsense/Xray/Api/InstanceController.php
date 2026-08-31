@@ -3,6 +3,7 @@
 namespace OPNsense\Xray\Api;
 
 use OPNsense\Base\ApiMutableModelControllerBase;
+use OPNsense\Core\Backend;
 
 class InstanceController extends ApiMutableModelControllerBase
 {
@@ -47,6 +48,11 @@ class InstanceController extends ApiMutableModelControllerBase
 
     public function delItemAction($uuid)
     {
+        $uuid = preg_replace('/[^0-9a-fA-F\-]/', '', (string)$uuid);
+        if (strlen($uuid) >= 36 && $this->request->isPost()) {
+            $backend = new Backend();
+            $backend->configdRun('xray delete ' . $uuid);
+        }
         return $this->delBase('instance', $uuid);
     }
 }
