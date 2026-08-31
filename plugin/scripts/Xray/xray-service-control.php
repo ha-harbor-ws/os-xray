@@ -99,12 +99,16 @@ function xray_ip_query_strategy(bool $useIpv4, bool $useIpv6): string
 }
 
 /**
- * routing.domainStrategy принимает только AsIs / IPIfNonMatch / IPOnDemand.
- * Выбор IPv4/IPv6 делается через dns.queryStrategy и правила block ::/0 / 0.0.0.0/0.
+ * routing.domainStrategy: AsIs / IPIfNonMatch / IPOnDemand.
+ * Dual-stack → IPIfNonMatch; только IPv4 или только IPv6 → IPOnDemand.
+ * Выбор семейства адресов — через dns.queryStrategy и правила block.
  */
 function xray_routing_domain_strategy(bool $useIpv4, bool $useIpv6): string
 {
-    return 'IPIfNonMatch';
+    if ($useIpv4 && $useIpv6) {
+        return 'IPIfNonMatch';
+    }
+    return 'IPOnDemand';
 }
 
 function xray_validate_ip_stack(array $c, string $inst_uuid = ''): bool

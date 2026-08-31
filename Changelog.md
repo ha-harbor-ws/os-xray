@@ -18,7 +18,7 @@ Format: [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - `50-xray`: IPv6 on TUN always assigned from OPNsense Interfaces when configured; IPv4 on TUN still follows instance IPv4 checkbox
-- `xray-service-control.php`: when instance IPv6 is off, routing blocks `::/0` (blackhole) and DNS `queryStrategy` is `UseIPv4`; routing `domainStrategy` stays `IPIfNonMatch`
+- `xray-service-control.php`: when instance IPv6 is off, routing blocks `::/0` (blackhole) and DNS `queryStrategy` is `UseIPv4`; routing `domainStrategy` is `IPOnDemand` for single-stack (IPv4-only or IPv6-only) and `IPIfNonMatch` for dual-stack
 - `xray-ifstats.php` / Diagnostics tab: show TUN IPv6, IP stack mode and DNS servers
 - `install.sh`: migration step 4.8 adds defaults for existing instances
 
