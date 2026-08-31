@@ -507,7 +507,8 @@ function tun_destroy(string $iface): void
 
 /**
  * Перед стартом tun2socks: удалить stale PID и TUN, если процесс не запущен.
- * Иначе tun2socks падает с "interface already exists" (OPNsense Prevent removal / crash).
+ * Иначе tun2socks падает с "interface already exists" (crash / leftover iface).
+ * На stop destroy НЕ вызываем — TUN убирает сам tun2socks (как upstream).
  */
 function t2s_prepare_start(string $iface, string $inst_uuid): void
 {
@@ -523,24 +524,12 @@ function t2s_prepare_start(string $iface, string $inst_uuid): void
     }
 }
 
-/**
- * После остановки tun2socks: если процесс завершился, но TUN остался — destroy.
- */
-function t2s_cleanup_after_stop(string $iface, string $inst_uuid): void
-{
-    if (proc_is_running(t2s_pid_path($inst_uuid))) {
-        return;
-    }
-    if (tun_iface_exists($iface)) {
-        echo "INFO: Removing leftover TUN {$iface} after tun2socks stop\n";
-        tun_destroy($iface);
-    }
-}
-
 // ─── High-level per-instance actions ─────────────────────────────────────────
 
 /**
  * do_stop() — останавливает tun2socks и xray-core инстанса, выставляет stopped flag.
+ * TUN не destroy'им: tun2socks сам уничтожает интерфейс при SIGTERM (upstream 1.9.2).
+ * Stale iface убирается только в t2s_prepare_start() при следующем старте.
  */
 function do_stop(string $inst_uuid, ?string $tunIface = null): void
 {
@@ -549,10 +538,8 @@ function do_stop(string $inst_uuid, ?string $tunIface = null): void
         $tunIface = $c['tun_iface'] ?? 'proxytun2socks0';
     }
 
-    // Останавливаем tun2socks первым — он держит TUN open.
+    // Останавливаем tun2socks первым — он держит TUN open и сам его destroy'ит.
     proc_kill(t2s_pid_path($inst_uuid));
-    usleep(500000);
-    t2s_cleanup_after_stop($tunIface, $inst_uuid);
     // Останавливаем xray-core
     proc_kill(xray_pid_path($inst_uuid));
 
@@ -653,9 +640,10 @@ function do_delete(string $inst_uuid): bool
     echo "Removing instance {$name} ({$inst_uuid})...\n";
 
     do_stop($inst_uuid, $tunIface);
-    t2s_cleanup_after_stop($tunIface, $inst_uuid);
+    // Даём tun2socks время убрать TUN сам; если остался — destroy (instance уходит).
+    usleep(500000);
     if (tun_iface_exists($tunIface)) {
-        echo "INFO: Destroying TUN {$tunIface}\n";
+        echo "INFO: Destroying TUN {$tunIface} after instance delete\n";
         tun_destroy($tunIface);
     }
 
