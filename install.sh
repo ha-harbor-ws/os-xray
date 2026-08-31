@@ -4,21 +4,27 @@
 # Tested on OPNsense 25.x / FreeBSD 14.x
 # Author: Меркулов Павел Сергеевич
 #
+# Repository: https://github.com/ha-harbor-ws/os-xray
+# Branch:     feature/tun-ipv6-dns-useipv4
+#
 # Usage:
 #   sh install.sh            — install
 #   sh install.sh uninstall  — remove
-
-# Итерация 3:
-#   - set -u: защита от неинициализированных переменных
-#   - detect_existing(): PHP-парсинг вместо grep/sed/awk
-#   - check_port(): проверка занятости SOCKS5 порта
-#   - die()/warn(): унифицированный вывод ошибок
-#   - PLUGIN_VERSION в баннере
+#
+# Remote install:
+#   cd /tmp
+#   git clone -b feature/tun-ipv6-dns-useipv4 https://github.com/ha-harbor-ws/os-xray.git
+#   cd os-xray && sh install.sh
 
 set -e
 set -u
 
 PLUGIN_VERSION="3.0.0"
+REPO_OWNER="ha-harbor-ws"
+REPO_NAME="os-xray"
+REPO_BRANCH="feature/tun-ipv6-dns-useipv4"
+REPO_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
+ARCHIVE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/archive/refs/heads/${REPO_BRANCH}.tar.gz"
 PLUGIN_DIR="$(dirname "$0")/plugin"
 VERSION_FILE="/usr/local/opnsense/mvc/app/models/OPNsense/Xray/version.txt"
 
@@ -817,6 +823,7 @@ echo "============================================================"
 echo "  os-xray v${PLUGIN_VERSION} installed successfully!"
 echo "============================================================"
 echo ""
+echo "  Repository: ${REPO_URL} (${REPO_BRANCH})"
 echo "  Check version:  configctl xray version"
 echo ""
 

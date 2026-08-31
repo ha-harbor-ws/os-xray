@@ -2,9 +2,9 @@
 
 # os-xray
 
-[![Release](https://img.shields.io/github/v/release/MrTheory/os-xray)](https://github.com/MrTheory/os-xray/releases)
-[![License](https://img.shields.io/github/license/MrTheory/os-xray)](https://github.com/MrTheory/os-xray/blob/main/LICENSE)
-[![Downloads](https://img.shields.io/github/downloads/MrTheory/os-xray/total)](https://github.com/MrTheory/os-xray/releases)
+[![Repository](https://img.shields.io/badge/GitHub-ha--harbor--ws%2Fos--xray-blue)](https://github.com/ha-harbor-ws/os-xray)
+[![Branch](https://img.shields.io/badge/branch-feature%2Ftun--ipv6--dns--useipv4-green)](https://github.com/ha-harbor-ws/os-xray/tree/feature/tun-ipv6-dns-useipv4)
+[![License](https://img.shields.io/github/license/ha-harbor-ws/os-xray)](https://github.com/ha-harbor-ws/os-xray/blob/develop/LICENSE)
 [![OPNsense](https://img.shields.io/badge/OPNsense-25.x%20%2F%2026.x-blue)](https://opnsense.org)
 [![FreeBSD](https://img.shields.io/badge/FreeBSD-14.x%20amd64-red)](https://freebsd.org)
 
@@ -69,7 +69,7 @@ Firewall Rules (selective routing)
 
 ```sh
 cd /tmp
-git clone https://github.com/MrTheory/os-xray.git
+git clone -b feature/tun-ipv6-dns-useipv4 https://github.com/ha-harbor-ws/os-xray.git
 cd os-xray
 sh install.sh
 ```
@@ -77,8 +77,8 @@ sh install.sh
 **Option 2 — via archive**
 
 ```sh
-fetch -o /tmp/os-xray-v5.tar https://raw.githubusercontent.com/MrTheory/os-xray/refs/heads/main/os-xray-v5.tar
-cd /tmp && tar xf os-xray-v5.tar && cd os-xray-v5
+fetch -o /tmp/os-xray.tar.gz https://github.com/ha-harbor-ws/os-xray/archive/refs/heads/feature/tun-ipv6-dns-useipv4.tar.gz
+cd /tmp && tar xf os-xray.tar.gz && cd os-xray-feature-tun-ipv6-dns-useipv4
 sh install.sh
 ```
 
@@ -194,7 +194,7 @@ When stopping (`Stop` in GUI or `Apply` with Enable unchecked):
 ## Uninstall
 
 ```sh
-cd /tmp/os-xray-v5
+cd /tmp/os-xray
 sh install.sh uninstall
 ```
 
