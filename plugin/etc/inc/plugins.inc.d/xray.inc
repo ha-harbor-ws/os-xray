@@ -76,43 +76,30 @@ function xray_configure_do(bool $verbose = false): void
 
         if ($shouldStart) {
             try {
-                $alreadyRunning = false;
+                $xrayRunning = false;
                 if (file_exists($xrayPid)) {
                     $pid = (int)trim(file_get_contents($xrayPid));
                     exec('/bin/kill -0 ' . $pid . ' 2>/dev/null', $out, $rc);
-                    $alreadyRunning = ($rc === 0);
+                    $xrayRunning = ($rc === 0);
+                }
+                $t2sRunning = false;
+                if (file_exists($t2sPid)) {
+                    $pid = (int)trim(file_get_contents($t2sPid));
+                    exec('/bin/kill -0 ' . $pid . ' 2>/dev/null', $out, $rc);
+                    $t2sRunning = ($rc === 0);
                 }
 
-                if (!$alreadyRunning) {
+                if (!$xrayRunning || !$t2sRunning) {
                     if ($verbose) {
-                        echo "xray [{$inst_uuid}]: starting xray-core and tun2socks...\n";
+                        echo "xray [{$inst_uuid}]: starting via xray-service-control.php...\n";
                     }
-
-                    $log = escapeshellarg($daemonLog);
-                    exec('/usr/sbin/daemon -p ' . escapeshellarg($xrayPid)
-                        . ' ' . escapeshellarg($xrayBin)
-                        . ' run -c ' . escapeshellarg($xrayConf)
-                        . ' >> ' . $log . ' 2>&1 &');
-
-                    sleep(1);
-
-                    exec('/usr/sbin/daemon -p ' . escapeshellarg($t2sPid)
-                        . ' ' . escapeshellarg($t2sBin)
-                        . ' -config ' . escapeshellarg($t2sConf)
-                        . ' >> ' . $log . ' 2>&1 &');
-
-                    // Ждём TUN до 5 секунд
-                    $rc = 1;
-                    for ($i = 0; $i < 5; $i++) {
-                        exec('/sbin/ifconfig ' . escapeshellarg($tunIface) . ' 2>/dev/null', $o, $rc);
-                        if ($rc === 0) {
-                            break;
-                        }
-                        sleep(1);
+                    exec('/usr/local/bin/php /usr/local/opnsense/scripts/Xray/xray-service-control.php start '
+                        . escapeshellarg($inst_uuid) . ' 2>&1', $startOut, $startRc);
+                    if ($verbose && !empty($startOut)) {
+                        echo implode("\n", $startOut) . "\n";
                     }
-
-                    if ($verbose) {
-                        echo "xray [{$inst_uuid}]: TUN {$tunIface} " . ($rc === 0 ? "up" : "not found after 5s") . "\n";
+                    if ($startRc !== 0 && $verbose) {
+                        echo "xray [{$inst_uuid}]: start returned exit {$startRc}\n";
                     }
                 }
             } finally {

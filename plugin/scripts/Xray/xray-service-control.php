@@ -470,6 +470,15 @@ function lo0_alias_remove(string $addr): void
 }
 
 // ─── B9: TUN interface teardown ───────────────────────────────────────────────
+function tun_iface_exists(string $iface): bool
+{
+    if ($iface === '') {
+        return false;
+    }
+    exec('/sbin/ifconfig ' . escapeshellarg($iface) . ' 2>/dev/null', $out, $rc);
+    return $rc === 0;
+}
+
 function tun_destroy(string $iface): void
 {
     if (empty($iface)) {
@@ -480,6 +489,38 @@ function tun_destroy(string $iface): void
         return;
     }
     exec('/sbin/ifconfig ' . escapeshellarg($iface) . ' destroy 2>/dev/null');
+}
+
+/**
+ * Перед стартом tun2socks: удалить stale PID и TUN, если процесс не запущен.
+ * Иначе tun2socks падает с "interface already exists" (OPNsense Prevent removal / crash).
+ */
+function t2s_prepare_start(string $iface, string $inst_uuid): void
+{
+    $pidPath = t2s_pid_path($inst_uuid);
+    if (proc_is_running($pidPath)) {
+        return;
+    }
+    @unlink($pidPath);
+    if (tun_iface_exists($iface)) {
+        echo "INFO: Removing stale TUN {$iface} before tun2socks start\n";
+        tun_destroy($iface);
+        usleep(300000);
+    }
+}
+
+/**
+ * После остановки tun2socks: если процесс завершился, но TUN остался — destroy.
+ */
+function t2s_cleanup_after_stop(string $iface, string $inst_uuid): void
+{
+    if (proc_is_running(t2s_pid_path($inst_uuid))) {
+        return;
+    }
+    if (tun_iface_exists($iface)) {
+        echo "INFO: Removing leftover TUN {$iface} after tun2socks stop\n";
+        tun_destroy($iface);
+    }
 }
 
 // ─── High-level per-instance actions ─────────────────────────────────────────
@@ -496,6 +537,8 @@ function do_stop(string $inst_uuid, ?string $tunIface = null): void
 
     // Останавливаем tun2socks первым — он держит TUN open.
     proc_kill(t2s_pid_path($inst_uuid));
+    usleep(500000);
+    t2s_cleanup_after_stop($tunIface, $inst_uuid);
     // Останавливаем xray-core
     proc_kill(xray_pid_path($inst_uuid));
 
@@ -556,8 +599,13 @@ function do_start(array $c): bool
             usleep(800000);
         }
         if (!proc_is_running(t2s_pid_path($inst_uuid))) {
+            t2s_prepare_start($c['tun_iface'] ?? 'proxytun2socks0', $inst_uuid);
             proc_start(T2S_BIN, '-config ' . escapeshellarg(t2s_conf_path($inst_uuid)), t2s_pid_path($inst_uuid), $instLog);
             usleep(800000);
+            if (!proc_is_running(t2s_pid_path($inst_uuid))) {
+                echo "ERROR: tun2socks failed to start for instance {$inst_uuid}\n";
+                return false;
+            }
         }
 
         // Назначаем IP на TUN через syshook (ждёт TUN, читает IP из config, reload firewall)
