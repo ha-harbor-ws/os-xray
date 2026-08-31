@@ -5,6 +5,17 @@ Format: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.1.0] - TBD
+### Added
+- **Per-instance IP stack** — checkboxes `IPv4` / `IPv6` (both allowed) control TUN address assignment and xray DNS/routing strategy
+- **Per-instance DNS servers** — field `dns_servers` (comma-separated) written into generated xray config for each instance
+
+### Changed
+- `50-xray`: assigns inet/inet6 on TUN only when enabled for the instance
+- `xray-service-control.php`: DNS and routing `domainStrategy`/`queryStrategy` derived from instance IP stack flags
+- `xray-ifstats.php` / Diagnostics tab: show TUN IPv6, IP stack mode and DNS servers
+- `install.sh`: migration step 4.8 adds defaults for existing instances
+
 ## [3.0.1] - TBD
 ### Added
 - **Enabled field** — добавлено поле 'enable' которое позволяет включить/выключить инстанц из автозапуска/перезагрузки

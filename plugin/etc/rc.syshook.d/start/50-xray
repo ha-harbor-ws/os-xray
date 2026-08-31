@@ -84,25 +84,39 @@ setup_instance() {
     # Поднимаем интерфейс и назначаем MTU
     ifconfig "$TUN_IFACE" mtu "$MTU" up 2>&1
 
-    # Назначаем IPv4/IPv6 из OPNsense interfaces (BUG-2 FIX: через env)
-    _TUN_ADDRS=$(_TUN_IFACE="$TUN_IFACE" php -r '
+    # Назначаем IPv4/IPv6 из OPNsense interfaces с учётом настроек инстанса
+    _TUN_ADDRS=$(_INST_UUID="$_INST_UUID" _TUN_IFACE="$TUN_IFACE" php -r '
         set_include_path("/usr/local/etc/inc" . PATH_SEPARATOR . get_include_path());
         require_once("config.inc");
-        $cfg = OPNsense\Core\Config::getInstance()->object();
-        $tun = getenv("_TUN_IFACE");
+        $cfg  = OPNsense\Core\Config::getInstance()->object();
+        $uuid = getenv("_INST_UUID");
+        $tun  = getenv("_TUN_IFACE");
         if (empty($tun)) $tun = "proxytun2socks0";
+
+        $useIpv4 = true;
+        $useIpv6 = false;
+        foreach ($cfg->OPNsense->xray->instances->instance as $inst) {
+            if ((string)$inst["uuid"] === $uuid) {
+                $useIpv4 = (string)($inst->use_ipv4 ?? "1") === "1";
+                $useIpv6 = (string)($inst->use_ipv6 ?? "0") === "1";
+                break;
+            }
+        }
+        echo "USE_IPV4=" . ($useIpv4 ? "1" : "0") . "\n";
+        echo "USE_IPV6=" . ($useIpv6 ? "1" : "0") . "\n";
+
         foreach ($cfg->interfaces->children() as $iface) {
             if ((string)$iface->if !== $tun) {
                 continue;
             }
             $ipaddr = trim((string)$iface->ipaddr);
             $subnet = trim((string)$iface->subnet);
-            if ($ipaddr !== "" && $subnet !== "") {
+            if ($useIpv4 && $ipaddr !== "" && $subnet !== "") {
                 echo "TUN_IP=" . $ipaddr . "/" . $subnet . "\n";
             }
             $ipaddrv6 = trim((string)$iface->ipaddrv6);
             $subnetv6 = trim((string)$iface->subnetv6);
-            if ($ipaddrv6 !== "" && $subnetv6 !== "") {
+            if ($useIpv6 && $ipaddrv6 !== "" && $subnetv6 !== "") {
                 echo "TUN_IP6=" . $ipaddrv6 . "/" . $subnetv6 . "\n";
             }
             break;
@@ -112,19 +126,29 @@ setup_instance() {
     eval "$_TUN_ADDRS"
     TUN_IP="${TUN_IP:-}"
     TUN_IP6="${TUN_IP6:-}"
+    USE_IPV4="${USE_IPV4:-1}"
+    USE_IPV6="${USE_IPV6:-0}"
 
-    if [ -n "$TUN_IP" ]; then
-        echo "[${_INST_UUID}] assigning inet $TUN_IP to $TUN_IFACE..."
-        ifconfig "$TUN_IFACE" inet "$TUN_IP" 2>&1
+    if [ "$USE_IPV4" = "1" ]; then
+        if [ -n "$TUN_IP" ]; then
+            echo "[${_INST_UUID}] assigning inet $TUN_IP to $TUN_IFACE..."
+            ifconfig "$TUN_IFACE" inet "$TUN_IP" 2>&1
+        else
+            echo "[${_INST_UUID}] WARNING: IPv4 enabled but no IPv4 found in OPNsense interface config"
+        fi
     else
-        echo "[${_INST_UUID}] WARNING: no IPv4 found in config, skipping IPv4 assignment"
+        echo "[${_INST_UUID}] INFO: IPv4 disabled for instance, skipping IPv4 assignment"
     fi
 
-    if [ -n "$TUN_IP6" ]; then
-        echo "[${_INST_UUID}] assigning inet6 $TUN_IP6 to $TUN_IFACE..."
-        ifconfig "$TUN_IFACE" inet6 "$TUN_IP6" 2>&1
+    if [ "$USE_IPV6" = "1" ]; then
+        if [ -n "$TUN_IP6" ]; then
+            echo "[${_INST_UUID}] assigning inet6 $TUN_IP6 to $TUN_IFACE..."
+            ifconfig "$TUN_IFACE" inet6 "$TUN_IP6" 2>&1
+        else
+            echo "[${_INST_UUID}] WARNING: IPv6 enabled but no IPv6 found in OPNsense interface config"
+        fi
     else
-        echo "[${_INST_UUID}] INFO: no IPv6 found in config, skipping IPv6 assignment"
+        echo "[${_INST_UUID}] INFO: IPv6 disabled for instance, skipping IPv6 assignment"
     fi
 }
 

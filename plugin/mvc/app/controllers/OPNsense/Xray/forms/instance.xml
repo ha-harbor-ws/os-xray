@@ -58,6 +58,29 @@
     </field>
     <field>
         <type>header</type>
+        <label>IP Stack &amp; DNS</label>
+    </field>
+    <field>
+        <id>instance.use_ipv4</id>
+        <label>IPv4</label>
+        <type>checkbox</type>
+        <help>Assign IPv4 on the TUN interface (from OPNsense Interfaces) and use IPv4 in xray DNS/routing.</help>
+    </field>
+    <field>
+        <id>instance.use_ipv6</id>
+        <label>IPv6</label>
+        <type>checkbox</type>
+        <help>Assign IPv6 on the TUN interface (from OPNsense Interfaces) and use IPv6 in xray DNS/routing.</help>
+    </field>
+    <field>
+        <id>instance.dns_servers</id>
+        <label>DNS Servers</label>
+        <type>text</type>
+        <help>Comma-separated DNS server addresses written into this instance xray-core config.</help>
+        <hint>1.1.1.1,8.8.8.8</hint>
+    </field>
+    <field>
+        <type>header</type>
         <label>Routing</label>
     </field>
     <field>

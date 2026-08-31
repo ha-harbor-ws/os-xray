@@ -19,7 +19,7 @@
 set -e
 set -u
 
-PLUGIN_VERSION="3.0.0"
+PLUGIN_VERSION="3.1.0"
 REPO_OWNER="ha-harbor-ws"
 REPO_NAME="os-xray"
 REPO_BRANCH="feature/tun-ipv6-dns-useipv4"
@@ -804,6 +804,57 @@ done
 rm -f /var/run/xray_stopped_1.flag 2>/dev/null
 echo "[OK]  Old runtime files cleaned."
 
+# ── Шаг 4.8: Миграция v3.0.x → v3.1.0 (use_ipv4/use_ipv6/dns_servers) ────────
+echo ""
+echo "==> Step 4.8: Adding v3.1.0 instance fields (IP stack, DNS)..."
+
+_MIGRATE_310_OK=$(php << 'PHPEOF'
+<?php
+set_include_path('/usr/local/etc/inc' . PATH_SEPARATOR . get_include_path());
+require_once('config.inc');
+
+$cfg = OPNsense\Core\Config::getInstance();
+$obj = $cfg->object();
+$instances = $obj->OPNsense->xray->instances ?? null;
+if (!$instances) { echo "SKIP"; exit(0); }
+
+$changed = false;
+foreach ($instances->instance as $inst) {
+    if (!isset($inst->use_ipv4)) {
+        $inst->addChild('use_ipv4', '1');
+        $changed = true;
+    }
+    if (!isset($inst->use_ipv6)) {
+        $inst->addChild('use_ipv6', '0');
+        $changed = true;
+    }
+    if (!isset($inst->dns_servers) || trim((string)$inst->dns_servers) === '') {
+        if (isset($inst->dns_servers)) {
+            $dom = dom_import_simplexml($inst->dns_servers);
+            $dom->parentNode->removeChild($dom);
+        }
+        $inst->addChild('dns_servers', '1.1.1.1,8.8.8.8');
+        $changed = true;
+    }
+}
+
+if ($changed) {
+    $cfg->save();
+    echo "OK";
+} else {
+    echo "SKIP";
+}
+PHPEOF
+) || true
+
+if [ "$_MIGRATE_310_OK" = "OK" ]; then
+    echo "[OK]  Added use_ipv4/use_ipv6/dns_servers to existing instances."
+elif [ "$_MIGRATE_310_OK" = "SKIP" ]; then
+    echo "[SKIP] v3.1.0 field migration not needed."
+else
+    warn "v3.1.0 field migration failed."
+fi
+
 # ── Шаг 5: Перезапуск configd ─────────────────────────────────────────────────
 echo ""
 echo "==> Step 5: Restarting configd..."
@@ -866,6 +917,7 @@ echo "       + Add: $MEMO_TUN"
 echo "       Enable interface ✓"
 echo "       IPv4 Configuration Type: Static"
 echo "       IPv4 Address: $MEMO_TUN_CIDR"
+echo "       IPv6 Address: configure Static IPv6 if instance IPv6 is enabled"
 echo "       Prevent interface removal: ✓  (обязательно!)"
 echo ""
 echo "  6. System → Gateways → Configuration → Add"

@@ -48,6 +48,18 @@
                             <td id="diag_tun_ip">&mdash;</td>
                         </tr>
                         <tr>
+                            <th>{{ lang._('TUN IPv6') }}</th>
+                            <td id="diag_tun_ip6">&mdash;</td>
+                        </tr>
+                        <tr>
+                            <th>{{ lang._('IP Stack') }}</th>
+                            <td id="diag_ip_stack">&mdash;</td>
+                        </tr>
+                        <tr>
+                            <th>{{ lang._('DNS Servers') }}</th>
+                            <td id="diag_dns_servers">&mdash;</td>
+                        </tr>
+                        <tr>
                             <th>{{ lang._('MTU') }}</th>
                             <td id="diag_mtu">&mdash;</td>
                         </tr>

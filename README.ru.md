@@ -31,6 +31,8 @@ Xray-core + tun2socks — нативный VPN-клиент для OPNsense с �
 - **Вкладка Diagnostics** — статистика TUN-интерфейса: IP, MTU, байты, пакеты, uptime процессов, Ping RTT до VPN-сервера; автообновление каждые 30 секунд
 - **Кнопка Copy Debug Info** — собирает diagnostics + логи в модалку для копирования в issue-репорт
 - **Bypass Networks** — настраиваемый список CIDR-сетей для обхода VPN (direct routing)
+- **IP stack на инстанс** — чекбоксы IPv4 / IPv6 (можно оба) для TUN и xray DNS/routing
+- **DNS на инстанс** — поле dns_servers (через запятую) в config.json xray
 - **Watchdog** — автоматический перезапуск при падении xray-core или tun2socks (настраивается)
 - **Автозапуск после ребута** — интерфейс поднимается автоматически, нажимать Apply вручную не нужно
 - ACL-права — доступ к GUI и API только для авторизованных пользователей с ролью `page-vpn-xray`

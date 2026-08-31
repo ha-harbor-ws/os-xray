@@ -440,6 +440,9 @@
                 $('#diag_tun_iface').text(data.tun_interface  || '\u2014');
                 $('#diag_tun_status').html(statusHtml);
                 $('#diag_tun_ip').text(data.tun_ip           || '\u2014');
+                $('#diag_tun_ip6').text(data.tun_ip6         || '\u2014');
+                $('#diag_ip_stack').text(data.ip_stack       || '\u2014');
+                $('#diag_dns_servers').text(data.dns_servers || '\u2014');
                 $('#diag_mtu').text(data.mtu > 0 ? data.mtu + ' bytes' : '\u2014');
                 $('#diag_bytes_in').text(data.bytes_in_hr    || '\u2014');
                 $('#diag_bytes_out').text(data.bytes_out_hr  || '\u2014');

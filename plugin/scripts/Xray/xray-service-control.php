@@ -70,10 +70,54 @@ function xray_parse_instance($inst, bool $globalEnabled): array
         'socks5_port'     => (int)(string)($inst->socks5_port ?? 10808) ?: 10808,
         'tun_iface'       => (string)($inst->tun_interface    ?? 'proxytun2socks0'),
         'mtu'             => (int)(string)($inst->mtu         ?? 1500),
+        'use_ipv4'        => (string)($inst->use_ipv4         ?? '1'),
+        'use_ipv6'        => (string)($inst->use_ipv6         ?? '0'),
+        'dns_servers'     => (string)($inst->dns_servers      ?? '1.1.1.1,8.8.8.8') ?: '1.1.1.1,8.8.8.8',
         'loglevel'        => $loglevel,
         'bypass_networks' => (string)($inst->bypass_networks  ?? '10.0.0.0/8,172.16.0.0/12,192.168.0.0/16')
                             ?: '10.0.0.0/8,172.16.0.0/12,192.168.0.0/16',
     ];
+}
+
+function xray_ip_version_flags(array $c): array
+{
+    return [
+        'use_ipv4' => (string)($c['use_ipv4'] ?? '1') === '1',
+        'use_ipv6' => (string)($c['use_ipv6'] ?? '0') === '1',
+    ];
+}
+
+function xray_ip_query_strategy(bool $useIpv4, bool $useIpv6): string
+{
+    if ($useIpv4 && $useIpv6) {
+        return 'UseIP';
+    }
+    if ($useIpv6) {
+        return 'UseIPv6';
+    }
+    return 'UseIPv4';
+}
+
+function xray_routing_domain_strategy(bool $useIpv4, bool $useIpv6): string
+{
+    if ($useIpv4 && $useIpv6) {
+        return 'IPIfNonMatch';
+    }
+    if ($useIpv6) {
+        return 'UseIPv6';
+    }
+    return 'UseIPv4';
+}
+
+function xray_validate_ip_stack(array $c, string $inst_uuid = ''): bool
+{
+    $flags = xray_ip_version_flags($c);
+    if ($flags['use_ipv4'] || $flags['use_ipv6']) {
+        return true;
+    }
+    $suffix = $inst_uuid !== '' ? " for instance {$inst_uuid}" : '';
+    echo "ERROR: At least one of IPv4 or IPv6 must be enabled{$suffix}.\n";
+    return false;
 }
 
 /**
@@ -124,14 +168,15 @@ function xray_get_config(string $inst_uuid = ''): array
 }
 
 // ─── Build routing block from comma-separated CIDR string ────────────────────
-function xray_build_routing(string $bypassRaw): array
+function xray_build_routing(string $bypassRaw, array $c): array
 {
     $bypassNets = array_values(array_filter(array_map('trim', explode(',', $bypassRaw))));
     if (empty($bypassNets)) {
         $bypassNets = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
     }
+    $flags = xray_ip_version_flags($c);
     return [
-        'domainStrategy' => 'IPIfNonMatch',
+        'domainStrategy' => xray_routing_domain_strategy($flags['use_ipv4'], $flags['use_ipv6']),
         'rules' => [[
             'type'        => 'field',
             'ip'          => $bypassNets,
@@ -140,28 +185,18 @@ function xray_build_routing(string $bypassRaw): array
     ];
 }
 
-// ─── DNS block: OPNsense system DNS, IPv4-only resolution ────────────────────
-function xray_build_dns(): array
+// ─── DNS block: per-instance servers + IP stack query strategy ───────────────
+function xray_build_dns(array $c): array
 {
-    $cfg     = OPNsense\Core\Config::getInstance()->object();
-    $servers = [];
-
-    if (isset($cfg->system->dnsserver)) {
-        foreach ($cfg->system->dnsserver as $dns) {
-            $addr = trim((string)$dns);
-            if ($addr !== '') {
-                $servers[] = $addr;
-            }
-        }
-    }
-
+    $raw = trim($c['dns_servers'] ?? '');
+    $servers = array_values(array_filter(array_map('trim', explode(',', $raw))));
     if (empty($servers)) {
         $servers = ['1.1.1.1', '8.8.8.8'];
     }
-
+    $flags = xray_ip_version_flags($c);
     return [
         'servers'       => $servers,
-        'queryStrategy' => 'UseIPv4',
+        'queryStrategy' => xray_ip_query_strategy($flags['use_ipv4'], $flags['use_ipv6']),
     ];
 }
 
@@ -185,7 +220,7 @@ function xray_build_config_array(array $c): ?array
 
     return [
         'log'       => ['loglevel' => $c['loglevel'] ?? 'warning'],
-        'dns'       => xray_build_dns(),
+        'dns'       => xray_build_dns($c),
         'inbounds'  => [[
             'tag'      => 'socks-in',
             'port'     => (int)($c['socks5_port'] ?? 10808),
@@ -194,7 +229,7 @@ function xray_build_config_array(array $c): ?array
             'settings' => ['auth' => 'noauth', 'udp' => true, 'ip' => $c['socks5_listen'] ?? '127.0.0.1'],
         ]],
         'outbounds' => [$outbound, ['tag' => 'direct', 'protocol' => 'freedom']],
-        'routing'   => xray_build_routing($c['bypass_networks'] ?? ''),
+        'routing'   => xray_build_routing($c['bypass_networks'] ?? '', $c),
     ];
 }
 
@@ -468,6 +503,10 @@ function do_start(array $c): bool
         // БАГ-5 FIX: снимаем флаг намеренной остановки
         @unlink(xray_stopped_flag($inst_uuid));
 
+        if (!xray_validate_ip_stack($c, $inst_uuid)) {
+            return false;
+        }
+
         xray_write_config($c);
         t2s_write_config($c);
 
@@ -688,6 +727,9 @@ switch ($action) {
         $tmpConf = $tmpBase . '.json';
         @unlink($tmpBase);
         try {
+            if (!xray_validate_ip_stack($c, $inst_uuid)) {
+                exit(1);
+            }
             $config = xray_build_config_array($c);
             if ($config === null) {
                 exit(1);
