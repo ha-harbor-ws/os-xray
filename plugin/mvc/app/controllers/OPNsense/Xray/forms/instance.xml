@@ -64,13 +64,13 @@
         <id>instance.use_ipv4</id>
         <label>IPv4</label>
         <type>checkbox</type>
-        <help>Enable IPv4 routing in xray (domainStrategy/queryStrategy). IPv4 on TUN is assigned only when this is checked.</help>
+        <help>Enable IPv4 routing in xray (DNS queryStrategy UseIPv4 / UseIP). IPv4 on TUN is assigned only when this is checked.</help>
     </field>
     <field>
         <id>instance.use_ipv6</id>
         <label>IPv6</label>
         <type>checkbox</type>
-        <help>Enable IPv6 routing in xray. If unchecked, IPv6 traffic is blocked in routing and domainStrategy uses IPv4 only. TUN IPv6 is still assigned from OPNsense Interfaces when configured there.</help>
+        <help>Enable IPv6 routing in xray. If unchecked, IPv6 traffic is blocked (::/0 → blackhole) and DNS uses UseIPv4. TUN IPv6 is still assigned from OPNsense Interfaces when configured there.</help>
     </field>
     <field>
         <id>instance.dns_servers</id>

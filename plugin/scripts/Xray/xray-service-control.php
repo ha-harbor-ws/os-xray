@@ -98,15 +98,13 @@ function xray_ip_query_strategy(bool $useIpv4, bool $useIpv6): string
     return 'UseIPv4';
 }
 
+/**
+ * routing.domainStrategy принимает только AsIs / IPIfNonMatch / IPOnDemand.
+ * Выбор IPv4/IPv6 делается через dns.queryStrategy и правила block ::/0 / 0.0.0.0/0.
+ */
 function xray_routing_domain_strategy(bool $useIpv4, bool $useIpv6): string
 {
-    if ($useIpv4 && $useIpv6) {
-        return 'IPIfNonMatch';
-    }
-    if ($useIpv6) {
-        return 'UseIPv6';
-    }
-    return 'UseIPv4';
+    return 'IPIfNonMatch';
 }
 
 function xray_validate_ip_stack(array $c, string $inst_uuid = ''): bool
@@ -284,24 +282,40 @@ function xray_normalize_transport(string $json): string
 }
 
 // ─── Write xray config.json (per-instance) ───────────────────────────────────
-function xray_write_config(array $c): void
+function xray_write_config(array $c): bool
 {
     if (!is_dir(XRAY_CONF_DIR)) {
-        mkdir(XRAY_CONF_DIR, 0750, true);
+        if (!mkdir(XRAY_CONF_DIR, 0750, true) && !is_dir(XRAY_CONF_DIR)) {
+            echo "ERROR: Cannot create config directory " . XRAY_CONF_DIR . "\n";
+            return false;
+        }
     }
 
-    $inst_uuid = $c['inst_uuid'];
+    $inst_uuid = $c['inst_uuid'] ?? '';
+    if ($inst_uuid === '') {
+        echo "ERROR: inst_uuid is empty, cannot write config\n";
+        return false;
+    }
     $confFile  = xray_conf_path($inst_uuid);
 
     $config = xray_build_config_array($c);
     if ($config === null) {
-        return;
+        return false;
     }
     $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($json === false) {
+        echo "ERROR: Failed to encode config JSON\n";
+        return false;
+    }
     $json = xray_normalize_transport($json);
 
-    file_put_contents($confFile, $json);
+    if (file_put_contents($confFile, $json) === false) {
+        echo "ERROR: Failed to write config file {$confFile}\n";
+        return false;
+    }
     chmod($confFile, 0640);
+    echo "INFO: Wrote xray config {$confFile}\n";
+    return true;
 }
 
 // ─── Write tun2socks config.yaml (per-instance) ──────────────────────────────
@@ -583,7 +597,9 @@ function do_start(array $c): bool
             return false;
         }
 
-        xray_write_config($c);
+        if (!xray_write_config($c)) {
+            return false;
+        }
         t2s_write_config($c);
 
         lo0_alias_ensure($c['socks5_listen']);

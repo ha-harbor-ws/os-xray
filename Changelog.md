@@ -9,13 +9,14 @@ Format: [Semantic Versioning](https://semver.org/).
 ### Fixed
 - **tun2socks "interface already exists"** — перед стартом удаляется stale TUN, если процесс не запущен; после stop — cleanup leftover interface; boot hook делегирует start в `xray-service-control.php`
 - **TUN cleanup on instance delete** — при удалении instance через GUI вызывается `xray delete`: stop, destroy TUN, удаление per-instance конфигов/PID/логов
+- **Invalid routing.domainStrategy** — `UseIPv4`/`UseIPv6` недопустимы в routing (только в dns.queryStrategy); routing всегда `IPIfNonMatch`, иначе `xray -test` падал и start не завершался; запись config-*.json теперь с явной проверкой ошибок
 ### Added
 - **Per-instance IP stack** — checkboxes `IPv4` / `IPv6` (both allowed) control TUN address assignment and xray DNS/routing strategy
 - **Per-instance DNS servers** — field `dns_servers` (comma-separated) written into generated xray config for each instance
 
 ### Changed
 - `50-xray`: IPv6 on TUN always assigned from OPNsense Interfaces when configured; IPv4 on TUN still follows instance IPv4 checkbox
-- `xray-service-control.php`: when instance IPv6 is off, routing blocks `::/0` (blackhole) and sets `domainStrategy`/`queryStrategy` to `UseIPv4`
+- `xray-service-control.php`: when instance IPv6 is off, routing blocks `::/0` (blackhole) and DNS `queryStrategy` is `UseIPv4`; routing `domainStrategy` stays `IPIfNonMatch`
 - `xray-ifstats.php` / Diagnostics tab: show TUN IPv6, IP stack mode and DNS servers
 - `install.sh`: migration step 4.8 adds defaults for existing instances
 
