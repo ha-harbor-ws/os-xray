@@ -170,13 +170,33 @@ function xray_get_config(string $inst_uuid = ''): array
 }
 
 // ─── Build routing block from comma-separated CIDR string ────────────────────
+/**
+ * domainStrategy на уровне outbound (proxy): только IPv4 → UseIPv4, только IPv6 → UseIPv6.
+ * Dual-stack — поле не трогаем (оставляем как в outbound_config / дефолт xray).
+ */
+function xray_outbound_domain_strategy(bool $useIpv4, bool $useIpv6): ?string
+{
+    if ($useIpv4 && !$useIpv6) {
+        return 'UseIPv4';
+    }
+    if ($useIpv6 && !$useIpv4) {
+        return 'UseIPv6';
+    }
+    return null;
+}
+
 function xray_build_outbounds(array $proxyOutbound, array $c): array
 {
+    $flags = xray_ip_version_flags($c);
+    $ds    = xray_outbound_domain_strategy($flags['use_ipv4'], $flags['use_ipv6']);
+    if ($ds !== null) {
+        $proxyOutbound['domainStrategy'] = $ds;
+    }
+
     $outbounds = [
         $proxyOutbound,
         ['tag' => 'direct', 'protocol' => 'freedom'],
     ];
-    $flags = xray_ip_version_flags($c);
     if (!$flags['use_ipv4'] || !$flags['use_ipv6']) {
         $outbounds[] = ['tag' => 'block', 'protocol' => 'blackhole'];
     }
