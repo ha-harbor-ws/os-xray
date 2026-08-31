@@ -168,6 +168,19 @@ function xray_get_config(string $inst_uuid = ''): array
 }
 
 // ─── Build routing block from comma-separated CIDR string ────────────────────
+function xray_build_outbounds(array $proxyOutbound, array $c): array
+{
+    $outbounds = [
+        $proxyOutbound,
+        ['tag' => 'direct', 'protocol' => 'freedom'],
+    ];
+    $flags = xray_ip_version_flags($c);
+    if (!$flags['use_ipv4'] || !$flags['use_ipv6']) {
+        $outbounds[] = ['tag' => 'block', 'protocol' => 'blackhole'];
+    }
+    return $outbounds;
+}
+
 function xray_build_routing(string $bypassRaw, array $c): array
 {
     $bypassNets = array_values(array_filter(array_map('trim', explode(',', $bypassRaw))));
@@ -175,13 +188,33 @@ function xray_build_routing(string $bypassRaw, array $c): array
         $bypassNets = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
     }
     $flags = xray_ip_version_flags($c);
+    $rules = [];
+
+    // Блокировка IPv6 в routing, если чекбокс IPv6 выключен (TUN IPv6 при этом может быть назначен)
+    if (!$flags['use_ipv6']) {
+        $rules[] = [
+            'type'        => 'field',
+            'ip'          => ['::/0'],
+            'outboundTag' => 'block',
+        ];
+    }
+    if (!$flags['use_ipv4']) {
+        $rules[] = [
+            'type'        => 'field',
+            'ip'          => ['0.0.0.0/0'],
+            'outboundTag' => 'block',
+        ];
+    }
+
+    $rules[] = [
+        'type'        => 'field',
+        'ip'          => $bypassNets,
+        'outboundTag' => 'direct',
+    ];
+
     return [
         'domainStrategy' => xray_routing_domain_strategy($flags['use_ipv4'], $flags['use_ipv6']),
-        'rules' => [[
-            'type'        => 'field',
-            'ip'          => $bypassNets,
-            'outboundTag' => 'direct',
-        ]],
+        'rules'          => $rules,
     ];
 }
 
@@ -228,7 +261,7 @@ function xray_build_config_array(array $c): ?array
             'protocol' => 'socks',
             'settings' => ['auth' => 'noauth', 'udp' => true, 'ip' => $c['socks5_listen'] ?? '127.0.0.1'],
         ]],
-        'outbounds' => [$outbound, ['tag' => 'direct', 'protocol' => 'freedom']],
+        'outbounds' => xray_build_outbounds($outbound, $c),
         'routing'   => xray_build_routing($c['bypass_networks'] ?? '', $c),
     ];
 }

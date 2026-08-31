@@ -11,8 +11,8 @@ Format: [Semantic Versioning](https://semver.org/).
 - **Per-instance DNS servers** — field `dns_servers` (comma-separated) written into generated xray config for each instance
 
 ### Changed
-- `50-xray`: assigns inet/inet6 on TUN only when enabled for the instance
-- `xray-service-control.php`: DNS and routing `domainStrategy`/`queryStrategy` derived from instance IP stack flags
+- `50-xray`: IPv6 on TUN always assigned from OPNsense Interfaces when configured; IPv4 on TUN still follows instance IPv4 checkbox
+- `xray-service-control.php`: when instance IPv6 is off, routing blocks `::/0` (blackhole) and sets `domainStrategy`/`queryStrategy` to `UseIPv4`
 - `xray-ifstats.php` / Diagnostics tab: show TUN IPv6, IP stack mode and DNS servers
 - `install.sh`: migration step 4.8 adds defaults for existing instances
 
