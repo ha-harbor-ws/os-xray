@@ -140,6 +140,64 @@ function xray_build_routing(string $bypassRaw): array
     ];
 }
 
+// ─── DNS block: OPNsense system DNS, IPv4-only resolution ────────────────────
+function xray_build_dns(): array
+{
+    $cfg     = OPNsense\Core\Config::getInstance()->object();
+    $servers = [];
+
+    if (isset($cfg->system->dnsserver)) {
+        foreach ($cfg->system->dnsserver as $dns) {
+            $addr = trim((string)$dns);
+            if ($addr !== '') {
+                $servers[] = $addr;
+            }
+        }
+    }
+
+    if (empty($servers)) {
+        $servers = ['1.1.1.1', '8.8.8.8'];
+    }
+
+    return [
+        'servers'       => $servers,
+        'queryStrategy' => 'UseIPv4',
+    ];
+}
+
+/**
+ * Собирает полный config.json для xray-core из параметров инстанса.
+ *
+ * @return array|null null при ошибке outbound_config
+ */
+function xray_build_config_array(array $c): ?array
+{
+    $raw = trim($c['outbound_config'] ?? '');
+    if ($raw === '') {
+        echo "ERROR: outbound_config is empty\n";
+        return null;
+    }
+    $outbound = json_decode($raw, true);
+    if ($outbound === null) {
+        echo "ERROR: outbound_config is not valid JSON\n";
+        return null;
+    }
+
+    return [
+        'log'       => ['loglevel' => $c['loglevel'] ?? 'warning'],
+        'dns'       => xray_build_dns(),
+        'inbounds'  => [[
+            'tag'      => 'socks-in',
+            'port'     => (int)($c['socks5_port'] ?? 10808),
+            'listen'   => $c['socks5_listen'] ?? '127.0.0.1',
+            'protocol' => 'socks',
+            'settings' => ['auth' => 'noauth', 'udp' => true, 'ip' => $c['socks5_listen'] ?? '127.0.0.1'],
+        ]],
+        'outbounds' => [$outbound, ['tag' => 'direct', 'protocol' => 'freedom']],
+        'routing'   => xray_build_routing($c['bypass_networks'] ?? ''),
+    ];
+}
+
 // ─── P2.5: xhttp/splithttp compatibility ─────────────────────────────────────
 function xray_normalize_transport(string $json): string
 {
@@ -167,28 +225,10 @@ function xray_write_config(array $c): void
     $inst_uuid = $c['inst_uuid'];
     $confFile  = xray_conf_path($inst_uuid);
 
-    $raw = trim($c['outbound_config'] ?? '');
-    if ($raw === '') {
-        echo "ERROR: outbound_config is empty\n";
+    $config = xray_build_config_array($c);
+    if ($config === null) {
         return;
     }
-    $outbound = json_decode($raw, true);
-    if ($outbound === null) {
-        echo "ERROR: outbound_config is not valid JSON\n";
-        return;
-    }
-    $config = [
-        'log'      => ['loglevel' => $c['loglevel'] ?? 'warning'],
-        'inbounds' => [[
-            'tag'      => 'socks-in',
-            'port'     => (int)($c['socks5_port'] ?? 10808),
-            'listen'   => $c['socks5_listen'] ?? '127.0.0.1',
-            'protocol' => 'socks',
-            'settings' => ['auth' => 'noauth', 'udp' => true, 'ip' => $c['socks5_listen'] ?? '127.0.0.1'],
-        ]],
-        'outbounds' => [$outbound, ['tag' => 'direct', 'protocol' => 'freedom']],
-        'routing'   => xray_build_routing($c['bypass_networks'] ?? ''),
-    ];
     $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     $json = xray_normalize_transport($json);
 
@@ -648,28 +688,10 @@ switch ($action) {
         $tmpConf = $tmpBase . '.json';
         @unlink($tmpBase);
         try {
-            $raw = trim($c['outbound_config'] ?? '');
-            if ($raw === '') {
-                echo "ERROR: outbound_config is empty\n";
+            $config = xray_build_config_array($c);
+            if ($config === null) {
                 exit(1);
             }
-            $outbound = json_decode($raw, true);
-            if ($outbound === null) {
-                echo "ERROR: outbound_config is not valid JSON\n";
-                exit(1);
-            }
-            $config = [
-                'log'      => ['loglevel' => $c['loglevel'] ?? 'warning'],
-                'inbounds' => [[
-                    'tag'      => 'socks-in',
-                    'port'     => (int)($c['socks5_port'] ?? 10808),
-                    'listen'   => $c['socks5_listen'] ?? '127.0.0.1',
-                    'protocol' => 'socks',
-                    'settings' => ['auth' => 'noauth', 'udp' => true, 'ip' => $c['socks5_listen'] ?? '127.0.0.1'],
-                ]],
-                'outbounds' => [$outbound, ['tag' => 'direct', 'protocol' => 'freedom']],
-                'routing'   => xray_build_routing($c['bypass_networks'] ?? ''),
-            ];
             $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             $json = xray_normalize_transport($json);
             file_put_contents($tmpConf, $json);

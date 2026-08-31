@@ -84,26 +84,47 @@ setup_instance() {
     # Поднимаем интерфейс и назначаем MTU
     ifconfig "$TUN_IFACE" mtu "$MTU" up 2>&1
 
-    # Назначаем IP из OPNsense interfaces (BUG-2 FIX: через env)
-    TUN_IP=$(_TUN_IFACE="$TUN_IFACE" php -r '
+    # Назначаем IPv4/IPv6 из OPNsense interfaces (BUG-2 FIX: через env)
+    _TUN_ADDRS=$(_TUN_IFACE="$TUN_IFACE" php -r '
         set_include_path("/usr/local/etc/inc" . PATH_SEPARATOR . get_include_path());
         require_once("config.inc");
         $cfg = OPNsense\Core\Config::getInstance()->object();
         $tun = getenv("_TUN_IFACE");
         if (empty($tun)) $tun = "proxytun2socks0";
         foreach ($cfg->interfaces->children() as $iface) {
-            if ((string)$iface->if === $tun) {
-                echo (string)$iface->ipaddr . "/" . (string)$iface->subnet;
-                break;
+            if ((string)$iface->if !== $tun) {
+                continue;
             }
+            $ipaddr = trim((string)$iface->ipaddr);
+            $subnet = trim((string)$iface->subnet);
+            if ($ipaddr !== "" && $subnet !== "") {
+                echo "TUN_IP=" . $ipaddr . "/" . $subnet . "\n";
+            }
+            $ipaddrv6 = trim((string)$iface->ipaddrv6);
+            $subnetv6 = trim((string)$iface->subnetv6);
+            if ($ipaddrv6 !== "" && $subnetv6 !== "") {
+                echo "TUN_IP6=" . $ipaddrv6 . "/" . $subnetv6 . "\n";
+            }
+            break;
         }
     ' 2>/dev/null)
 
+    eval "$_TUN_ADDRS"
+    TUN_IP="${TUN_IP:-}"
+    TUN_IP6="${TUN_IP6:-}"
+
     if [ -n "$TUN_IP" ]; then
-        echo "[${_INST_UUID}] assigning $TUN_IP to $TUN_IFACE..."
+        echo "[${_INST_UUID}] assigning inet $TUN_IP to $TUN_IFACE..."
         ifconfig "$TUN_IFACE" inet "$TUN_IP" 2>&1
     else
-        echo "[${_INST_UUID}] WARNING: no IP found in config, skipping IP assignment"
+        echo "[${_INST_UUID}] WARNING: no IPv4 found in config, skipping IPv4 assignment"
+    fi
+
+    if [ -n "$TUN_IP6" ]; then
+        echo "[${_INST_UUID}] assigning inet6 $TUN_IP6 to $TUN_IFACE..."
+        ifconfig "$TUN_IFACE" inet6 "$TUN_IP6" 2>&1
+    else
+        echo "[${_INST_UUID}] INFO: no IPv6 found in config, skipping IPv6 assignment"
     fi
 }
 
