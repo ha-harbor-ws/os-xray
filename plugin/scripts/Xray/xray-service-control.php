@@ -273,6 +273,16 @@ function xray_build_config_array(array $c): ?array
         return null;
     }
 
+    $flags = xray_ip_version_flags($c);
+    // Sniffing только для single-stack; dual-stack (IPv4+IPv6) — выключен
+    $sniffing = ($flags['use_ipv4'] && $flags['use_ipv6'])
+        ? ['enabled' => false]
+        : [
+            'enabled'      => true,
+            'destOverride' => ['http', 'tls', 'quic'],
+            'metadataOnly' => false,
+        ];
+
     return [
         'log'       => ['loglevel' => $c['loglevel'] ?? 'warning'],
         'dns'       => xray_build_dns($c),
@@ -282,11 +292,7 @@ function xray_build_config_array(array $c): ?array
             'listen'   => $c['socks5_listen'] ?? '127.0.0.1',
             'protocol' => 'socks',
             'settings' => ['auth' => 'noauth', 'udp' => true, 'ip' => $c['socks5_listen'] ?? '127.0.0.1'],
-            'sniffing' => [
-                'enabled'      => true,
-                'destOverride' => ['http', 'tls', 'quic'],
-                'metadataOnly' => false,
-            ],
+            'sniffing' => $sniffing,
         ]],
         'outbounds' => xray_build_outbounds($outbound, $c),
         'routing'   => xray_build_routing($c['bypass_networks'] ?? '', $c),
