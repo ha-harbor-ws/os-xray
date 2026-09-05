@@ -22,6 +22,7 @@ Format: [Semantic Versioning](https://semver.org/).
 - `xray-service-control.php`: when instance IPv6 is off, routing blocks `::/0` (blackhole) and DNS `queryStrategy` is `UseIPv4`; routing `domainStrategy` is `IPOnDemand` for single-stack (IPv4-only or IPv6-only) and `IPIfNonMatch` for dual-stack; proxy outbound gets `domainStrategy` UseIPv4 / UseIPv6 for single-stack
 - `xray-ifstats.php` / Diagnostics tab: show TUN IPv6, IP stack mode and DNS servers
 - `install.sh`: migration step 4.8 adds defaults for existing instances
+- `install.sh`: check for FreeBSD package `bird2`; if missing, run `pkg update` and `pkg install -y bird2`
 
 ## [3.0.1] - TBD
 ### Added

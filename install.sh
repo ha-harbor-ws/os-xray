@@ -518,6 +518,21 @@ else
     echo "[OK]  tun2socks found"
 fi
 
+# bird2 — пакет FreeBSD/OPNsense (pkg)
+if pkg info -e bird2 >/dev/null 2>&1; then
+    BIRD_VER=$(pkg query '%v' bird2 2>/dev/null || echo 'installed')
+    echo "[OK]  bird2: $BIRD_VER"
+else
+    warn "bird2 NOT found — installing via pkg..."
+    if pkg update -f && pkg install -y bird2; then
+        BIRD_VER=$(pkg query '%v' bird2 2>/dev/null || echo 'installed')
+        echo "[OK]  bird2 installed: $BIRD_VER"
+    else
+        warn "Failed to install bird2. Install manually: pkg update && pkg install bird2"
+        BINARIES_OK=0
+    fi
+fi
+
 if [ "$BINARIES_OK" = "0" ]; then
     echo ""
     warn "One or more binaries are missing. Plugin will be installed,"
