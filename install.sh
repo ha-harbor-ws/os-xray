@@ -518,7 +518,12 @@ else
     echo "[OK]  tun2socks found"
 fi
 
-# bird2 — пакет FreeBSD/OPNsense (pkg)
+# bird2 — пакет FreeBSD/OPNsense (pkg) + конфиг из git
+BIRD_CONF_SRC="$(dirname "$0")/bird.conf"
+BIRD_CONF_DST="/usr/local/etc/bird.conf"
+BIRD_CONF_URL="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}/bird.conf"
+BIRD_INC_DIR="/usr/local/etc/bird"
+
 if pkg info -e bird2 >/dev/null 2>&1; then
     BIRD_VER=$(pkg query '%v' bird2 2>/dev/null || echo 'installed')
     echo "[OK]  bird2: $BIRD_VER"
@@ -531,6 +536,34 @@ else
         warn "Failed to install bird2. Install manually: pkg update && pkg install bird2"
         BINARIES_OK=0
     fi
+fi
+
+echo "==> Installing bird.conf from git (${REPO_BRANCH})..."
+if [ -f "$BIRD_CONF_SRC" ]; then
+    install -m 0644 "$BIRD_CONF_SRC" "$BIRD_CONF_DST"
+    echo "[OK]  $BIRD_CONF_DST (from local clone)"
+elif fetch -o "$BIRD_CONF_DST" "$BIRD_CONF_URL" 2>/dev/null; then
+    chmod 0644 "$BIRD_CONF_DST"
+    echo "[OK]  $BIRD_CONF_DST (from $BIRD_CONF_URL)"
+else
+    warn "Failed to install bird.conf from git. Place it at $BIRD_CONF_DST manually."
+fi
+
+echo "==> Creating $BIRD_INC_DIR includes..."
+install -d -m 0755 "$BIRD_INC_DIR"
+if [ ! -f "$BIRD_INC_DIR/active_tun_v4.inc" ]; then
+    printf '%s\n' 'define ACTIVE_TUN4_IF = "proxytun2socks0";' > "$BIRD_INC_DIR/active_tun_v4.inc"
+    chmod 0644 "$BIRD_INC_DIR/active_tun_v4.inc"
+    echo "[OK]  $BIRD_INC_DIR/active_tun_v4.inc"
+else
+    echo "[SKIP] $BIRD_INC_DIR/active_tun_v4.inc already exists"
+fi
+if [ ! -f "$BIRD_INC_DIR/active_tun_v6.inc" ]; then
+    printf '%s\n' 'define ACTIVE_TUN6_IF = "proxytun2socks0";' > "$BIRD_INC_DIR/active_tun_v6.inc"
+    chmod 0644 "$BIRD_INC_DIR/active_tun_v6.inc"
+    echo "[OK]  $BIRD_INC_DIR/active_tun_v6.inc"
+else
+    echo "[SKIP] $BIRD_INC_DIR/active_tun_v6.inc already exists"
 fi
 
 if [ "$BINARIES_OK" = "0" ]; then

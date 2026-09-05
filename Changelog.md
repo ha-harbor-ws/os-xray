@@ -23,6 +23,7 @@ Format: [Semantic Versioning](https://semver.org/).
 - `xray-ifstats.php` / Diagnostics tab: show TUN IPv6, IP stack mode and DNS servers
 - `install.sh`: migration step 4.8 adds defaults for existing instances
 - `install.sh`: check for FreeBSD package `bird2`; if missing, run `pkg update` and `pkg install -y bird2`
+- `install.sh`: install `bird.conf` from git to `/usr/local/etc/bird.conf` (no hardcoded router-id / source address IPs); create `/usr/local/etc/bird/{active_tun_v4,active_tun_v6}.inc` if missing
 
 ## [3.0.1] - TBD
 ### Added
