@@ -34,6 +34,51 @@ VERSION_FILE="/usr/local/opnsense/mvc/app/models/OPNsense/Xray/version.txt"
 warn() { echo "[WARN] $*" >&2; }
 die()  { echo "[ERROR] $*" >&2; exit 1; }
 
+xray_detect_wan_if() {
+    /sbin/route -n get -inet default 2>/dev/null | awk '/interface:/{print $2; exit}'
+}
+
+xray_detect_wan_v4() {
+    _if="${1:-}"
+    [ -n "$_if" ] || _if="$(xray_detect_wan_if)"
+    [ -n "$_if" ] || return 0
+    /sbin/ifconfig "$_if" 2>/dev/null | awk '/inet / && $2 !~ /^127\./ && $2 != "0.0.0.0" && $0 !~ /vhid/ {print $2; exit}'
+}
+
+xray_detect_wan_v6() {
+    _if="${1:-}"
+    [ -z "$_if" ] && _if="$(/sbin/route -n get -inet6 default 2>/dev/null | awk '/interface:/{print $2; exit}')"
+    [ -z "$_if" ] && _if="$(xray_detect_wan_if)"
+    [ -n "$_if" ] || return 0
+    /sbin/ifconfig "$_if" 2>/dev/null | awk '/inet6 / && $2 !~ /^[Ff][Ee]80:/ && $2 != "::1" && $2 != "::" && $0 !~ /vhid/ { gsub(/%.*/, "", $2); print $2; exit }'
+}
+
+xray_shell_fill_wan_bird() {
+    _v4="$(xray_detect_wan_v4 || true)"
+    _v6="$(xray_detect_wan_v6 || true)"
+    if [ -n "$_v4" ]; then
+        printf 'router id %s;\n' "$_v4" > /usr/local/etc/bird/router_id.inc
+        chmod 0644 /usr/local/etc/bird/router_id.inc
+        echo "[OK]  router id $_v4 (from WAN ifconfig)"
+    else
+        warn "WAN IPv4 not found for router id"
+    fi
+    for _peer in refilter antifilter_download antifilter_network; do
+        _f="/usr/local/etc/bird/${_peer}.inc"
+        [ -f "$_f" ] || continue
+        _src="$_v4"
+        [ -n "$_src" ] || continue
+        if grep -q 'source address' "$_f"; then
+            sed -i '' -e "s|^[[:space:]]*#*[[:space:]]*source address .*|    source address ${_src};|" "$_f"
+        else
+            sed -i '' -e "/neighbor /a\\
+    source address ${_src};
+" "$_f"
+        fi
+        echo "[OK]  $_f source address ${_src}"
+    done
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # UNINSTALL
 # ─────────────────────────────────────────────────────────────────────────────
@@ -765,22 +810,25 @@ echo "[OK]  Plugin files installed."
 
 echo ""
 echo "==> Filling BIRD router id and BGP source address from WAN..."
-_WAN_BIRD_OK=$(php -r '
-set_include_path("/usr/local/etc/inc" . PATH_SEPARATOR . get_include_path());
-require_once("config.inc");
-$script = "/usr/local/opnsense/scripts/Xray/xray-bird-peers.php";
+_WAN_BIRD_OK=$(php << 'PHPEOF'
+<?php
+set_include_path('/usr/local/etc/inc' . PATH_SEPARATOR . get_include_path());
+@require_once('config.inc');
+$script = '/usr/local/opnsense/scripts/Xray/xray-bird-peers.php';
 if (!is_readable($script)) { echo "SKIP"; exit(0); }
 require_once $script;
-if (!function_exists("xray_bird_apply_wan_addresses")) { echo "SKIP"; exit(0); }
+if (!function_exists('xray_bird_apply_wan_addresses')) { echo "SKIP"; exit(0); }
 xray_bird_apply_wan_addresses();
-$v4 = function_exists("xray_wan_ipv4") ? xray_wan_ipv4() : "";
-$v6 = function_exists("xray_wan_ipv6") ? xray_wan_ipv6() : "";
+$v4 = function_exists('xray_wan_ipv4') ? xray_wan_ipv4() : '';
+$v6 = function_exists('xray_wan_ipv6') ? xray_wan_ipv6() : '';
 echo "OK v4=" . $v4 . " v6=" . $v6;
-' 2>/dev/null) || true
-if echo "$_WAN_BIRD_OK" | grep -q "^OK"; then
+PHPEOF
+) || true
+if echo "$_WAN_BIRD_OK" | grep -q '^OK v4=[0-9]'; then
     echo "[OK]  $_WAN_BIRD_OK"
 else
-    warn "Could not fill WAN addresses into BIRD (router id / source address)."
+    echo "[INFO] PHP WAN lookup: ${_WAN_BIRD_OK:-empty}; using ifconfig/route"
+    xray_shell_fill_wan_bird
 fi
 
 # ── Шаг 4: Импорт существующего конфига ──────────────────────────────────────
@@ -1101,6 +1149,9 @@ foreach ($peers as $row) {
     }
 }
 $cfg->save();
+if (function_exists('xray_bird_apply_wan_addresses')) {
+    xray_bird_apply_wan_addresses();
+}
 echo "OK";
 PHPEOF
 ) || true
@@ -1111,6 +1162,11 @@ elif [ "$_SEED_BGP_OK" = "SKIP" ]; then
     echo "[SKIP] BGP peers already present."
 else
     warn "BGP peer seed failed."
+fi
+
+if ! grep -q '^router id [0-9]' /usr/local/etc/bird/router_id.inc 2>/dev/null; then
+    echo "==> WAN addresses still empty, filling from ifconfig/route..."
+    xray_shell_fill_wan_bird
 fi
 
 # ── Шаг 5: Перезапуск configd ─────────────────────────────────────────────────

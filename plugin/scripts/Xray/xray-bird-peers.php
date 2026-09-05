@@ -21,17 +21,61 @@ function xray_bgp_template_names(): array
     return ['refilter', 'antifilter_download', 'antifilter_network'];
 }
 
-function xray_load_interface_helpers(): void
+function xray_route_default_if(string $family = 'inet'): string
 {
-    static $done = false;
-    if ($done) {
-        return;
+    $flag = ($family === 'inet6') ? '-inet6' : '-inet';
+    $out  = [];
+    exec('/sbin/route -n get ' . $flag . ' default 2>/dev/null', $out);
+    foreach ($out as $line) {
+        if (preg_match('/^\s*interface:\s+(\S+)/', $line, $m)) {
+            return $m[1];
+        }
     }
-    $done = true;
-    $inc = '/usr/local/etc/inc/interfaces.inc';
-    if (is_readable($inc)) {
-        @include_once $inc;
+    return '';
+}
+
+function xray_wan_devices(): array
+{
+    $devs = [];
+    if (function_exists('get_real_interface')) {
+        try {
+            $v4 = trim((string)get_real_interface('wan'));
+            $v6 = trim((string)get_real_interface('wan', 'inet6'));
+            if ($v4 !== '') {
+                $devs[] = $v4;
+            }
+            if ($v6 !== '' && $v6 !== $v4) {
+                $devs[] = $v6;
+            }
+        } catch (\Throwable $e) {
+        }
     }
+    try {
+        if (class_exists('OPNsense\\Core\\Config')) {
+            $cfg = \OPNsense\Core\Config::getInstance()->object();
+            $wan = $cfg->interfaces->wan ?? null;
+            if ($wan) {
+                $if = trim((string)($wan->if ?? ''));
+                if ($if !== '') {
+                    $devs[] = $if;
+                }
+            }
+        }
+    } catch (\Throwable $e) {
+    }
+    foreach (['inet', 'inet6'] as $fam) {
+        $rif = xray_route_default_if($fam);
+        if ($rif !== '') {
+            $devs[] = $rif;
+        }
+    }
+    $uniq = [];
+    foreach ($devs as $d) {
+        if ($d !== '' && !isset($uniq[$d])) {
+            $uniq[$d] = true;
+        }
+    }
+    return array_keys($uniq);
 }
 
 function xray_is_ipv4_addr(string $ip): bool
@@ -60,9 +104,13 @@ function xray_ifconfig_wan_addrs(string $if): array
     if ($if === '') {
         return ['', ''];
     }
+    $out = [];
     exec('/sbin/ifconfig ' . escapeshellarg($if) . ' 2>/dev/null', $out);
     foreach ($out as $line) {
-        if ($v4 === '' && preg_match('/\binet\s+(\d+\.\d+\.\d+\.\d+)\s/', $line, $m) && xray_is_ipv4_addr($m[1])) {
+        if (stripos($line, 'vhid') !== false) {
+            continue;
+        }
+        if ($v4 === '' && preg_match('/\binet\s+(\d+\.\d+\.\d+\.\d+)/', $line, $m) && xray_is_ipv4_addr($m[1])) {
             $v4 = $m[1];
         }
         if ($v6 === '' && preg_match('/\binet6\s+([0-9a-fA-F:]+)/', $line, $m) && xray_is_ipv6_addr($m[1])) {
@@ -74,46 +122,92 @@ function xray_ifconfig_wan_addrs(string $if): array
 
 function xray_wan_ipv4(): string
 {
-    xray_load_interface_helpers();
-    if (function_exists('get_interface_ip')) {
-        $ip = trim((string)get_interface_ip('wan'));
-        if (xray_is_ipv4_addr($ip)) {
-            return $ip;
+    if (function_exists('interfaces_primary_address')) {
+        try {
+            $row = interfaces_primary_address('wan');
+            $ip  = trim((string)($row[0] ?? ''));
+            if (xray_is_ipv4_addr($ip)) {
+                return $ip;
+            }
+        } catch (\Throwable $e) {
         }
     }
-    $cfg = OPNsense\Core\Config::getInstance()->object();
-    $wan = $cfg->interfaces->wan ?? null;
-    if (!$wan) {
-        return '';
+    if (function_exists('get_interface_ip')) {
+        try {
+            foreach (array_merge(['wan'], xray_wan_devices()) as $key) {
+                $ip = trim((string)get_interface_ip($key));
+                if (xray_is_ipv4_addr($ip)) {
+                    return $ip;
+                }
+            }
+        } catch (\Throwable $e) {
+        }
     }
-    $ip = trim((string)($wan->ipaddr ?? ''));
-    if (xray_is_ipv4_addr($ip)) {
-        return $ip;
+    try {
+        if (class_exists('OPNsense\\Core\\Config')) {
+            $cfg = \OPNsense\Core\Config::getInstance()->object();
+            $wan = $cfg->interfaces->wan ?? null;
+            if ($wan) {
+                $ip = trim((string)($wan->ipaddr ?? ''));
+                if (xray_is_ipv4_addr($ip)) {
+                    return $ip;
+                }
+            }
+        }
+    } catch (\Throwable $e) {
     }
-    [$v4] = xray_ifconfig_wan_addrs(trim((string)($wan->if ?? '')));
-    return $v4;
+    foreach (xray_wan_devices() as $if) {
+        [$v4] = xray_ifconfig_wan_addrs($if);
+        if ($v4 !== '') {
+            return $v4;
+        }
+    }
+    return '';
 }
 
 function xray_wan_ipv6(): string
 {
-    xray_load_interface_helpers();
-    if (function_exists('get_interface_ipv6')) {
-        $ip = explode('%', trim((string)get_interface_ipv6('wan')))[0];
-        if (xray_is_ipv6_addr($ip)) {
-            return $ip;
+    if (function_exists('interfaces_primary_address6')) {
+        try {
+            $row = interfaces_primary_address6('wan');
+            $ip  = explode('%', trim((string)($row[0] ?? '')))[0];
+            if (xray_is_ipv6_addr($ip)) {
+                return $ip;
+            }
+        } catch (\Throwable $e) {
         }
     }
-    $cfg = OPNsense\Core\Config::getInstance()->object();
-    $wan = $cfg->interfaces->wan ?? null;
-    if (!$wan) {
-        return '';
+    if (function_exists('get_interface_ipv6')) {
+        try {
+            foreach (array_merge(['wan'], xray_wan_devices()) as $key) {
+                $ip = explode('%', trim((string)get_interface_ipv6($key)))[0];
+                if (xray_is_ipv6_addr($ip)) {
+                    return $ip;
+                }
+            }
+        } catch (\Throwable $e) {
+        }
     }
-    $ip = explode('%', trim((string)($wan->ipaddrv6 ?? '')))[0];
-    if (xray_is_ipv6_addr($ip)) {
-        return $ip;
+    try {
+        if (class_exists('OPNsense\\Core\\Config')) {
+            $cfg = \OPNsense\Core\Config::getInstance()->object();
+            $wan = $cfg->interfaces->wan ?? null;
+            if ($wan) {
+                $ip = explode('%', trim((string)($wan->ipaddrv6 ?? '')))[0];
+                if (xray_is_ipv6_addr($ip)) {
+                    return $ip;
+                }
+            }
+        }
+    } catch (\Throwable $e) {
     }
-    [, $v6] = xray_ifconfig_wan_addrs(trim((string)($wan->if ?? '')));
-    return $v6;
+    foreach (xray_wan_devices() as $if) {
+        [, $v6] = xray_ifconfig_wan_addrs($if);
+        if ($v6 !== '') {
+            return $v6;
+        }
+    }
+    return '';
 }
 
 function xray_source_for_peer(array $p): string
@@ -189,6 +283,44 @@ function xray_bird_apply_wan_addresses(): void
 {
     xray_bird_write_router_id();
     xray_bird_apply_source_placeholders();
+    xray_bird_fill_config_source_addresses();
+}
+
+function xray_bird_fill_config_source_addresses(): void
+{
+    try {
+        if (!class_exists('OPNsense\\Core\\Config')) {
+            return;
+        }
+        $cfg  = \OPNsense\Core\Config::getInstance();
+        $obj  = $cfg->object();
+        $xray = $obj->OPNsense->xray ?? null;
+        if (!$xray || !isset($xray->bgppeers->peer)) {
+            return;
+        }
+        $changed = false;
+        foreach ($xray->bgppeers->peer as $peer) {
+            $cur = trim((string)($peer->source_address ?? ''));
+            if ($cur !== '' && (xray_is_ipv4_addr($cur) || xray_is_ipv6_addr($cur))) {
+                continue;
+            }
+            $src = xray_source_for_peer([
+                'neighbor'       => (string)($peer->neighbor ?? ''),
+                'source_address' => '',
+                'ipv4'           => ((string)($peer->ipv4 ?? '0') === '1') ? '1' : '0',
+                'ipv6'           => ((string)($peer->ipv6 ?? '0') === '1') ? '1' : '0',
+            ]);
+            if ($src === '') {
+                continue;
+            }
+            $peer->source_address = $src;
+            $changed = true;
+        }
+        if ($changed) {
+            $cfg->save();
+        }
+    } catch (\Throwable $e) {
+    }
 }
 
 function xray_bgp_read_with_includes(string $path): string
