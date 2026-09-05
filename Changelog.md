@@ -24,7 +24,7 @@ Format: [Semantic Versioning](https://semver.org/).
 - `xray-ifstats.php` / Diagnostics tab: show TUN IPv6, IP stack mode and DNS servers
 - `install.sh`: migration step 4.8 adds defaults for existing instances
 - `install.sh`: check for FreeBSD package `bird2`; if missing, run `pkg update` and `pkg install -y bird2`
-- `install.sh`: install `bird.conf`; named peer/community/filter includes; fill `router id` from WAN IPv4 and BGP `source address` from WAN IPv4/IPv6; seed three disabled BGP peers if none exist
+- `install.sh`: install `bird.conf`; named peer/community/filter includes; always install `community_ANTIFILTER_DOWNLOAD.inc` / `community_ANTIFILTER_NETWORK.inc` from original bird.conf; fill `router id` from WAN IPv4 and BGP `source address` from WAN IPv4/IPv6; seed three disabled BGP peers if none exist
 
 ## [3.0.1] - TBD
 ### Added
