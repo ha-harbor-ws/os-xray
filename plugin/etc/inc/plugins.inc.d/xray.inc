@@ -20,15 +20,26 @@ function xray_configure(): array
  *   - Запускает xray-core + tun2socks если не запущены
  *   - Ждёт TUN-интерфейс до 5 секунд
  */
+function xray_bird_sync_exec(): void
+{
+    $script = '/usr/local/opnsense/scripts/Xray/xray-service-control.php';
+    if (!file_exists($script)) {
+        return;
+    }
+    exec('/usr/local/bin/php ' . escapeshellarg($script) . ' birdsync 2>&1');
+}
+
 function xray_configure_do(bool $verbose = false): void
 {
     if (!xray_enabled()) {
+        xray_bird_sync_exec();
         return;
     }
 
     $cfg       = OPNsense\Core\Config::getInstance()->object();
     $instances = $cfg->OPNsense->xray->instances ?? null;
     if (!$instances) {
+        xray_bird_sync_exec();
         return;
     }
 
@@ -37,6 +48,7 @@ function xray_configure_do(bool $verbose = false): void
     $daemonLog = '/var/log/xray-core.log';
 
     if (!file_exists($xrayBin) || !file_exists($t2sBin)) {
+        xray_bird_sync_exec();
         return;
     }
 
@@ -131,6 +143,8 @@ function xray_configure_do(bool $verbose = false): void
     if ($verbose) {
         echo "xray: boot setup complete\n";
     }
+
+    xray_bird_sync_exec();
 }
 
 /**

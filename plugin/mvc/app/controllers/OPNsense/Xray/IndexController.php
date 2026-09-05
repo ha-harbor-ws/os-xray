@@ -12,6 +12,7 @@ class IndexController extends \OPNsense\Base\IndexController
     public function indexAction()
     {
         $this->view->generalForm  = $this->getForm('general');
+        $this->view->routingForm  = $this->getForm('routing');
         $this->view->instanceForm = $this->getForm('instance');
         $this->view->pick('OPNsense/Xray/general');
     }

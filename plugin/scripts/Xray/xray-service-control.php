@@ -749,6 +749,69 @@ function do_status_all(): void
     echo json_encode($result) . "\n";
 }
 
+/**
+ * BGP / BIRD: bird_enable=YES when Routing checkbox is on; start bird only
+ * if at least one tun2socks from this plugin is running.
+ */
+function xray_bgp_enabled(): bool
+{
+    $cfg = OPNsense\Core\Config::getInstance()->object();
+    return (string)($cfg->OPNsense->xray->general->bgp_enabled ?? '0') === '1';
+}
+
+function xray_any_tun2socks_running(): bool
+{
+    $files = glob('/var/run/tun2socks_*.pid');
+    if ($files === false) {
+        return false;
+    }
+    foreach ($files as $pidfile) {
+        if (proc_is_running($pidfile)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function xray_sysrc_bird_enable(bool $enable): void
+{
+    $arg = $enable ? 'bird_enable="YES"' : 'bird_enable="NO"';
+    exec('/usr/sbin/sysrc ' . escapeshellarg($arg) . ' 2>&1');
+}
+
+function xray_bird_service(string $verb): void
+{
+    exec('/usr/sbin/service bird ' . escapeshellarg($verb) . ' 2>&1');
+}
+
+function xray_bird_hold(): void
+{
+    if (xray_bgp_enabled()) {
+        xray_bird_service('onestop');
+        echo "bird hold: stopped until tun2socks is up\n";
+        return;
+    }
+    echo "bird hold: BGP disabled, skip\n";
+}
+
+function xray_bird_sync(): void
+{
+    if (!xray_bgp_enabled()) {
+        xray_sysrc_bird_enable(false);
+        xray_bird_service('onestop');
+        echo "bird sync: BGP off, bird_enable=NO, stopped\n";
+        return;
+    }
+    xray_sysrc_bird_enable(true);
+    if (xray_any_tun2socks_running()) {
+        xray_bird_service('onestart');
+        echo "bird sync: BGP on, tun2socks up, bird started\n";
+        return;
+    }
+    xray_bird_service('onestop');
+    echo "bird sync: BGP on, no tun2socks, bird stopped\n";
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 $action    = $argv[1] ?? 'status';
 $inst_uuid = isset($argv[2]) ? trim($argv[2]) : '';
@@ -765,29 +828,31 @@ if ($inst_uuid !== '') {
 
 switch ($action) {
     case 'start':
+        $exitCode = 0;
         if ($inst_uuid !== '') {
             $c = xray_get_config($inst_uuid);
             if (empty($c) || !$c['enabled']) {
                 echo "Xray is disabled or instance not found.\n";
-                exit(0);
+            } else {
+                $exitCode = do_start($c) ? 0 : 1;
             }
-            $ok = do_start($c);
-            exit($ok ? 0 : 1);
-        }
-        // Запускаем все включённые инстансы
-        $all = xray_get_all_instances();
-        if (empty($all)) {
-            echo "No instances configured.\n";
-            exit(0);
-        }
-        $anyFailed = false;
-        foreach ($all as $uuid => $c) {
-            if (!$c['enabled']) continue;
-            if (!do_start($c)) {
-                $anyFailed = true;
+        } else {
+            $all = xray_get_all_instances();
+            if (empty($all)) {
+                echo "No instances configured.\n";
+            } else {
+                $anyFailed = false;
+                foreach ($all as $uuid => $c) {
+                    if (!$c['enabled']) continue;
+                    if (!do_start($c)) {
+                        $anyFailed = true;
+                    }
+                }
+                $exitCode = $anyFailed ? 1 : 0;
             }
         }
-        exit($anyFailed ? 1 : 0);
+        xray_bird_sync();
+        exit($exitCode);
 
     case 'stop':
         if ($inst_uuid !== '') {
@@ -797,6 +862,7 @@ switch ($action) {
                 do_stop($uuid);
             }
         }
+        xray_bird_sync();
         break;
 
     case 'restart':
@@ -819,28 +885,29 @@ switch ($action) {
                 if ($c['enabled']) do_start($c);
             }
         }
+        xray_bird_sync();
         break;
 
     case 'reconfigure':
         // B10: возвращаем реальный статус
+        $exitCode = 0;
         if ($inst_uuid !== '') {
             $c        = xray_get_config($inst_uuid);
             $tunIface = $c['tun_iface'] ?? 'proxytun2socks0';
             do_stop($inst_uuid, $tunIface);
             sleep(1);
             if (!empty($c) && $c['enabled']) {
-                $ok = do_start($c);
-                if ($ok) {
+                if (do_start($c)) {
                     echo "OK\n";
-                    exit(0);
                 } else {
                     echo "ERROR: Failed to start Xray services for instance {$inst_uuid}.\n";
-                    exit(1);
+                    $exitCode = 1;
                 }
             } else {
                 echo "Xray disabled — services stopped.\n";
-                exit(0);
             }
+            xray_bird_sync();
+            exit($exitCode);
         }
         // Без UUID: рекофигурируем все инстансы
         $all       = xray_get_all_instances();
@@ -861,10 +928,20 @@ switch ($action) {
         }
         if ($anyFailed) {
             echo "ERROR: One or more instances failed to start.\n";
+            xray_bird_sync();
             exit(1);
         }
         echo "OK\n";
+        xray_bird_sync();
         exit(0);
+
+    case 'birdhold':
+        xray_bird_hold();
+        break;
+
+    case 'birdsync':
+        xray_bird_sync();
+        break;
 
     case 'status':
         do_status($inst_uuid);
@@ -915,7 +992,9 @@ switch ($action) {
             echo "ERROR: instance UUID required for delete\n";
             exit(1);
         }
-        exit(do_delete($inst_uuid) ? 0 : 1);
+        $ok = do_delete($inst_uuid);
+        xray_bird_sync();
+        exit($ok ? 0 : 1);
 
     case 'version':
         $ver = file_exists(XRAY_VERSION_FILE) ? trim(file_get_contents(XRAY_VERSION_FILE)) : 'unknown';

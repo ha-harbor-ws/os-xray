@@ -175,5 +175,8 @@ echo "reloading filter..."
 echo "reconfiguring interfaces..."
 /usr/local/sbin/configctl interface reconfigure 2>&1
 
+echo "syncing bird with tun2socks..."
+/usr/local/bin/php /usr/local/opnsense/scripts/Xray/xray-service-control.php birdsync 2>&1
+
 echo "=== done: $(date) ==="
 exit 0

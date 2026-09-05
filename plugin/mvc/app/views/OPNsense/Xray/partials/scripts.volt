@@ -122,17 +122,30 @@
         }
 
         // ── General settings form ───────────────────────────────────
-        mapDataToFormUI({'frm_general_settings': "/api/xray/general/get"}).done(function () {
+        mapDataToFormUI({
+            'frm_general_settings': "/api/xray/general/get",
+            'frm_routing_settings': "/api/xray/general/get"
+        }).done(function () {
             formatTokenizersUI();
             $('.selectpicker').selectpicker('refresh');
         });
 
-        // ── Apply (save general, then reconfigure) ──────────────────
+        function syncGeneralFlagsIntoRoutingForm() {
+            var enabled = $('#frm_general_settings [id="general.enabled"]').is(':checked') ? '1' : '0';
+            var watchdog = $('#frm_general_settings [id="general.watchdog_enabled"]').is(':checked') ? '1' : '0';
+            $('#frm_routing_settings [id="general.enabled"]').val(enabled);
+            $('#frm_routing_settings [id="general.watchdog_enabled"]').val(watchdog);
+        }
+
+        // ── Apply (save general + routing, then reconfigure) ────────
         $("#reconfigureAct").SimpleActionButton({
             onPreAction: function () {
                 var dfObj = new $.Deferred();
                 saveFormToEndpoint("/api/xray/general/set", 'frm_general_settings', function () {
-                    dfObj.resolve();
+                    syncGeneralFlagsIntoRoutingForm();
+                    saveFormToEndpoint("/api/xray/general/set", 'frm_routing_settings', function () {
+                        dfObj.resolve();
+                    });
                 });
                 return dfObj;
             }

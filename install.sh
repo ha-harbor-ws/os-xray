@@ -67,6 +67,8 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -rf /usr/local/opnsense/mvc/app/views/OPNsense/Xray
     rm -f  /usr/local/etc/inc/plugins.inc.d/xray.inc
     rm -f  /usr/local/etc/rc.syshook.d/start/50-xray
+    rm -f  /usr/local/etc/rc.syshook.d/start/10-xray-bird-hold
+    rm -f  /usr/local/etc/rc.syshook.d/start/99-xray-bird
 
     echo "==> Restarting configd..."
     service configd restart

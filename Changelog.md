@@ -13,6 +13,7 @@ Format: [Semantic Versioning](https://semver.org/).
 - **TUN lifecycle aligned with upstream** — на stop не вызываем `ifconfig destroy` (TUN убирает tun2socks); destroy только для stale iface перед start и при delete instance; Prevent interface removal остаётся для reboot/assignment
 
 ### Added
+- **Routing tab / BGP** — checkbox `Enable BGP` (`general.bgp_enabled`): `sysrc bird_enable="YES"` when on, `"NO"` when off; BIRD is started only if at least one Xray tun2socks process is running (boot: `10-xray-bird-hold` stops early rc start, `99-xray-bird` starts after tun2socks)
 - **Per-instance IP stack** — checkboxes `IPv4` / `IPv6` (both allowed) control TUN address assignment and xray DNS/routing strategy
 - **Per-instance DNS servers** — field `dns_servers` (comma-separated) written into generated xray config for each instance
 - **Inbound sniffing** — SOCKS inbound sniffing for single-stack instances (`destOverride`: http, tls, quic; `metadataOnly`: false); dual-stack (IPv4+IPv6) → sniffing disabled
