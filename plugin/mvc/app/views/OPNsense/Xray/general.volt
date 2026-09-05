@@ -24,5 +24,6 @@
 {{ partial('layout_partials/base_apply_button', {'data_endpoint': '/api/xray/service/reconfigure'}) }}
 
 {{ partial("layout_partials/base_dialog", ['fields': instanceForm, 'id': 'DialogInstance', 'label': lang._('Edit Instance')]) }}
+{{ partial("layout_partials/base_dialog", ['fields': bgppeerForm, 'id': 'DialogBgpPeer', 'label': lang._('Edit BGP Peer')]) }}
 
 {{ partial('OPNsense/Xray/partials/modal_debug') }}

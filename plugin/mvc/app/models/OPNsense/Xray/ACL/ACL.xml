@@ -14,6 +14,13 @@
             <pattern>api/xray/instance/*</pattern>
         </patterns>
     </acl_xray_instance>
+    <acl_xray_bgppeer>
+        <n>Xray: BGP peer settings</n>
+        <description>Allow access to Xray BGP peer configuration</description>
+        <patterns>
+            <pattern>api/xray/bgppeer/*</pattern>
+        </patterns>
+    </acl_xray_bgppeer>
     <acl_xray_service>
         <n>Xray: Service control</n>
         <description>Allow access to Xray service control (start, stop, reconfigure, status)</description>

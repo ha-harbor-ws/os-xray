@@ -11,4 +11,10 @@
         <type>checkbox</type>
         <help>Automatically restart xray-core and tun2socks if they crash (checked every minute via cron). Writes recovery events to /var/log/xray-watchdog.log.</help>
     </field>
+    <field>
+        <id>general.bgp_enabled</id>
+        <label>Enable BGP</label>
+        <type>checkbox</type>
+        <help>Enable BIRD (sysrc bird_enable="YES"). After reboot and on Apply, BIRD starts only if at least one Xray tun2socks process is running. BGP peers are configured on the Routing tab.</help>
+    </field>
 </form>

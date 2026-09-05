@@ -13,7 +13,7 @@ Format: [Semantic Versioning](https://semver.org/).
 - **TUN lifecycle aligned with upstream** — на stop не вызываем `ifconfig destroy` (TUN убирает tun2socks); destroy только для stale iface перед start и при delete instance; Prevent interface removal остаётся для reboot/assignment
 
 ### Added
-- **Routing tab / BGP** — checkbox `Enable BGP` (`general.bgp_enabled`): `sysrc bird_enable="YES"` when on, `"NO"` when off; BIRD is started only if at least one Xray tun2socks process is running (boot: `10-xray-bird-hold` stops early rc start, `99-xray-bird` starts after tun2socks)
+- **Routing tab / BGP** — `Enable BGP` on General; Routing tab manages BGP peers. Templates `refilter` / `antifilter_download` / `antifilter_network` live as `/usr/local/etc/bird/<name>.inc`; `bgp.conf` only includes those files; GUI writes includes named after the peer; `bird.conf` includes `bgp.conf`. Community defines `ANTIFILTER_DOWNLOAD` / `ANTIFILTER_NETWORK` are in `community_antifilter_download.inc` / `community_antifilter_network.inc`
 - **Per-instance IP stack** — checkboxes `IPv4` / `IPv6` (both allowed) control TUN address assignment and xray DNS/routing strategy
 - **Per-instance DNS servers** — field `dns_servers` (comma-separated) written into generated xray config for each instance
 - **Inbound sniffing** — SOCKS inbound sniffing for single-stack instances (`destOverride`: http, tls, quic; `metadataOnly`: false); dual-stack (IPv4+IPv6) → sniffing disabled
@@ -24,7 +24,7 @@ Format: [Semantic Versioning](https://semver.org/).
 - `xray-ifstats.php` / Diagnostics tab: show TUN IPv6, IP stack mode and DNS servers
 - `install.sh`: migration step 4.8 adds defaults for existing instances
 - `install.sh`: check for FreeBSD package `bird2`; if missing, run `pkg update` and `pkg install -y bird2`
-- `install.sh`: install `bird.conf` from git to `/usr/local/etc/bird.conf` (no hardcoded router-id / source address IPs); create `/usr/local/etc/bird/{active_tun_v4,active_tun_v6}.inc` if missing
+- `install.sh`: install `bird.conf` from git to `/usr/local/etc/bird.conf`; install `bgp.conf`, named peer includes and community defines (`community_antifilter_download.inc` / `community_antifilter_network.inc`) into `/usr/local/etc/bird/`; create `active_tun_v4.inc` / `active_tun_v6.inc` if missing
 
 ## [3.0.1] - TBD
 ### Added

@@ -121,31 +121,28 @@
             });
         }
 
+        // ── BGP peers CRUD table ────────────────────────────────────
+        $('#grid-bgppeers').UIBootgrid({
+            search: '/api/xray/bgppeer/searchItem',
+            get:    '/api/xray/bgppeer/getItem/',
+            set:    '/api/xray/bgppeer/setItem/',
+            add:    '/api/xray/bgppeer/addItem',
+            del:    '/api/xray/bgppeer/delItem/',
+            toggle: '/api/xray/bgppeer/toggleItem/'
+        });
+
         // ── General settings form ───────────────────────────────────
-        mapDataToFormUI({
-            'frm_general_settings': "/api/xray/general/get",
-            'frm_routing_settings': "/api/xray/general/get"
-        }).done(function () {
+        mapDataToFormUI({'frm_general_settings': "/api/xray/general/get"}).done(function () {
             formatTokenizersUI();
             $('.selectpicker').selectpicker('refresh');
         });
 
-        function syncGeneralFlagsIntoRoutingForm() {
-            var enabled = $('#frm_general_settings [id="general.enabled"]').is(':checked') ? '1' : '0';
-            var watchdog = $('#frm_general_settings [id="general.watchdog_enabled"]').is(':checked') ? '1' : '0';
-            $('#frm_routing_settings [id="general.enabled"]').val(enabled);
-            $('#frm_routing_settings [id="general.watchdog_enabled"]').val(watchdog);
-        }
-
-        // ── Apply (save general + routing, then reconfigure) ────────
+        // ── Apply (save general, then reconfigure) ──────────────────
         $("#reconfigureAct").SimpleActionButton({
             onPreAction: function () {
                 var dfObj = new $.Deferred();
                 saveFormToEndpoint("/api/xray/general/set", 'frm_general_settings', function () {
-                    syncGeneralFlagsIntoRoutingForm();
-                    saveFormToEndpoint("/api/xray/general/set", 'frm_routing_settings', function () {
-                        dfObj.resolve();
-                    });
+                    dfObj.resolve();
                 });
                 return dfObj;
             }

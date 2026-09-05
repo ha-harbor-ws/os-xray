@@ -56,6 +56,7 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/opnsense/scripts/Xray/xray-testconnect.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-watchdog.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-ifstats.php
+    rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-peers.php
     rmdir  /usr/local/opnsense/scripts/Xray 2>/dev/null || true
     # BUG-11: удаляем конфиг ротации логов newsyslog
     rm -f  /etc/newsyslog.conf.d/xray.conf
@@ -69,6 +70,15 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/etc/rc.syshook.d/start/50-xray
     rm -f  /usr/local/etc/rc.syshook.d/start/10-xray-bird-hold
     rm -f  /usr/local/etc/rc.syshook.d/start/99-xray-bird
+    rm -f  /usr/local/etc/bird/bgp.conf
+    rm -f  /usr/local/etc/bird/peers.inc
+    rm -f  /usr/local/etc/bird/peer-*.inc
+    rm -f  /usr/local/etc/bird/refilter.inc
+    rm -f  /usr/local/etc/bird/antifilter_download.inc
+    rm -f  /usr/local/etc/bird/antifilter_network.inc
+    rm -f  /usr/local/etc/bird/community_antifilter_download.inc
+    rm -f  /usr/local/etc/bird/community_antifilter_network.inc
+    rm -f  /usr/local/etc/bird/.xray-bgp-generated
 
     echo "==> Restarting configd..."
     service configd restart
@@ -524,6 +534,9 @@ fi
 BIRD_CONF_SRC="$(dirname "$0")/bird.conf"
 BIRD_CONF_DST="/usr/local/etc/bird.conf"
 BIRD_CONF_URL="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}/bird.conf"
+BGP_CONF_SRC="$(dirname "$0")/bgp.conf"
+BGP_CONF_DST="/usr/local/etc/bird/bgp.conf"
+BGP_CONF_URL="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}/bgp.conf"
 BIRD_INC_DIR="/usr/local/etc/bird"
 
 if pkg info -e bird2 >/dev/null 2>&1; then
@@ -553,6 +566,35 @@ fi
 
 echo "==> Creating $BIRD_INC_DIR includes..."
 install -d -m 0755 "$BIRD_INC_DIR"
+
+echo "==> Installing bgp.conf template (${REPO_BRANCH})..."
+if [ -f "$BGP_CONF_SRC" ]; then
+    install -m 0644 "$BGP_CONF_SRC" "$BGP_CONF_DST"
+    echo "[OK]  $BGP_CONF_DST (from local clone)"
+elif fetch -o "$BGP_CONF_DST" "$BGP_CONF_URL" 2>/dev/null; then
+    chmod 0644 "$BGP_CONF_DST"
+    echo "[OK]  $BGP_CONF_DST (from $BGP_CONF_URL)"
+else
+    warn "Failed to install bgp.conf template. Place it at $BGP_CONF_DST manually."
+fi
+
+echo "==> Installing BIRD includes (${REPO_BRANCH})..."
+BGP_PEERS_SRC="$(dirname "$0")/bird"
+for _PEER in refilter antifilter_download antifilter_network community_antifilter_download community_antifilter_network; do
+    _SRC="${BGP_PEERS_SRC}/${_PEER}.inc"
+    _DST="${BIRD_INC_DIR}/${_PEER}.inc"
+    _URL="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}/bird/${_PEER}.inc"
+    if [ -f "$_SRC" ]; then
+        install -m 0644 "$_SRC" "$_DST"
+        echo "[OK]  $_DST (from local clone)"
+    elif fetch -o "$_DST" "$_URL" 2>/dev/null; then
+        chmod 0644 "$_DST"
+        echo "[OK]  $_DST (from $_URL)"
+    else
+        warn "Failed to install ${_PEER}.inc"
+    fi
+done
+
 if [ ! -f "$BIRD_INC_DIR/active_tun_v4.inc" ]; then
     printf '%s\n' 'define ACTIVE_TUN4_IF = "proxytun2socks0";' > "$BIRD_INC_DIR/active_tun_v4.inc"
     chmod 0644 "$BIRD_INC_DIR/active_tun_v4.inc"

@@ -2,6 +2,7 @@
 <?php
 
 require_once('config.inc');
+require_once(__DIR__ . '/xray-bird-peers.php');
 
 // ─── Shared constants (not per-instance) ─────────────────────────────────────
 define('XRAY_BIN',          '/usr/local/bin/xray-core');
@@ -796,6 +797,7 @@ function xray_bird_hold(): void
 
 function xray_bird_sync(): void
 {
+    xray_bird_write_peers();
     if (!xray_bgp_enabled()) {
         xray_sysrc_bird_enable(false);
         xray_bird_service('onestop');
@@ -805,6 +807,7 @@ function xray_bird_sync(): void
     xray_sysrc_bird_enable(true);
     if (xray_any_tun2socks_running()) {
         xray_bird_service('onestart');
+        xray_bird_reload_config();
         echo "bird sync: BGP on, tun2socks up, bird started\n";
         return;
     }
@@ -941,6 +944,12 @@ switch ($action) {
 
     case 'birdsync':
         xray_bird_sync();
+        break;
+
+    case 'bgpwrite':
+        xray_bird_write_peers();
+        xray_bird_reload_config();
+        echo "OK\n";
         break;
 
     case 'status':
