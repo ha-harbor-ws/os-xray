@@ -14,6 +14,7 @@ class IndexController extends \OPNsense\Base\IndexController
         $this->view->generalForm  = $this->getForm('general');
         $this->view->instanceForm = $this->getForm('instance');
         $this->view->bgppeerForm  = $this->getForm('bgppeer');
+        (new BgpPeer())->seedDefaultPeersIfEmpty();
         $this->view->pick('OPNsense/Xray/general');
     }
 }

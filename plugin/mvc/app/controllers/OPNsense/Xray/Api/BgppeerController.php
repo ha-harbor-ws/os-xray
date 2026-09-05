@@ -12,6 +12,7 @@ class BgppeerController extends ApiMutableModelControllerBase
 
     public function searchItemAction()
     {
+        (new \OPNsense\Xray\BgpPeer())->seedDefaultPeersIfEmpty();
         return $this->searchBase('peer', [
             'enabled',
             'name',

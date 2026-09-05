@@ -2,7 +2,7 @@
 <model>
     <mount>//OPNsense/xray/bgppeers</mount>
     <description>Xray BGP peer settings</description>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
     <items>
         <peer type="ArrayField">
             <enabled type="BooleanField">
@@ -40,6 +40,12 @@
                 <Default>accept_refilter</Default>
                 <Required>N</Required>
             </ipv4_import>
+            <ipv4_community_name type="TextField">
+                <Required>N</Required>
+            </ipv4_community_name>
+            <ipv4_community type="TextField">
+                <Required>N</Required>
+            </ipv4_community>
             <ipv4_export type="TextField">
                 <Default>none</Default>
                 <Required>N</Required>
@@ -51,6 +57,12 @@
                 <Default>accept_antifilter_network_v6</Default>
                 <Required>N</Required>
             </ipv6_import>
+            <ipv6_community_name type="TextField">
+                <Required>N</Required>
+            </ipv6_community_name>
+            <ipv6_community type="TextField">
+                <Required>N</Required>
+            </ipv6_community>
             <ipv6_export type="TextField">
                 <Default>none</Default>
                 <Required>N</Required>

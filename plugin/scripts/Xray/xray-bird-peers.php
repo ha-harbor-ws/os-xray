@@ -21,6 +21,176 @@ function xray_bgp_template_names(): array
     return ['refilter', 'antifilter_download', 'antifilter_network'];
 }
 
+function xray_load_interface_helpers(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    $inc = '/usr/local/etc/inc/interfaces.inc';
+    if (is_readable($inc)) {
+        @include_once $inc;
+    }
+}
+
+function xray_is_ipv4_addr(string $ip): bool
+{
+    return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false
+        && $ip !== '0.0.0.0'
+        && strncmp($ip, '127.', 4) !== 0;
+}
+
+function xray_is_ipv6_addr(string $ip): bool
+{
+    $ip = explode('%', $ip)[0];
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) === false) {
+        return false;
+    }
+    if ($ip === '::1' || $ip === '::' || strncasecmp($ip, 'fe80:', 5) === 0) {
+        return false;
+    }
+    return true;
+}
+
+function xray_ifconfig_wan_addrs(string $if): array
+{
+    $v4 = '';
+    $v6 = '';
+    if ($if === '') {
+        return ['', ''];
+    }
+    exec('/sbin/ifconfig ' . escapeshellarg($if) . ' 2>/dev/null', $out);
+    foreach ($out as $line) {
+        if ($v4 === '' && preg_match('/\binet\s+(\d+\.\d+\.\d+\.\d+)\s/', $line, $m) && xray_is_ipv4_addr($m[1])) {
+            $v4 = $m[1];
+        }
+        if ($v6 === '' && preg_match('/\binet6\s+([0-9a-fA-F:]+)/', $line, $m) && xray_is_ipv6_addr($m[1])) {
+            $v6 = $m[1];
+        }
+    }
+    return [$v4, $v6];
+}
+
+function xray_wan_ipv4(): string
+{
+    xray_load_interface_helpers();
+    if (function_exists('get_interface_ip')) {
+        $ip = trim((string)get_interface_ip('wan'));
+        if (xray_is_ipv4_addr($ip)) {
+            return $ip;
+        }
+    }
+    $cfg = OPNsense\Core\Config::getInstance()->object();
+    $wan = $cfg->interfaces->wan ?? null;
+    if (!$wan) {
+        return '';
+    }
+    $ip = trim((string)($wan->ipaddr ?? ''));
+    if (xray_is_ipv4_addr($ip)) {
+        return $ip;
+    }
+    [$v4] = xray_ifconfig_wan_addrs(trim((string)($wan->if ?? '')));
+    return $v4;
+}
+
+function xray_wan_ipv6(): string
+{
+    xray_load_interface_helpers();
+    if (function_exists('get_interface_ipv6')) {
+        $ip = explode('%', trim((string)get_interface_ipv6('wan')))[0];
+        if (xray_is_ipv6_addr($ip)) {
+            return $ip;
+        }
+    }
+    $cfg = OPNsense\Core\Config::getInstance()->object();
+    $wan = $cfg->interfaces->wan ?? null;
+    if (!$wan) {
+        return '';
+    }
+    $ip = explode('%', trim((string)($wan->ipaddrv6 ?? '')))[0];
+    if (xray_is_ipv6_addr($ip)) {
+        return $ip;
+    }
+    [, $v6] = xray_ifconfig_wan_addrs(trim((string)($wan->if ?? '')));
+    return $v6;
+}
+
+function xray_source_for_peer(array $p): string
+{
+    $src = trim((string)($p['source_address'] ?? ''));
+    $src = explode('%', $src)[0];
+    if ($src !== '' && (xray_is_ipv4_addr($src) || xray_is_ipv6_addr($src))) {
+        return $src;
+    }
+    $neighbor = explode('%', trim((string)($p['neighbor'] ?? '')))[0];
+    $v6only   = (($p['ipv6'] ?? '0') === '1') && (($p['ipv4'] ?? '0') !== '1');
+    if ($v6only || xray_is_ipv6_addr($neighbor)) {
+        return xray_wan_ipv6();
+    }
+    return xray_wan_ipv4();
+}
+
+function xray_bird_write_router_id(): void
+{
+    $dir = XRAY_BIRD_INC_DIR;
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    $v4   = xray_wan_ipv4();
+    $file = $dir . '/router_id.inc';
+    if ($v4 !== '') {
+        file_put_contents($file, 'router id ' . $v4 . ";\n");
+    } else {
+        file_put_contents($file, "# router id: WAN IPv4 not found\n");
+    }
+    @chmod($file, 0644);
+}
+
+function xray_bird_apply_source_placeholders(): void
+{
+    foreach (xray_bgp_template_names() as $name) {
+        $path = XRAY_BIRD_INC_DIR . '/' . $name . '.inc';
+        if (!is_readable($path)) {
+            continue;
+        }
+        $text = (string)file_get_contents($path);
+        $neighbor = '';
+        if (preg_match('/\bneighbor\s+([0-9a-fA-F.:]+)\s+as\s+/i', $text, $m)) {
+            $neighbor = $m[1];
+        }
+        $hasv4 = preg_match('/\bipv4\s*\{/', $text) === 1;
+        $hasv6 = preg_match('/\bipv6\s*\{/', $text) === 1;
+        $src   = xray_source_for_peer([
+            'neighbor'        => $neighbor,
+            'source_address'  => '',
+            'ipv4'            => $hasv4 ? '1' : '0',
+            'ipv6'            => $hasv6 ? '1' : '0',
+        ]);
+        if ($src === '') {
+            continue;
+        }
+        $repl = '    source address ' . $src . ';';
+        $n    = 0;
+        $text = preg_replace('/^[ \t]*#?\s*source address\s+[^;\n]*;/m', $repl, $text, 1, $n);
+        if ($n === 0) {
+            $text = preg_replace(
+                '/(\bneighbor\s+[^\n]+)/',
+                "$1\n" . $repl,
+                $text,
+                1
+            );
+        }
+        file_put_contents($path, $text);
+    }
+}
+
+function xray_bird_apply_wan_addresses(): void
+{
+    xray_bird_write_router_id();
+    xray_bird_apply_source_placeholders();
+}
+
 function xray_bgp_read_with_includes(string $path): string
 {
     if (!is_readable($path)) {
@@ -148,6 +318,72 @@ function xray_bgp_conf_default_peer(): array
     return $peers[0] ?? [];
 }
 
+function xray_bgp_community_ident(string $name): string
+{
+    $name = basename(trim($name));
+    $name = preg_replace('/\.inc$/i', '', $name);
+    $name = preg_replace('/[^A-Za-z0-9_]/', '_', $name);
+    $name = trim($name, '_');
+    if ($name === '' || !preg_match('/^[A-Za-z_]/', $name)) {
+        return '';
+    }
+    return $name;
+}
+
+function xray_bgp_parse_communities(string $raw): array
+{
+    $raw = trim($raw);
+    if ($raw === '') {
+        return [];
+    }
+    $raw = preg_replace('/(\d+)\s*,\s*:/', '$1:', $raw);
+    $pairs = [];
+    if (preg_match_all('/\(\s*(\d+)\s*,\s*(\d+)\s*\)/', $raw, $m, PREG_SET_ORDER)) {
+        foreach ($m as $row) {
+            $pairs[] = [(int)$row[1], (int)$row[2]];
+        }
+        return $pairs;
+    }
+    $tokens = preg_split('/\s*,\s*/', $raw);
+    $buf    = [];
+    foreach ($tokens as $t) {
+        $t = trim((string)$t);
+        if ($t === '') {
+            continue;
+        }
+        if (preg_match('/^(\d+)\s*:\s*(\d+)$/', $t, $mm)) {
+            $pairs[] = [(int)$mm[1], (int)$mm[2]];
+            continue;
+        }
+        if (preg_match('/^\d+$/', $t)) {
+            $buf[] = (int)$t;
+            if (count($buf) >= 2) {
+                $pairs[] = [$buf[0], $buf[1]];
+                $buf     = [];
+            }
+        }
+    }
+    return $pairs;
+}
+
+function xray_bgp_format_communities_inc(array $pairs): string
+{
+    $parts = [];
+    foreach ($pairs as $pair) {
+        $parts[] = '(' . (int)$pair[0] . ', ' . (int)$pair[1] . ')';
+    }
+    return implode(', ', $parts);
+}
+
+function xray_bird_write_community_file(string $dir, string $ident, array $pairs): string
+{
+    $file = $dir . '/' . $ident . '.inc';
+    $body = 'define ' . $ident . ' = [ ' . xray_bgp_format_communities_inc($pairs) . ' ];' . "\n";
+    file_put_contents($file, $body);
+    @chmod($file, 0644);
+    return $file;
+}
+
 function xray_bird_impexp_line(string $kind, string $value): string
 {
     $value = trim($value);
@@ -187,25 +423,23 @@ function xray_bird_render_peer(array $p, string $protoName): string
     $lines[] = 'protocol bgp ' . $protoName . ' {';
     $lines[] = '    local as ' . (int)$p['local_as'] . ';';
     $lines[] = '    neighbor ' . $p['neighbor'] . ' as ' . (int)$p['neighbor_as'] . ';';
-    $src     = trim((string)($p['source_address'] ?? ''));
-    if ($src !== '' && preg_match('/^[0-9a-fA-F.:]+$/', $src)) {
+    $src = xray_source_for_peer($p);
+    if ($src !== '') {
         $lines[] = '    source address ' . $src . ';';
     }
     if (($p['ipv4'] ?? '0') === '1') {
         $lines[] = '    ipv4 {';
         $lines[] = xray_bird_impexp_line('import', (string)($p['ipv4_import'] ?? 'none'));
-        $lines[] = xray_bird_impexp_line('export', (string)($p['ipv4_export'] ?? 'none'));
+        $lines[] = '        export none;';
         $lines[] = '    };';
     }
     if (($p['ipv6'] ?? '0') === '1') {
         $lines[] = '    ipv6 {';
         $lines[] = xray_bird_impexp_line('import', (string)($p['ipv6_import'] ?? 'none'));
-        $lines[] = xray_bird_impexp_line('export', (string)($p['ipv6_export'] ?? 'none'));
+        $lines[] = '        export none;';
         $lines[] = '    };';
     }
-    if (($p['multihop'] ?? '0') === '1') {
-        $lines[] = '    multihop;';
-    }
+    $lines[] = '    multihop;';
     $lines[] = '    hold time ' . (int)$p['hold_time'] . ';';
     $lines[] = '}';
     $lines[] = '';
@@ -233,13 +467,14 @@ function xray_get_bgp_peers_from_config(): array
             'neighbor_as'    => (string)($peer->neighbor_as ?? '65412'),
             'source_address' => (string)($peer->source_address ?? ''),
             'ipv4'           => (string)($peer->ipv4 ?? '1') === '1' ? '1' : '0',
-            'ipv4_import'    => (string)($peer->ipv4_import ?? 'none'),
-            'ipv4_export'    => (string)($peer->ipv4_export ?? 'none'),
-            'ipv6'           => (string)($peer->ipv6 ?? '0') === '1' ? '1' : '0',
-            'ipv6_import'    => (string)($peer->ipv6_import ?? 'none'),
-            'ipv6_export'    => (string)($peer->ipv6_export ?? 'none'),
-            'multihop'       => (string)($peer->multihop ?? '1') === '1' ? '1' : '0',
-            'hold_time'      => (string)($peer->hold_time ?? '240'),
+            'ipv4_import'          => (string)($peer->ipv4_import ?? 'none'),
+            'ipv4_community_name'  => (string)($peer->ipv4_community_name ?? ''),
+            'ipv4_community'       => (string)($peer->ipv4_community ?? ''),
+            'ipv6'                 => (string)($peer->ipv6 ?? '0') === '1' ? '1' : '0',
+            'ipv6_import'          => (string)($peer->ipv6_import ?? 'none'),
+            'ipv6_community_name'  => (string)($peer->ipv6_community_name ?? ''),
+            'ipv6_community'       => (string)($peer->ipv6_community ?? ''),
+            'hold_time'            => (string)($peer->hold_time ?? '240'),
         ];
     }
     return $result;
@@ -250,8 +485,16 @@ function xray_bird_inc_filename(string $protoName): string
     $reserved = [
         'active_tun_v4' => true,
         'active_tun_v6' => true,
-        'community_antifilter_download' => true,
-        'community_antifilter_network'  => true,
+        'ANTIFILTER_DOWNLOAD'           => true,
+        'ANTIFILTER_NETWORK'            => true,
+        'communities'                   => true,
+        'router_id'                     => true,
+        'accept_refilter'               => true,
+        'accept_antifilter_download'    => true,
+        'accept_antifilter_network_v4'  => true,
+        'accept_antifilter_network_v6'  => true,
+        'community_ANTIFILTER_DOWNLOAD' => true,
+        'community_ANTIFILTER_NETWORK'  => true,
         'bgp'                           => true,
         'peers'                         => true,
     ];
@@ -267,12 +510,39 @@ function xray_bird_write_peers(): void
     if (!is_dir($dir)) {
         @mkdir($dir, 0755, true);
     }
+    xray_bird_write_router_id();
 
     $peers     = xray_get_bgp_peers_from_config();
     $used      = [];
     $written   = [];
     $incLines  = ['# generated by os-xray — BGP peer includes', ''];
-    $templates = array_fill_keys(xray_bgp_template_names(), true);
+    $templates = array_fill_keys(array_merge(
+        xray_bgp_template_names(),
+        ['ANTIFILTER_DOWNLOAD', 'ANTIFILTER_NETWORK', 'communities',
+         'community_ANTIFILTER_DOWNLOAD', 'community_ANTIFILTER_NETWORK',
+         'filters', 'accept_refilter', 'accept_antifilter_download',
+         'accept_antifilter_network_v4', 'accept_antifilter_network_v6', 'router_id']
+    ), true);
+    $commFiles = [];
+
+    foreach ($peers as $uuid => $p) {
+        foreach ([
+            ['ipv4_community_name', 'ipv4_community'],
+            ['ipv6_community_name', 'ipv6_community'],
+        ] as $keys) {
+            $ident = xray_bgp_community_ident((string)($p[$keys[0]] ?? ''));
+            if ($ident === '') {
+                continue;
+            }
+            $pairs = xray_bgp_parse_communities((string)($p[$keys[1]] ?? ''));
+            if ($pairs === []) {
+                continue;
+            }
+            $cfile = xray_bird_write_community_file($dir, $ident, $pairs);
+            $commFiles[$cfile] = true;
+            $written[$cfile]   = true;
+        }
+    }
 
     foreach ($peers as $uuid => $p) {
         if ($p['enabled'] !== '1') {
@@ -289,12 +559,26 @@ function xray_bird_write_peers(): void
         $incLines[] = 'include "' . $file . '";';
     }
 
-    if (count($written) === 0) {
-        foreach (xray_bgp_template_names() as $name) {
-            $file = $dir . '/' . $name . '.inc';
-            $incLines[] = 'include "' . $file . '";';
+    $commLines = ['# generated by os-xray — BGP community defines', ''];
+    if (count($commFiles) === 0) {
+        foreach (['community_ANTIFILTER_DOWNLOAD', 'community_ANTIFILTER_NETWORK'] as $ident) {
+            $commLines[] = 'include "' . $dir . '/' . $ident . '.inc";';
+        }
+    } else {
+        foreach (array_keys($commFiles) as $cfile) {
+            $commLines[] = 'include "' . $cfile . '";';
+        }
+        foreach (['community_ANTIFILTER_DOWNLOAD', 'community_ANTIFILTER_NETWORK',
+                  'ANTIFILTER_DOWNLOAD', 'ANTIFILTER_NETWORK'] as $ident) {
+            $cfile = $dir . '/' . $ident . '.inc';
+            if (!isset($commFiles[$cfile]) && is_file($cfile)) {
+                $commLines[] = 'include "' . $cfile . '";';
+            }
         }
     }
+    $commLines[] = '';
+    file_put_contents($dir . '/communities.inc', implode("\n", $commLines));
+    @chmod($dir . '/communities.inc', 0644);
 
     $oldList = [];
     if (is_readable(XRAY_BIRD_GENERATED_LIST)) {

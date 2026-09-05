@@ -13,7 +13,7 @@
         <id>peer.name</id>
         <label>Name</label>
         <type>text</type>
-        <help>BIRD protocol name (must be unique). The include file is /usr/local/etc/bird/&lt;name&gt;.inc. Defaults come from refilter.inc via bgp.conf.</help>
+        <help>BIRD protocol name (must be unique). The include file is /usr/local/etc/bird/NAME.inc.</help>
         <hint>e.g. refilter, antifilter_download</hint>
     </field>
     <field>
@@ -58,11 +58,18 @@
         <hint>accept_refilter</hint>
     </field>
     <field>
-        <id>peer.ipv4_export</id>
-        <label>IPv4 Export</label>
+        <id>peer.ipv4_community_name</id>
+        <label>IPv4 Community name</label>
         <type>text</type>
-        <help>none, all, or a filter name. Templates use none.</help>
-        <hint>none</hint>
+        <help>Name of the community include file (without path). Written as /usr/local/etc/bird/NAME.inc and used as the BIRD define name (e.g. ANTIFILTER_DOWNLOAD).</help>
+        <hint>ANTIFILTER_DOWNLOAD</hint>
+    </field>
+    <field>
+        <id>peer.ipv4_community</id>
+        <label>IPv4 Community</label>
+        <type>text</type>
+        <help>Communities as pairs: 65444, 120 or 65444:200 (also 65444,:210). Saved in the inc file as (65444, 120), (65444, 200).</help>
+        <hint>65432, 500</hint>
     </field>
     <field>
         <id>peer.ipv6</id>
@@ -77,21 +84,22 @@
         <help>none, all, or a filter name (e.g. accept_antifilter_network_v6).</help>
     </field>
     <field>
-        <id>peer.ipv6_export</id>
-        <label>IPv6 Export</label>
+        <id>peer.ipv6_community_name</id>
+        <label>IPv6 Community name</label>
         <type>text</type>
-        <help>none, all, or a filter name. Templates use none.</help>
-        <hint>none</hint>
+        <help>Name of the IPv6 community include file (without path), used as the BIRD define name.</help>
+        <hint>ANTIFILTER_NETWORK</hint>
+    </field>
+    <field>
+        <id>peer.ipv6_community</id>
+        <label>IPv6 Community</label>
+        <type>text</type>
+        <help>Same pair syntax as IPv4 Community. Saved as (ASN, VALUE) tuples in the inc file.</help>
+        <hint>65444, 120, 65444:200</hint>
     </field>
     <field>
         <type>header</type>
         <label>Session</label>
-    </field>
-    <field>
-        <id>peer.multihop</id>
-        <label>Multihop</label>
-        <type>checkbox</type>
-        <help>Enable BGP multihop (as in bgp.conf templates).</help>
     </field>
     <field>
         <id>peer.hold_time</id>
