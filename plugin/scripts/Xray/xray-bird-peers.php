@@ -686,6 +686,12 @@ function xray_resolve_community_define(string $value): string
     if (isset($byUuid[$value])) {
         return $byUuid[$value];
     }
+    if (strncasecmp($value, 'community_', 10) === 0) {
+        $rest = substr($value, 10);
+        if (isset($byUuid[$rest])) {
+            return $byUuid[$rest];
+        }
+    }
     return xray_bird_community_ident($value);
 }
 

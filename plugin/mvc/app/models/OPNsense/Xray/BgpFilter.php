@@ -80,14 +80,6 @@ class BgpFilter extends BaseModel
             $item->name = 'filter_' . substr($n, 7);
             $changed = true;
         }
-        foreach ($this->filter->iterateItems() as $item) {
-            $c = trim((string)$item->community);
-            if ($c === '' || strncasecmp($c, 'community_', 10) === 0) {
-                continue;
-            }
-            $item->community = 'community_' . $c;
-            $changed = true;
-        }
         $byName = [];
         $uuids  = [];
         $comms = new BgpCommunity();
@@ -100,7 +92,41 @@ class BgpFilter extends BaseModel
         }
         foreach ($this->filter->iterateItems() as $item) {
             $c = trim((string)$item->community);
-            if ($c === '' || isset($uuids[$c])) {
+            if ($c === '' || strcasecmp($c, 'none') === 0) {
+                if ($c !== '') {
+                    $item->community = '';
+                    $changed = true;
+                }
+                continue;
+            }
+            if (isset($uuids[$c])) {
+                continue;
+            }
+            if (preg_match('/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/', $c)) {
+                continue;
+            }
+            if (strncasecmp($c, 'community_', 10) === 0) {
+                $rest = substr($c, 10);
+                if (isset($uuids[$rest])) {
+                    $item->community = $rest;
+                    $changed = true;
+                    continue;
+                }
+                if (isset($byName[$c])) {
+                    $item->community = $byName[$c];
+                    $changed = true;
+                    continue;
+                }
+                if (isset($byName[$rest])) {
+                    $item->community = $byName[$rest];
+                    $changed = true;
+                }
+                continue;
+            }
+            $prefixed = 'community_' . $c;
+            if (isset($byName[$prefixed])) {
+                $item->community = $byName[$prefixed];
+                $changed = true;
                 continue;
             }
             if (isset($byName[$c])) {
