@@ -124,7 +124,6 @@
         // ── BGP peers / filters / communities CRUD ──────────────────
         var peerStatusCache = {};
         var birdRunning = false;
-        var peerConfigDirty = false;
 
         function peerStatusBadge(info) {
             if (!info) {
@@ -152,20 +151,7 @@
                 .removeClass('label-success label-danger label-default')
                 .addClass(birdRunning ? 'label-success' : 'label-danger')
                 .text('bird: ' + (birdRunning ? 'running' : 'stopped'));
-            $('.xray-btn-bird-start').prop('disabled', birdRunning);
-            $('.xray-btn-bird-stop').prop('disabled', !birdRunning);
-            $('.xray-btn-bird-restart').prop('disabled', !birdRunning);
             $('.xray-btn-bird-testall').prop('disabled', !birdRunning);
-            if (birdRunning && peerConfigDirty) {
-                $('#bgpPeerApplyBox').show();
-            } else {
-                $('#bgpPeerApplyBox').hide();
-            }
-        }
-
-        function markPeerConfigDirty() {
-            peerConfigDirty = true;
-            updateBirdToolbar();
         }
 
         function applyPeerStatusPayload(data) {
@@ -207,21 +193,6 @@
                     peerStatus: function (column, row) {
                         return '<span class="xray-peer-status-cell" data-uuid="' + escAttr(row.uuid) + '">'
                             + peerStatusBadge(peerStatusCache[row.uuid]) + '</span>';
-                    },
-                    commands: function (column, row) {
-                        var uuid = escAttr(row.uuid);
-                        return '<button type="button" class="btn btn-xs btn-success cmd-peer-start bootgrid-tooltip"'
-                             +   ' data-row-id="' + uuid + '" title="{{ lang._("Start this peer") }}">'
-                             +   '<span class="fa fa-play fa-fw"></span></button> '
-                             + '<button type="button" class="btn btn-xs btn-danger cmd-peer-stop bootgrid-tooltip"'
-                             +   ' data-row-id="' + uuid + '" title="{{ lang._("Stop this peer") }}">'
-                             +   '<span class="fa fa-stop fa-fw"></span></button> '
-                             + '<button type="button" class="btn btn-xs btn-default command-edit bootgrid-tooltip"'
-                             +   ' data-row-id="' + uuid + '" title="{{ lang._("Edit") }}">'
-                             +   '<span class="fa fa-pencil fa-fw"></span></button> '
-                             + '<button type="button" class="btn btn-xs btn-default command-delete bootgrid-tooltip"'
-                             +   ' data-row-id="' + uuid + '" title="{{ lang._("Delete") }}">'
-                             +   '<span class="fa fa-trash-o fa-fw"></span></button>';
                     }
                 }
             }
@@ -231,34 +202,6 @@
             applyPeerStatusToGrid();
         });
 
-        function peerServiceAction(action, uuid) {
-            var $btns = $('#grid-bgppeers .cmd-peer-start, #grid-bgppeers .cmd-peer-stop').prop('disabled', true);
-            $.ajax({
-                url: '/api/xray/bgppeer/' + action + '/' + encodeURIComponent(uuid),
-                type: 'POST',
-                dataType: 'json',
-                success: function (data) {
-                    if (data && data.result === 'failed') {
-                        alert('{{ lang._("Action failed:") }} ' + (data.message || 'unknown error'));
-                    }
-                },
-                error: function (xhr) {
-                    alert('{{ lang._("HTTP error:") }} ' + xhr.status);
-                },
-                complete: function () {
-                    $btns.prop('disabled', false);
-                    $('#grid-bgppeers').bootgrid('reload');
-                    openRoutingPeersStatus();
-                }
-            });
-        }
-
-        $(document).on('click', '#grid-bgppeers .cmd-peer-start', function () {
-            peerServiceAction('startItem', $(this).data('row-id'));
-        });
-        $(document).on('click', '#grid-bgppeers .cmd-peer-stop', function () {
-            peerServiceAction('stopItem', $(this).data('row-id'));
-        });
         $('#grid-bgpfilters').UIBootgrid({
             search: '/api/xray/bgpfilter/searchItem',
             get:    '/api/xray/bgpfilter/getItem/',
@@ -298,59 +241,10 @@
         $(document).ajaxSuccess(function (e, xhr, settings) {
             var url = settings.url || '';
             if (/\/api\/xray\/bgppeer\/(addItem|setItem|delItem|toggleItem)\b/.test(url)) {
-                markPeerConfigDirty();
+                openRoutingPeersStatus();
             }
         });
 
-        function birdServiceAction(action, $btn, onOk) {
-            var origHtml = $btn.html();
-            $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
-            $.ajax({
-                url: '/api/xray/bgppeer/' + action,
-                type: 'POST',
-                dataType: 'json',
-                success: function (data) {
-                    $btn.html(origHtml);
-                    if (data.result !== 'ok') {
-                        alert('{{ lang._("Action failed:") }} ' + (data.message || 'unknown error'));
-                    } else if (onOk) {
-                        onOk();
-                    }
-                },
-                error: function (xhr) {
-                    $btn.html(origHtml);
-                    alert('{{ lang._("HTTP error:") }} ' + xhr.status);
-                },
-                complete: function () {
-                    $btn.prop('disabled', false);
-                    updateBirdToolbar();
-                }
-            });
-        }
-
-        $(document).on('click', '.xray-btn-bird-start', function () {
-            birdServiceAction('startBird', $(this), function () {
-                birdRunning = true;
-                peerConfigDirty = false;
-                updateBirdToolbar();
-                openRoutingPeersStatus();
-            });
-        });
-        $(document).on('click', '.xray-btn-bird-stop', function () {
-            birdServiceAction('stopBird', $(this), function () {
-                birdRunning = false;
-                peerStatusCache = {};
-                applyPeerStatusToGrid();
-                updateBirdToolbar();
-            });
-        });
-        $(document).on('click', '.xray-btn-bird-restart', function () {
-            birdServiceAction('restartBird', $(this), function () {
-                birdRunning = true;
-                updateBirdToolbar();
-                openRoutingPeersStatus();
-            });
-        });
         $(document).on('click', '.xray-btn-bird-testall', function () {
             if (!birdRunning) {
                 $('.xray-bird-test-result').removeClass('text-success').addClass('text-danger')
@@ -372,12 +266,20 @@
                     .text("{{ lang._('Peer status updated.') }}");
             });
         });
-        $('#btnBgpApply').click(function () {
-            birdServiceAction('apply', $(this), function () {
-                peerConfigDirty = false;
-                updateBirdToolbar();
-                openRoutingPeersStatus();
-            });
+
+        function isBgpRoutingTab() {
+            return $('#routing-peers, #routing-filters, #routing-communities').filter('.active').length > 0;
+        }
+
+        function setApplyEndpoint() {
+            var endpoint = isBgpRoutingTab()
+                ? '/api/xray/service/bgpwrite'
+                : '/api/xray/service/reconfigure';
+            $('#reconfigureAct').data('endpoint', endpoint).attr('data-endpoint', endpoint);
+        }
+
+        $('a[data-toggle="tab"]').on('shown.bs.tab', function () {
+            setApplyEndpoint();
         });
 
         $('a[data-toggle="tab"][href^="#routing-"]').on('shown.bs.tab', function (e) {
@@ -398,14 +300,24 @@
             $('.selectpicker').selectpicker('refresh');
         });
 
-        // ── Apply (save general, then reconfigure) ──────────────────
+        // ── Apply: routing tabs → bgpwrite; otherwise save general + reconfigure ──
+        setApplyEndpoint();
         $("#reconfigureAct").SimpleActionButton({
             onPreAction: function () {
                 var dfObj = new $.Deferred();
+                if (isBgpRoutingTab()) {
+                    dfObj.resolve();
+                    return dfObj;
+                }
                 saveFormToEndpoint("/api/xray/general/set", 'frm_general_settings', function () {
                     dfObj.resolve();
                 });
                 return dfObj;
+            },
+            onAction: function () {
+                if (isBgpRoutingTab()) {
+                    openRoutingPeersStatus();
+                }
             }
         });
 

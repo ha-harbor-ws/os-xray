@@ -104,7 +104,7 @@ class BgppeerController extends ApiMutableModelControllerBase
 
     public function applyAction()
     {
-        return $this->birdCmd('bgprestart');
+        return $this->birdCmd('bgpwrite');
     }
 
     public function startBirdAction()

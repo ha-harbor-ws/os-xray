@@ -56,6 +56,24 @@ class ServiceController extends ApiMutableServiceControllerBase
         return ['result' => 'ok', 'message' => $output];
     }
 
+    /**
+     * POST /api/xray/service/bgpwrite — rewrite BIRD includes and birdc configure only.
+     */
+    public function bgpwriteAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+        $output = trim((new Backend())->configdRun('xray bgpwrite'));
+        $failed = $output === ''
+            || stripos($output, 'ERROR') !== false
+            || stripos($output, 'failed') !== false;
+        return [
+            'result'  => $failed ? 'failed' : 'ok',
+            'message' => $output !== '' ? $output : 'No response from configd',
+        ];
+    }
+
     public function statusAction($uuid = '')
     {
         $uuid    = $this->sanitizeUuid((string)$uuid);

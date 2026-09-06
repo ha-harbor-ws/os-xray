@@ -4,7 +4,8 @@
         <section class="col-xs-12">
             <table id="grid-bgppeers"
                    class="table table-condensed table-hover table-striped"
-                   data-editDialog="DialogBgpPeer">
+                   data-editDialog="DialogBgpPeer"
+                   data-editAlert="BgpPeerChangeMessage">
                 <thead>
                     <tr>
                         <th data-column-id="uuid"
@@ -44,7 +45,7 @@
                         <th data-column-id="commands"
                             data-formatter="commands"
                             data-sortable="false"
-                            data-width="11em">{{ lang._('') }}</th>
+                            data-width="7em">{{ lang._('') }}</th>
                     </tr>
                 </thead>
                 <tbody></tbody>
@@ -62,13 +63,8 @@
                     </tr>
                 </tfoot>
             </table>
-            <div id="bgpPeerApplyBox" class="alert alert-warning" style="display: none; margin: 12px 15px;" role="alert">
-                <p style="margin-bottom: 8px;">
-                    {{ lang._('Peer configuration changed. Applying will restart BIRD and reset all BGP sessions.') }}
-                </p>
-                <button id="btnBgpApply" type="button" class="btn btn-primary">
-                    <i class="fa fa-check fa-fw"></i> {{ lang._('Apply') }}
-                </button>
+            <div id="BgpPeerChangeMessage" class="alert alert-info" style="display: none;" role="alert">
+                {{ lang._('Each enabled peer is written to /usr/local/etc/bird and included from bgp.conf.') }}
             </div>
         </section>
     </div>
