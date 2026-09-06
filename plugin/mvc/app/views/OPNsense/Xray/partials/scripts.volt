@@ -134,15 +134,46 @@
             var cls = state === 'disabled' ? 'label-default'
                     : (ok ? 'label-success' : 'label-danger');
             return '<span class="label ' + cls + '" style="font-size:11px;">' + escAttr(state) + '</span> '
-                + '<span style="font-size:11px;">' + escAttr(info.info || '—') + '</span> '
-                + '<span class="label label-info" style="font-size:11px;" title="{{ lang._("Imported prefixes") }}">'
-                + escAttr(String(info.imported != null ? info.imported : 0)) + '</span>';
+                + '<span style="font-size:11px;">' + escAttr(info.info || '—') + '</span>';
+        }
+
+        function peerFamilyEnabled(row, family) {
+            if (!row) {
+                return true;
+            }
+            var v = row[family];
+            return !(v === '0' || v === 0 || v === false);
+        }
+
+        function peerPrefixBadge(info, family, familyOn) {
+            if (!familyOn) {
+                return '<span style="font-size:11px;color:#999;">—</span>';
+            }
+            if (!info) {
+                return '<span class="label label-default" style="font-size:11px;">--</span>';
+            }
+            var n = family === 'ipv6' ? info.imported6 : info.imported4;
+            if (n == null) {
+                n = 0;
+            }
+            return '<span class="label label-info" style="font-size:11px;" title="{{ lang._("Imported prefixes") }}">'
+                + escAttr(String(n)) + '</span>';
         }
 
         function applyPeerStatusToGrid() {
             $('#grid-bgppeers .xray-peer-status-cell').each(function () {
                 var uuid = $(this).data('uuid');
                 $(this).html(peerStatusBadge(peerStatusCache[uuid]));
+            });
+            $('#grid-bgppeers .xray-peer-v4-cell').each(function () {
+                var uuid = $(this).data('uuid');
+                var on = String($(this).data('family-on')) !== '0';
+                $(this).html(peerPrefixBadge(peerStatusCache[uuid], 'ipv4', on));
+            });
+            $('#grid-bgppeers .xray-peer-v6-cell').each(function () {
+                var uuid = $(this).data('uuid');
+                var on = String($(this).data('family-on')) !== '0';
+                $(this).html(peerPrefixBadge(peerStatusCache[uuid], 'ipv6', on));
             });
         }
 
@@ -190,6 +221,18 @@
             toggle: '/api/xray/bgppeer/toggleItem/',
             options: {
                 formatters: {
+                    peerPrefixes4: function (column, row) {
+                        var on = peerFamilyEnabled(row, 'ipv4');
+                        return '<span class="xray-peer-v4-cell" data-uuid="' + escAttr(row.uuid)
+                            + '" data-family-on="' + (on ? '1' : '0') + '">'
+                            + peerPrefixBadge(peerStatusCache[row.uuid], 'ipv4', on) + '</span>';
+                    },
+                    peerPrefixes6: function (column, row) {
+                        var on = peerFamilyEnabled(row, 'ipv6');
+                        return '<span class="xray-peer-v6-cell" data-uuid="' + escAttr(row.uuid)
+                            + '" data-family-on="' + (on ? '1' : '0') + '">'
+                            + peerPrefixBadge(peerStatusCache[row.uuid], 'ipv6', on) + '</span>';
+                    },
                     peerStatus: function (column, row) {
                         return '<span class="xray-peer-status-cell" data-uuid="' + escAttr(row.uuid) + '">'
                             + peerStatusBadge(peerStatusCache[row.uuid]) + '</span>';

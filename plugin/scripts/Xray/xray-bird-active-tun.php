@@ -12,7 +12,7 @@
  *   /usr/local/etc/bird/active_tun_v4.inc
  *   /usr/local/etc/bird/active_tun_v6.inc
  *
- * Вызывается перед service bird start/restart (onestart/onerestart).
+ * При смене TUN вызывается birdc configure (без service bird onerestart).
  */
 
 require_once('config.inc');
@@ -90,6 +90,16 @@ function xray_bird_active_tun_curl(string $listen, int $port, string $ipFlag): a
     return ['ok' => $ok, 'http' => $http, 'time' => $time, 'raw' => $raw];
 }
 
+function xray_bird_active_tun_configure(): void
+{
+    if (function_exists('xray_bird_reload_config')) {
+        xray_bird_reload_config();
+    } elseif (is_executable('/usr/local/sbin/birdc')) {
+        exec('/usr/local/sbin/birdc configure 2>&1');
+    }
+    echo "bird: active tun changed — birdc configure\n";
+}
+
 function xray_bird_active_tun_write(string $file, string $define, string $ifname): void
 {
     $dir = dirname($file);
@@ -105,38 +115,6 @@ function xray_bird_active_tun_write(string $file, string $define, string $ifname
 function xray_bird_active_tun_auto_route_on($general): bool
 {
     return (string)($general->bgp_auto_route ?? '0') === '1';
-}
-
-function xray_bird_active_tun_poll_count($general): int
-{
-    if (!xray_bird_active_tun_auto_route_on($general)) {
-        return 1;
-    }
-    $n = (int)(string)($general->bgp_auto_route_polls ?? 3);
-    if ($n < 1) {
-        return 1;
-    }
-    if ($n > 20) {
-        return 20;
-    }
-    return $n;
-}
-
-/**
- * Несколько curl; среди успешных берётся минимальный time_total.
- * @return array{ok:bool,http:int,time:float,raw:string}
- */
-function xray_bird_active_tun_curl_polls(string $listen, int $port, int $polls, string $ipFlag): array
-{
-    $best = ['ok' => false, 'http' => 0, 'time' => 0.0, 'raw' => ''];
-    for ($i = 1; $i <= $polls; $i++) {
-        $p = xray_bird_active_tun_curl($listen, $port, $ipFlag);
-        echo "  {$ipFlag} poll {$i}/{$polls}: " . ($p['raw'] !== '' ? str_replace("\n", '; ', $p['raw']) : 'Код ответа: 0') . "\n";
-        if ($p['ok'] && (!$best['ok'] || $p['time'] < $best['time'])) {
-            $best = $p;
-        }
-    }
-    return $best;
 }
 
 function xray_bird_active_tun_weight_used($general, string $family): bool
@@ -358,8 +336,7 @@ function xray_bird_autoroute_finalize(array $state, $general, string $reason): v
     $prev6 = xray_bird_active_tun_current(XRAY_BIRD_INC_DIR . '/active_tun_v6.inc', 'ACTIVE_TUN6_IF');
     $res = xray_bird_active_tun_commit($best4, $best6, $prev4, $prev6);
     if (!empty($res['changed'])) {
-        exec('/usr/sbin/service bird onerestart 2>&1');
-        echo "bird: active tun changed — service bird onerestart\n";
+        xray_bird_active_tun_configure();
     }
 }
 
@@ -482,7 +459,8 @@ function xray_bird_autoroute_tick(): void
 }
 
 /**
- * Старт/рестарт BIRD: все попытки подряд в одном запуске, минимум time_total.
+ * Старт BIRD / Enable BGP Apply: по одному curl на семейство.
+ * Серия попыток Auto route сюда не входит — только cron.
  *
  * @return array{ok:bool, changed:bool}
  */
@@ -499,7 +477,6 @@ function xray_bird_select_and_write_active_tun(): array
         return ['ok' => false, 'changed' => false];
     }
 
-    $polls      = xray_bird_active_tun_poll_count($general);
     $useWeight4 = xray_bird_active_tun_weight_used($general, 'ipv4');
     $useWeight6 = xray_bird_active_tun_weight_used($general, 'ipv6');
     $prev4        = xray_bird_active_tun_current(XRAY_BIRD_INC_DIR . '/active_tun_v4.inc', 'ACTIVE_TUN4_IF');
@@ -540,7 +517,7 @@ function xray_bird_select_and_write_active_tun(): array
         $w4     = xray_bird_active_tun_weight($inst->weight_ipv4 ?? 1);
         $w6     = xray_bird_active_tun_weight($inst->weight_ipv6 ?? 1);
 
-        echo "active tun [{$name}] {$tun} socks {$listen}:{$port} weight4={$w4} weight6={$w6} polls={$polls}\n";
+        echo "active tun [{$name}] {$tun} socks {$listen}:{$port} weight4={$w4} weight6={$w6}\n";
 
         $base = [
             'uuid'      => $uuid,
@@ -550,14 +527,16 @@ function xray_bird_select_and_write_active_tun(): array
             'weight_v6' => $w6,
         ];
         if ($use4) {
-            $probe4 = xray_bird_active_tun_curl_polls($listen, $port, $polls, '-4');
+            $probe4 = xray_bird_active_tun_curl($listen, $port, '-4');
+            echo "  -4: " . ($probe4['raw'] !== '' ? str_replace("\n", '; ', $probe4['raw']) : 'Код ответа: 0') . "\n";
             if ($probe4['ok']) {
                 echo "  best -4: Код ответа: {$probe4['http']}; Время ответа: {$probe4['time']} сек\n";
                 $v4ok[] = $base + ['time' => $probe4['time']];
             }
         }
         if ($use6) {
-            $probe6 = xray_bird_active_tun_curl_polls($listen, $port, $polls, '-6');
+            $probe6 = xray_bird_active_tun_curl($listen, $port, '-6');
+            echo "  -6: " . ($probe6['raw'] !== '' ? str_replace("\n", '; ', $probe6['raw']) : 'Код ответа: 0') . "\n";
             if ($probe6['ok']) {
                 echo "  best -6: Код ответа: {$probe6['http']}; Время ответа: {$probe6['time']} сек\n";
                 $v6ok[] = $base + ['time' => $probe6['time']];
@@ -577,8 +556,7 @@ if (count(debug_backtrace()) === 0) {
     } else {
         $sel = xray_bird_select_and_write_active_tun();
         if (!empty($sel['changed'])) {
-            exec('/usr/sbin/service bird onerestart 2>&1');
-            echo "bird: active tun changed — service bird onerestart\n";
+            xray_bird_active_tun_configure();
         }
     }
 }

@@ -107,21 +107,6 @@ class BgppeerController extends ApiMutableModelControllerBase
         return $this->birdCmd('bgpwrite');
     }
 
-    public function startBirdAction()
-    {
-        return $this->birdCmd('birdstart');
-    }
-
-    public function stopBirdAction()
-    {
-        return $this->birdCmd('birdstop');
-    }
-
-    public function restartBirdAction()
-    {
-        return $this->birdCmd('birdrestart');
-    }
-
     public function getItemAction($uuid = null)
     {
         return $this->getBase('peer', 'peer', $uuid);

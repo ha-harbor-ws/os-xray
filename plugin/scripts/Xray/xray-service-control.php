@@ -798,8 +798,11 @@ function xray_bird_gated_start(string $verb): bool
         return false;
     }
     if (!empty($sel['changed'])) {
-        xray_bird_service('onerestart');
-        echo "bird: active tun changed — service bird onerestart\n";
+        echo "bird: active tun changed — birdc configure\n";
+        if ($verb === 'start' || $verb === 'onestart') {
+            xray_bird_service($verb);
+        }
+        xray_bird_reload_config();
         return true;
     }
     xray_bird_service($verb);
@@ -999,29 +1002,6 @@ switch ($action) {
 
     case 'bgprestart':
         xray_bird_write_peers();
-        if (!xray_bird_gated_start('onerestart')) {
-            echo "ERROR: BIRD not restarted — no tun2socks with HTTP success\n";
-            exit(1);
-        }
-        echo "OK\n";
-        break;
-
-    case 'birdstart':
-        xray_bird_write_direct_ifs();
-        if (!xray_bird_gated_start('onestart')) {
-            echo "ERROR: BIRD not started — no tun2socks with HTTP success\n";
-            exit(1);
-        }
-        echo "OK\n";
-        break;
-
-    case 'birdstop':
-        xray_bird_service('onestop');
-        echo "OK\n";
-        break;
-
-    case 'birdrestart':
-        xray_bird_write_direct_ifs();
         if (!xray_bird_gated_start('onerestart')) {
             echo "ERROR: BIRD not restarted — no tun2socks with HTTP success\n";
             exit(1);

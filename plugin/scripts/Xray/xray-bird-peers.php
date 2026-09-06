@@ -1020,19 +1020,24 @@ function xray_birdc_query(string $query): string
 
 function xray_parse_birdc_protocols_all(string $text): array
 {
-    $result = [];
-    $cur    = null;
+    $result  = [];
+    $cur     = null;
+    $channel = null;
     foreach (preg_split("/\r\n|\n|\r/", $text) as $line) {
         if (preg_match('/^(\S+)\s+BGP\s+\S+\s+(\S+)\s+(\S+)\s*(.*)$/', $line, $m)) {
             if (strcasecmp($m[1], 'Name') === 0) {
-                $cur = null;
+                $cur     = null;
+                $channel = null;
                 continue;
             }
-            $cur = $m[1];
+            $cur     = $m[1];
+            $channel = null;
             $result[$cur] = [
-                'state'    => $m[2],
-                'info'     => trim($m[4]),
-                'imported' => 0,
+                'state'     => $m[2],
+                'info'      => trim($m[4]),
+                'imported'  => 0,
+                'imported4' => 0,
+                'imported6' => 0,
             ];
             continue;
         }
@@ -1040,15 +1045,30 @@ function xray_parse_birdc_protocols_all(string $text): array
             continue;
         }
         if (preg_match('/^\S+\s+(Device|Direct|Kernel|Pipe|RPKI|Static|Babel|OSPF|RIP|BFD)\s+/', $line)) {
-            $cur = null;
+            $cur     = null;
+            $channel = null;
             continue;
         }
         if (preg_match('/^\s+BGP state:\s+(.+)$/', $line, $sm)) {
             $result[$cur]['info'] = trim($sm[1]);
             continue;
         }
+        if (preg_match('/^\s+Channel\s+ipv4\b/i', $line)) {
+            $channel = 'ipv4';
+            continue;
+        }
+        if (preg_match('/^\s+Channel\s+ipv6\b/i', $line)) {
+            $channel = 'ipv6';
+            continue;
+        }
         if (preg_match('/^\s+Routes:\s+(\d+)\s+imported/', $line, $rm)) {
-            $result[$cur]['imported'] += (int)$rm[1];
+            $n = (int)$rm[1];
+            $result[$cur]['imported'] += $n;
+            if ($channel === 'ipv6') {
+                $result[$cur]['imported6'] += $n;
+            } else {
+                $result[$cur]['imported4'] += $n;
+            }
         }
     }
     return $result;
@@ -1083,20 +1103,26 @@ function xray_bgp_peers_runtime_status(): array
         $proto   = $names[$uuid] ?? '';
         $enabled = ($p['enabled'] ?? '0') === '1';
         $row     = [
-            'name'     => (string)($p['name'] ?? ''),
-            'proto'    => $proto,
-            'enabled'  => $enabled,
-            'state'    => '—',
-            'info'     => '—',
-            'imported' => 0,
+            'name'      => (string)($p['name'] ?? ''),
+            'proto'     => $proto,
+            'enabled'   => $enabled,
+            'ipv4'      => ($p['ipv4'] ?? '0') === '1',
+            'ipv6'      => ($p['ipv6'] ?? '0') === '1',
+            'state'     => '—',
+            'info'      => '—',
+            'imported'  => 0,
+            'imported4' => 0,
+            'imported6' => 0,
         ];
         if (!$enabled) {
             $row['state'] = 'disabled';
             $row['info']  = 'not in BIRD config';
         } elseif ($proto !== '' && isset($live[$proto])) {
-            $row['state']    = $live[$proto]['state'];
-            $row['info']     = $live[$proto]['info'] !== '' ? $live[$proto]['info'] : '—';
-            $row['imported'] = $live[$proto]['imported'];
+            $row['state']     = $live[$proto]['state'];
+            $row['info']      = $live[$proto]['info'] !== '' ? $live[$proto]['info'] : '—';
+            $row['imported']  = $live[$proto]['imported'];
+            $row['imported4'] = $live[$proto]['imported4'] ?? 0;
+            $row['imported6'] = $live[$proto]['imported6'] ?? 0;
         } else {
             $row['state'] = 'down';
             $row['info']  = 'not in BIRD';
