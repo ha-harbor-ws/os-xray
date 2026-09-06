@@ -21,7 +21,6 @@ class BgpfilterController extends ApiMutableModelControllerBase
             'name',
             'community',
             'family',
-            'reject_default',
         ]);
         if (!empty($response['rows'])) {
             $names = [];

@@ -63,21 +63,72 @@ xray_shell_fill_wan_bird() {
     else
         warn "WAN IPv4 not found for router id"
     fi
-    for _peer in refilter antifilter_download antifilter_network; do
-        _f="/usr/local/etc/bird/peer_${_peer}.inc"
-        [ -f "$_f" ] || _f="/usr/local/etc/bird/${_peer}.inc"
-        [ -f "$_f" ] || continue
-        _src="$_v4"
-        [ -n "$_src" ] || continue
-        if grep -q 'source address' "$_f"; then
-            sed -i '' -e "s|^[[:space:]]*#*[[:space:]]*source address .*|    source address ${_src};|" "$_f"
+}
+
+xray_write_bird_log_configs() {
+    install -d -m 0755 /var/log/bird
+    install -d -m 0755 /usr/local/etc/syslog-ng.conf.d
+    install -d -m 0755 /usr/local/etc/newsyslog.conf.d
+    if [ ! -f /var/log/bird/bird.log ]; then
+        : > /var/log/bird/bird.log
+        chmod 0640 /var/log/bird/bird.log
+    fi
+
+    cat > /usr/local/etc/syslog-ng.conf.d/bird.conf << 'EOF'
+# BIRD logs (os-xray): bird.conf uses "log syslog all;"
+destination d_bird {
+    file("/var/log/bird/bird.log"
+         owner("root")
+         group("wheel")
+         perm(0640)
+         create-dirs(yes)
+    );
+};
+
+filter f_bird {
+    program("^bird");
+};
+
+log {
+    source(s_all);
+    filter(f_bird);
+    destination(d_bird);
+    flags(final);
+};
+EOF
+    chmod 0644 /usr/local/etc/syslog-ng.conf.d/bird.conf
+
+    # logfile owner:group mode count size when flags pid
+    # when=-  no time rotation; size=1000 KB; count=7; J=bzip2; C=create if missing
+    cat > /usr/local/etc/newsyslog.conf.d/bird.conf << 'EOF'
+# newsyslog rotation for BIRD (os-xray)
+# count=7  size=1000KB  when=- (size only)  JC (bzip2 + create)
+/var/log/bird/bird.log		root:wheel	640	7	1000	-	JC	/var/run/syslog-ng.pid
+EOF
+    chmod 0644 /usr/local/etc/newsyslog.conf.d/bird.conf
+}
+
+xray_remove_bird_log_configs() {
+    rm -f /usr/local/etc/syslog-ng.conf.d/bird.conf
+    rm -f /usr/local/etc/newsyslog.conf.d/bird.conf
+}
+
+xray_restart_bird_log_services() {
+    echo "==> Restarting syslog-ng and BIRD..."
+    if service syslog-ng restart >/dev/null 2>&1; then
+        echo "[OK]  syslog-ng restarted"
+    else
+        warn "syslog-ng restart failed"
+    fi
+    if service bird onestatus >/dev/null 2>&1; then
+        if service bird onerestart >/dev/null 2>&1; then
+            echo "[OK]  bird restarted"
         else
-            sed -i '' -e "/neighbor /a\\
-    source address ${_src};
-" "$_f"
+            warn "bird restart failed"
         fi
-        echo "[OK]  $_f source address ${_src}"
-    done
+    else
+        echo "[INFO] bird is not running, skip restart"
+    fi
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -103,6 +154,9 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/opnsense/scripts/Xray/xray-watchdog.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-ifstats.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-peers.php
+    rm -f  /usr/local/opnsense/scripts/Xray/xray-log.php
+    rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-log.php
+    rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-loglevel.php
     rmdir  /usr/local/opnsense/scripts/Xray 2>/dev/null || true
     # BUG-11: удаляем конфиг ротации логов newsyslog
     rm -f  /etc/newsyslog.conf.d/xray.conf
@@ -147,6 +201,11 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/etc/bird/community_antifilter_download.inc
     rm -f  /usr/local/etc/bird/community_antifilter_network.inc
     rm -f  /usr/local/etc/bird/.xray-bgp-generated
+    rm -f  /usr/local/etc/bird/direct_ifs.inc
+
+    echo "==> Removing BIRD syslog-ng / newsyslog configs..."
+    xray_remove_bird_log_configs
+    xray_restart_bird_log_services
 
     echo "==> Restarting configd..."
     service configd restart
@@ -621,6 +680,10 @@ else
     fi
 fi
 
+echo "==> Creating BIRD log directory and syslog-ng / newsyslog configs..."
+xray_write_bird_log_configs
+echo "[OK]  /var/log/bird  /usr/local/etc/syslog-ng.conf.d/bird.conf  /usr/local/etc/newsyslog.conf.d/bird.conf"
+
 echo "==> Installing bird.conf from git (${REPO_BRANCH})..."
 if [ -f "$BIRD_CONF_SRC" ]; then
     install -m 0644 "$BIRD_CONF_SRC" "$BIRD_CONF_DST"
@@ -678,28 +741,7 @@ for _PEER in filters router_id communities; do
     fi
 done
 
-if ! install_bird_inc peer_refilter refilter; then
-    warn "Failed to install peer_refilter.inc"
-fi
-if ! install_bird_inc peer_antifilter_download antifilter_download; then
-    warn "Failed to install peer_antifilter_download.inc"
-fi
-if ! install_bird_inc peer_antifilter_network antifilter_network; then
-    warn "Failed to install peer_antifilter_network.inc"
-fi
-
-if ! install_bird_inc filter_refilter filter_accept_refilter accept_refilter; then
-    warn "Failed to install filter_refilter.inc"
-fi
-if ! install_bird_inc filter_antifilter_download filter_accept_antifilter_download accept_antifilter_download; then
-    warn "Failed to install filter_antifilter_download.inc"
-fi
-if ! install_bird_inc filter_antifilter_network_v4 filter_accept_antifilter_network_v4 accept_antifilter_network_v4; then
-    warn "Failed to install filter_antifilter_network_v4.inc"
-fi
-if ! install_bird_inc filter_antifilter_network_v6 filter_accept_antifilter_network_v6 accept_antifilter_network_v6; then
-    warn "Failed to install filter_antifilter_network_v6.inc"
-fi
+echo "[INFO] peer/filter/community .inc files are generated from config.xml after seed."
 rm -f "$BIRD_INC_DIR/refilter.inc" \
       "$BIRD_INC_DIR/antifilter_download.inc" \
       "$BIRD_INC_DIR/antifilter_network.inc" \
@@ -712,26 +754,20 @@ rm -f "$BIRD_INC_DIR/refilter.inc" \
       "$BIRD_INC_DIR/filter_accept_antifilter_network_v4.inc" \
       "$BIRD_INC_DIR/filter_accept_antifilter_network_v6.inc"
 
-if ! install_bird_inc community_ANTIFILTER_DOWNLOAD community_antifilter_download; then
-    printf '%s\n' 'define community_ANTIFILTER_DOWNLOAD = [ (65432, 500) ];' \
-        > "$BIRD_INC_DIR/community_ANTIFILTER_DOWNLOAD.inc"
-    chmod 0644 "$BIRD_INC_DIR/community_ANTIFILTER_DOWNLOAD.inc"
-    echo "[OK]  $BIRD_INC_DIR/community_ANTIFILTER_DOWNLOAD.inc (from original bird.conf)"
-fi
-if ! install_bird_inc community_ANTIFILTER_NETWORK community_antifilter_network; then
-    printf '%s\n' 'define community_ANTIFILTER_NETWORK = [ (65444, 120), (65444, 200), (65444, 210), (65444, 700), (65444, 710), (65444, 720), (65444, 730), (65444, 740), (65444, 750), (65444, 760), (65444, 770), (65444, 780), (65444, 790), (65444, 800) ];' \
-        > "$BIRD_INC_DIR/community_ANTIFILTER_NETWORK.inc"
-    chmod 0644 "$BIRD_INC_DIR/community_ANTIFILTER_NETWORK.inc"
-    echo "[OK]  $BIRD_INC_DIR/community_ANTIFILTER_NETWORK.inc (from original bird.conf)"
-fi
-
 if [ ! -f "$BIRD_INC_DIR/communities.inc" ]; then
-    printf '%s\n' '# BGP community defines from original bird.conf' \
-        'include "/usr/local/etc/bird/community_ANTIFILTER_DOWNLOAD.inc";' \
-        'include "/usr/local/etc/bird/community_ANTIFILTER_NETWORK.inc";' \
+    printf '%s\n' '# generated by os-xray — BGP community defines from config.xml' \
         > "$BIRD_INC_DIR/communities.inc"
     chmod 0644 "$BIRD_INC_DIR/communities.inc"
-    echo "[OK]  $BIRD_INC_DIR/communities.inc (fallback)"
+    echo "[OK]  $BIRD_INC_DIR/communities.inc (empty stub)"
+fi
+
+if [ ! -f "$BIRD_INC_DIR/direct_ifs.inc" ]; then
+    printf '%s\n' '# generated by os-xray — protocol direct interfaces' \
+        'interface "wan";' > "$BIRD_INC_DIR/direct_ifs.inc"
+    chmod 0644 "$BIRD_INC_DIR/direct_ifs.inc"
+    echo "[OK]  $BIRD_INC_DIR/direct_ifs.inc"
+else
+    echo "[SKIP] $BIRD_INC_DIR/direct_ifs.inc already exists"
 fi
 
 if [ ! -f "$BIRD_INC_DIR/active_tun_v4.inc" ]; then
@@ -1255,10 +1291,10 @@ if (!isset($xray->bgpcommunities)) {
 $networkComm = '65444:120, 65444:200, 65444:210, 65444:700, 65444:710, 65444:720, 65444:730, 65444:740, 65444:750, 65444:760, 65444:770, 65444:780, 65444:790, 65444:800';
 $changed = false;
 $changed = xray_seed_array_if_empty($xray->bgpfilters, 'filter', [
-    ['enabled' => '1', 'name' => 'filter_refilter', 'community' => '', 'family' => 'ipv4', 'reject_default' => '1', 'tun_if' => 'ACTIVE_TUN4_IF'],
-    ['enabled' => '1', 'name' => 'filter_antifilter_download', 'community' => 'community_ANTIFILTER_DOWNLOAD', 'family' => 'ipv4', 'reject_default' => '1', 'tun_if' => 'ACTIVE_TUN4_IF'],
-    ['enabled' => '1', 'name' => 'filter_antifilter_network_v4', 'community' => 'community_ANTIFILTER_NETWORK', 'family' => 'ipv4', 'reject_default' => '1', 'tun_if' => 'ACTIVE_TUN4_IF'],
-    ['enabled' => '1', 'name' => 'filter_antifilter_network_v6', 'community' => 'community_ANTIFILTER_NETWORK', 'family' => 'ipv6', 'reject_default' => '1', 'tun_if' => 'ACTIVE_TUN6_IF'],
+    ['enabled' => '1', 'name' => 'filter_refilter', 'community' => '', 'family' => 'ipv4', 'tun_if' => 'ACTIVE_TUN4_IF'],
+    ['enabled' => '1', 'name' => 'filter_antifilter_download', 'community' => 'community_ANTIFILTER_DOWNLOAD', 'family' => 'ipv4', 'tun_if' => 'ACTIVE_TUN4_IF'],
+    ['enabled' => '1', 'name' => 'filter_antifilter_network_v4', 'community' => 'community_ANTIFILTER_NETWORK', 'family' => 'ipv4', 'tun_if' => 'ACTIVE_TUN4_IF'],
+    ['enabled' => '1', 'name' => 'filter_antifilter_network_v6', 'community' => 'community_ANTIFILTER_NETWORK', 'family' => 'ipv6', 'tun_if' => 'ACTIVE_TUN6_IF'],
 ]) || $changed;
 $changed = xray_seed_array_if_empty($xray->bgpcommunities, 'community', [
     ['enabled' => '1', 'name' => 'community_ANTIFILTER_DOWNLOAD', 'communities' => '65432:500'],
@@ -1301,6 +1337,29 @@ else
     warn "BGP filter/community seed failed."
 fi
 
+echo ""
+echo "==> Writing BIRD includes for enabled peers/filters/communities only..."
+_BIRD_INC_OK=$(php << 'PHPEOF'
+<?php
+set_include_path('/usr/local/etc/inc' . PATH_SEPARATOR . get_include_path());
+@require_once('config.inc');
+$script = '/usr/local/opnsense/scripts/Xray/xray-bird-peers.php';
+if (!is_readable($script)) { echo "SKIP"; exit(0); }
+require_once $script;
+if (!function_exists('xray_bird_write_peers')) { echo "SKIP"; exit(0); }
+xray_bird_write_peers();
+if (function_exists('xray_bird_reload_config')) {
+    xray_bird_reload_config();
+}
+echo "OK";
+PHPEOF
+) || true
+if [ "$_BIRD_INC_OK" = "OK" ]; then
+    echo "[OK]  Regenerated bgp.conf / filters.inc / communities.inc from GUI enabled flags."
+else
+    echo "[INFO] BIRD include rewrite: ${_BIRD_INC_OK:-empty}"
+fi
+
 if ! grep -q '^router id [0-9]' /usr/local/etc/bird/router_id.inc 2>/dev/null; then
     echo "==> WAN addresses still empty, filling from ifconfig/route..."
     xray_shell_fill_wan_bird
@@ -1310,6 +1369,7 @@ fi
 echo ""
 echo "==> Step 5: Restarting configd..."
 service configd restart
+xray_restart_bird_log_services
 
 # ── Шаг 6: Очистка кешей ──────────────────────────────────────────────────────
 echo ""

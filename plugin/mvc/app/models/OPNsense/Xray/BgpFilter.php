@@ -15,7 +15,6 @@ class BgpFilter extends BaseModel
                 'name'           => 'filter_refilter',
                 'community'      => '',
                 'family'         => 'ipv4',
-                'reject_default' => '1',
                 'tun_if'         => 'ACTIVE_TUN4_IF',
             ],
             [
@@ -23,7 +22,6 @@ class BgpFilter extends BaseModel
                 'name'           => 'filter_antifilter_download',
                 'community'      => 'community_ANTIFILTER_DOWNLOAD',
                 'family'         => 'ipv4',
-                'reject_default' => '1',
                 'tun_if'         => 'ACTIVE_TUN4_IF',
             ],
             [
@@ -31,7 +29,6 @@ class BgpFilter extends BaseModel
                 'name'           => 'filter_antifilter_network_v4',
                 'community'      => 'community_ANTIFILTER_NETWORK',
                 'family'         => 'ipv4',
-                'reject_default' => '1',
                 'tun_if'         => 'ACTIVE_TUN4_IF',
             ],
             [
@@ -39,7 +36,6 @@ class BgpFilter extends BaseModel
                 'name'           => 'filter_antifilter_network_v6',
                 'community'      => 'community_ANTIFILTER_NETWORK',
                 'family'         => 'ipv6',
-                'reject_default' => '1',
                 'tun_if'         => 'ACTIVE_TUN6_IF',
             ],
         ];

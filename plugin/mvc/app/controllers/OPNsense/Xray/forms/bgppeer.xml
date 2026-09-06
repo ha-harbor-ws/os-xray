@@ -7,7 +7,7 @@
         <id>peer.enabled</id>
         <label>Enabled</label>
         <type>checkbox</type>
-        <help>Include this peer in BIRD. Disabled peers are not written into the active include list until you click Apply (BIRD restart).</help>
+        <help>When enabled, this peer is included in BIRD (bgp.conf). Start/Stop in the table toggles this flag, rewrites includes, then restarts BIRD.</help>
     </field>
     <field>
         <id>peer.name</id>

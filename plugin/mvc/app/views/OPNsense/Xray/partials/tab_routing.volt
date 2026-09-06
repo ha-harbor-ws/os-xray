@@ -99,9 +99,6 @@
                         <th data-column-id="family"
                             data-width="6em"
                             data-type="string">{{ lang._('Family') }}</th>
-                        <th data-column-id="reject_default"
-                            data-width="8em"
-                            data-type="string">{{ lang._('Reject default') }}</th>
                         <th data-column-id="commands"
                             data-formatter="commands"
                             data-sortable="false"

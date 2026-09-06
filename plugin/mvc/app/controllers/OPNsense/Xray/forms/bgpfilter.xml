@@ -22,13 +22,7 @@
         <id>filter.family</id>
         <label>Address family</label>
         <type>dropdown</type>
-        <help>Selects default-route match (0.0.0.0/0 or ::/0) and the TUN define shown in Interface.</help>
-    </field>
-    <field>
-        <id>filter.reject_default</id>
-        <label>Reject default route</label>
-        <type>checkbox</type>
-        <help>Reject 0.0.0.0/0 (IPv4) or ::/0 (IPv6) before accepting other prefixes.</help>
+        <help>IPv4 or IPv6. The filter always rejects the default route first (0.0.0.0/0 for IPv4, ::/0 for IPv6) before accepting other prefixes, and sets Interface to ACTIVE_TUN4_IF or ACTIVE_TUN6_IF.</help>
     </field>
     <field>
         <id>filter.tun_if</id>

@@ -83,18 +83,12 @@ class BgppeerController extends ApiMutableModelControllerBase
 
     public function startItemAction($uuid)
     {
-        if (!$this->request->isPost()) {
-            return ['result' => 'failed', 'message' => 'POST required'];
-        }
-        return $this->toggleBase('peer', $uuid, '1');
+        return $this->setPeerEnabledAndReload($uuid, '1');
     }
 
     public function stopItemAction($uuid)
     {
-        if (!$this->request->isPost()) {
-            return ['result' => 'failed', 'message' => 'POST required'];
-        }
-        return $this->toggleBase('peer', $uuid, '0');
+        return $this->setPeerEnabledAndReload($uuid, '0');
     }
 
     public function statusAllAction()
@@ -130,47 +124,50 @@ class BgppeerController extends ApiMutableModelControllerBase
 
     public function getItemAction($uuid = null)
     {
-        $result = $this->getBase('peer', 'peer', $uuid);
-        if (($uuid === null || $uuid === '') && isset($result['peer']) && is_array($result['peer'])) {
-            $defaults = $this->defaultsFromBgpConf();
-            foreach ($defaults as $key => $value) {
-                if ($key === 'ipv4_import' || $key === 'ipv6_import') {
-                    continue;
-                }
-                if (!array_key_exists($key, $result['peer'])) {
-                    continue;
-                }
-                $cur = $result['peer'][$key];
-                if (is_array($cur) && array_key_exists('value', $cur)) {
-                    $cur['value'] = $value;
-                    if (isset($cur['selected'])) {
-                        $cur['selected'] = $value;
-                    }
-                    $result['peer'][$key] = $cur;
-                    continue;
-                }
-                if (is_array($cur)) {
-                    continue;
-                }
-                $result['peer'][$key] = $value;
-            }
-        }
-        return $result;
+        return $this->getBase('peer', 'peer', $uuid);
     }
 
     public function addItemAction()
     {
-        return $this->addBase('peer', 'peer');
+        $result = $this->addBase('peer', 'peer');
+        $this->syncBirdFiles();
+        return $result;
     }
 
     public function setItemAction($uuid)
     {
-        return $this->setBase('peer', 'peer', $uuid);
+        $result = $this->setBase('peer', 'peer', $uuid);
+        $this->syncBirdFiles();
+        return $result;
     }
 
     public function delItemAction($uuid)
     {
-        return $this->delBase('peer', $uuid);
+        $result = $this->delBase('peer', $uuid);
+        $this->syncBirdFiles();
+        return $result;
+    }
+
+    private function syncBirdFiles(): void
+    {
+        (new Backend())->configdRun('xray bgpwrite');
+    }
+
+    private function setPeerEnabledAndReload($uuid, string $enabled): array
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+        $result = $this->toggleBase('peer', $uuid, $enabled);
+        if (($result['result'] ?? '') === 'failed') {
+            return $result;
+        }
+        $bird = $this->birdCmd('bgprestart');
+        if (($bird['result'] ?? '') === 'failed') {
+            $result['result'] = 'failed';
+            $result['message'] = $bird['message'] ?? 'Failed to rewrite includes and restart BIRD';
+        }
+        return $result;
     }
 
     private function birdCmd(string $action): array
@@ -186,18 +183,5 @@ class BgppeerController extends ApiMutableModelControllerBase
             'result'  => $failed ? 'failed' : 'ok',
             'message' => $output !== '' ? $output : 'No response from configd',
         ];
-    }
-
-    private function defaultsFromBgpConf(): array
-    {
-        $script = '/usr/local/opnsense/scripts/Xray/xray-bird-peers.php';
-        if (!is_readable($script)) {
-            return [];
-        }
-        require_once $script;
-        if (!function_exists('xray_bgp_conf_default_peer')) {
-            return [];
-        }
-        return xray_bgp_conf_default_peer();
     }
 }

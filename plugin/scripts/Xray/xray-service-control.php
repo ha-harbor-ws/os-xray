@@ -800,18 +800,18 @@ function xray_bird_sync(): void
     xray_bird_write_peers();
     if (!xray_bgp_enabled()) {
         xray_sysrc_bird_enable(false);
-        xray_bird_service('onestop');
+        xray_bird_service('stop');
         echo "bird sync: BGP off, bird_enable=NO, stopped\n";
         return;
     }
     xray_sysrc_bird_enable(true);
     if (xray_any_tun2socks_running()) {
-        xray_bird_service('onestart');
+        xray_bird_service('start');
         xray_bird_reload_config();
         echo "bird sync: BGP on, tun2socks up, bird started\n";
         return;
     }
-    xray_bird_service('onestop');
+    xray_bird_service('stop');
     echo "bird sync: BGP on, no tun2socks, bird stopped\n";
 }
 
@@ -954,23 +954,24 @@ switch ($action) {
 
     case 'bgprestart':
         xray_bird_write_peers();
-        xray_bird_service('restart');
+        xray_bird_service('onerestart');
         echo "OK\n";
         break;
 
     case 'birdstart':
-        xray_bird_write_peers();
-        xray_bird_service('start');
+        xray_bird_write_direct_ifs();
+        xray_bird_service('onestart');
         echo "OK\n";
         break;
 
     case 'birdstop':
-        xray_bird_service('stop');
+        xray_bird_service('onestop');
         echo "OK\n";
         break;
 
     case 'birdrestart':
-        xray_bird_service('restart');
+        xray_bird_write_direct_ifs();
+        xray_bird_service('onerestart');
         echo "OK\n";
         break;
 

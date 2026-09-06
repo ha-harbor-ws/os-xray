@@ -237,10 +237,18 @@
                 url: '/api/xray/bgppeer/' + action + '/' + encodeURIComponent(uuid),
                 type: 'POST',
                 dataType: 'json',
+                success: function (data) {
+                    if (data && data.result === 'failed') {
+                        alert('{{ lang._("Action failed:") }} ' + (data.message || 'unknown error'));
+                    }
+                },
+                error: function (xhr) {
+                    alert('{{ lang._("HTTP error:") }} ' + xhr.status);
+                },
                 complete: function () {
                     $btns.prop('disabled', false);
                     $('#grid-bgppeers').bootgrid('reload');
-                    markPeerConfigDirty();
+                    openRoutingPeersStatus();
                 }
             });
         }
@@ -735,12 +743,12 @@
             loadDiagnostics();
         });
         $('#logInstanceSelect').on('change', function () {
-            loadLog("/api/xray/service/xraylog", 'logCoreContent', 'logCoreRefreshBtn');
+            loadLog("/api/xray/service/xraylog", 'logCoreContent', 'logCoreRefreshBtn', true);
         });
 
         // ── Logs ────────────────────────────────────────────────────
-        function loadLog(apiEndpoint, preId, btnId) {
-            var uuid = $('#logInstanceSelect').val();
+        function loadLog(apiEndpoint, preId, btnId, withUuid) {
+            var uuid = withUuid ? $('#logInstanceSelect').val() : '';
             var apiEndpointWithUuid = apiEndpoint + (uuid ? '/' + encodeURIComponent(uuid) : '');
             $('#' + btnId).prop('disabled', true);
             $('#' + preId).text("{{ lang._('Loading...') }}");
@@ -760,26 +768,68 @@
             var $active = $('#logSubTabs .active a');
             var href = $active.attr('href');
             if (href === '#logBoot') {
-                loadLog("/api/xray/service/log", 'logBootContent', 'logBootRefreshBtn');
+                loadLog("/api/xray/service/log", 'logBootContent', 'logBootRefreshBtn', false);
             } else if (href === '#logCore') {
-                loadLog("/api/xray/service/xraylog", 'logCoreContent', 'logCoreRefreshBtn');
+                loadLog("/api/xray/service/xraylog", 'logCoreContent', 'logCoreRefreshBtn', true);
+            } else if (href === '#logBird') {
+                loadBirdLogLevel();
+                loadLog("/api/xray/service/birdlog", 'logBirdContent', 'logBirdRefreshBtn', false);
             }
         });
 
         $('#logSubTabs a').on('shown.bs.tab', function (e) {
             var href = $(e.target).attr('href');
             if (href === '#logBoot') {
-                loadLog("/api/xray/service/log", 'logBootContent', 'logBootRefreshBtn');
+                loadLog("/api/xray/service/log", 'logBootContent', 'logBootRefreshBtn', false);
             } else if (href === '#logCore') {
-                loadLog("/api/xray/service/xraylog", 'logCoreContent', 'logCoreRefreshBtn');
+                loadLog("/api/xray/service/xraylog", 'logCoreContent', 'logCoreRefreshBtn', true);
+            } else if (href === '#logBird') {
+                loadBirdLogLevel();
+                loadLog("/api/xray/service/birdlog", 'logBirdContent', 'logBirdRefreshBtn', false);
             }
         });
 
         $("#logBootRefreshBtn").click(function () {
-            loadLog("/api/xray/service/log", 'logBootContent', 'logBootRefreshBtn');
+            loadLog("/api/xray/service/log", 'logBootContent', 'logBootRefreshBtn', false);
         });
         $("#logCoreRefreshBtn").click(function () {
-            loadLog("/api/xray/service/xraylog", 'logCoreContent', 'logCoreRefreshBtn');
+            loadLog("/api/xray/service/xraylog", 'logCoreContent', 'logCoreRefreshBtn', true);
+        });
+        $("#logBirdRefreshBtn").click(function () {
+            loadLog("/api/xray/service/birdlog", 'logBirdContent', 'logBirdRefreshBtn', false);
+        });
+
+        function loadBirdLogLevel() {
+            ajaxGet('/api/xray/service/birdloglevel', {}, function (data) {
+                var level = (data && data.level) ? data.level : 'warning';
+                $('#logBirdLevelSelect').val(level);
+            });
+        }
+
+        $('#logBirdLevelSelect').on('change', function () {
+            var level = $(this).val();
+            var $sel = $(this).prop('disabled', true);
+            $.ajax({
+                url: '/api/xray/service/birdloglevel',
+                type: 'POST',
+                dataType: 'json',
+                data: { level: level },
+                success: function (data) {
+                    if (data && data.result === 'failed') {
+                        alert('{{ lang._("Failed to set BIRD log class:") }} ' + (data.message || 'unknown error'));
+                        loadBirdLogLevel();
+                        return;
+                    }
+                    loadLog("/api/xray/service/birdlog", 'logBirdContent', 'logBirdRefreshBtn', false);
+                },
+                error: function (xhr) {
+                    alert('{{ lang._("HTTP error:") }} ' + xhr.status);
+                    loadBirdLogLevel();
+                },
+                complete: function () {
+                    $sel.prop('disabled', false);
+                }
+            });
         });
 
         // ── Copy Debug Info ─────────────────────────────────────────

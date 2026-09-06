@@ -161,6 +161,47 @@ class ServiceController extends ApiMutableServiceControllerBase
         return ['log' => $output];
     }
 
+    public function birdlogAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+        $output = (new Backend())->configdRun('xray birdlog');
+        return ['log' => $output];
+    }
+
+    public function birdloglevelAction()
+    {
+        $backend = new Backend();
+        if ($this->request->isPost()) {
+            $level = strtolower(trim((string)$this->request->getPost('level', 'string', '')));
+            if ($level === '') {
+                $json = $this->request->getJsonRawBody();
+                if (is_object($json) && isset($json->level)) {
+                    $level = strtolower(trim((string)$json->level));
+                } elseif (is_array($json) && isset($json['level'])) {
+                    $level = strtolower(trim((string)$json['level']));
+                }
+            }
+            $allowed = ['debug', 'trace', 'info', 'remote', 'warning', 'error', 'auth', 'fatal', 'bug', 'all'];
+            if (!in_array($level, $allowed, true)) {
+                return ['result' => 'failed', 'message' => 'Invalid log class'];
+            }
+            $raw = trim((string)$backend->configdRun('xray birdloglevel ' . $level));
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+            return ['result' => 'failed', 'message' => $raw !== '' ? $raw : 'No response from configd'];
+        }
+        $raw = trim((string)$backend->configdRun('xray birdloglevel get'));
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+        return ['result' => 'ok', 'level' => 'warning'];
+    }
+
     /**
      * E5: POST /api/xray/service/validate[/{uuid}]
      */

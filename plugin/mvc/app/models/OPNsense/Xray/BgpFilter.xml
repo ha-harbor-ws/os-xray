@@ -2,7 +2,7 @@
 <model>
     <mount>//OPNsense/xray/bgpfilters</mount>
     <description>Xray BGP filter settings</description>
-    <version>1.0.2</version>
+    <version>1.0.3</version>
     <items>
         <filter type="ArrayField">
             <enabled type="BooleanField">
@@ -44,9 +44,6 @@
                     <ipv6>IPv6</ipv6>
                 </OptionValues>
             </family>
-            <reject_default type="BooleanField">
-                <Default>1</Default>
-            </reject_default>
             <tun_if type="TextField">
                 <Default>ACTIVE_TUN4_IF</Default>
                 <Required>N</Required>

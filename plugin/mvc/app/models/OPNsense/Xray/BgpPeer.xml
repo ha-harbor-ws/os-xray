@@ -2,11 +2,11 @@
 <model>
     <mount>//OPNsense/xray/bgppeers</mount>
     <description>Xray BGP peer settings</description>
-    <version>1.0.3</version>
+    <version>1.0.4</version>
     <items>
         <peer type="ArrayField">
             <enabled type="BooleanField">
-                <Default>1</Default>
+                <Default>0</Default>
             </enabled>
             <name type="TextField">
                 <Required>Y</Required>
