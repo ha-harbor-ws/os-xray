@@ -5,7 +5,7 @@
     <!-- v3.0.0: ArrayField multi-instance + vless_uuid rename (breaking change от v2.x) -->
     <!-- Каждый инстанс получает уникальный UUID от OPNsense BaseModel. -->
     <!-- Миграция: install.sh конвертирует <instance> → <instances><instance uuid="...">, uuid → vless_uuid -->
-    <version>3.1.1</version>
+    <version>3.1.2</version>
     <items>
         <instance type="ArrayField">
             <enabled type="BooleanField">
@@ -56,14 +56,21 @@
                 <Default>1.1.1.1,8.8.8.8</Default>
                 <Required>N</Required>
             </dns_servers>
-            <!-- v3.1.1: instance weight stored in plugin config (1–1000) -->
-            <weight type="IntegerField">
+            <!-- v3.1.2: per-family instance weights stored in plugin config (1–1000) -->
+            <weight_ipv4 type="IntegerField">
                 <Default>1</Default>
                 <MinimumValue>1</MinimumValue>
                 <MaximumValue>1000</MaximumValue>
                 <Required>Y</Required>
-                <ValidationMessage>Weight must be an integer from 1 to 1000.</ValidationMessage>
-            </weight>
+                <ValidationMessage>Weight IPv4 must be an integer from 1 to 1000.</ValidationMessage>
+            </weight_ipv4>
+            <weight_ipv6 type="IntegerField">
+                <Default>1</Default>
+                <MinimumValue>1</MinimumValue>
+                <MaximumValue>1000</MaximumValue>
+                <Required>Y</Required>
+                <ValidationMessage>Weight IPv6 must be an integer from 1 to 1000.</ValidationMessage>
+            </weight_ipv6>
             <!-- v1.0.4: bypass_networks — CIDR-список сетей для direct routing -->
             <bypass_networks type="TextField">
                 <Default>10.0.0.0/8,172.16.0.0/12,192.168.0.0/16</Default>

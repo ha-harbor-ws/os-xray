@@ -30,6 +30,7 @@ class BgpcommunityController extends ApiMutableModelControllerBase
 
     public function getItemAction($uuid = null)
     {
+        (new \OPNsense\Xray\BgpCommunity())->migrateCommunityFileNames();
         return $this->getBase('community', 'community', $uuid);
     }
 

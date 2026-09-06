@@ -12,15 +12,34 @@ class BgpfilterController extends ApiMutableModelControllerBase
 
     public function searchItemAction()
     {
+        (new \OPNsense\Xray\BgpCommunity())->seedDefaultCommunitiesIfEmpty();
+        (new \OPNsense\Xray\BgpCommunity())->migrateCommunityFileNames();
         (new \OPNsense\Xray\BgpFilter())->seedDefaultFiltersIfEmpty();
         (new \OPNsense\Xray\BgpFilter())->migrateAcceptFilterNames();
-        return $this->searchBase('filter', [
+        $response = $this->searchBase('filter', [
             'enabled',
             'name',
             'community',
             'family',
             'reject_default',
         ]);
+        if (!empty($response['rows'])) {
+            $names = [];
+            $comms = new \OPNsense\Xray\BgpCommunity();
+            if (method_exists($comms->community, 'iterateItems')) {
+                foreach ($comms->community->iterateItems() as $uuid => $item) {
+                    $names[$uuid] = (string)$item->name;
+                }
+            }
+            foreach ($response['rows'] as &$row) {
+                $c = (string)($row['community'] ?? '');
+                if ($c !== '' && isset($names[$c])) {
+                    $row['community'] = $names[$c];
+                }
+            }
+            unset($row);
+        }
+        return $response;
     }
 
     public function toggleItemAction($uuid, $enabled = null)
@@ -32,6 +51,8 @@ class BgpfilterController extends ApiMutableModelControllerBase
 
     public function getItemAction($uuid = null)
     {
+        (new \OPNsense\Xray\BgpCommunity())->seedDefaultCommunitiesIfEmpty();
+        (new \OPNsense\Xray\BgpFilter())->migrateAcceptFilterNames();
         return $this->getBase('filter', 'filter', $uuid);
     }
 

@@ -1142,7 +1142,7 @@ if (isset($bgp->peer)) {
     }
 }
 
-$networkComm = '65444, 120, 65444:200, 65444:210, 65444:700, 65444:710, 65444:720, 65444:730, 65444:740, 65444:750, 65444:760, 65444:770, 65444:780, 65444:790, 65444:800';
+$networkComm = '65444:120, 65444:200, 65444:210, 65444:700, 65444:710, 65444:720, 65444:730, 65444:740, 65444:750, 65444:760, 65444:770, 65444:780, 65444:790, 65444:800';
 
 $birdPeers = '/usr/local/opnsense/scripts/Xray/xray-bird-peers.php';
 if (is_readable($birdPeers)) {
@@ -1167,7 +1167,7 @@ $peers = [
         'neighbor' => '45.154.73.71', 'neighbor_as' => '65432',
         'source_address' => $src4,
         'ipv4' => '1', 'ipv4_import' => 'filter_antifilter_download',
-        'ipv4_community_name' => 'community_ANTIFILTER_DOWNLOAD', 'ipv4_community' => '65432, 500',
+        'ipv4_community_name' => 'community_ANTIFILTER_DOWNLOAD', 'ipv4_community' => '65432:500',
         'ipv6' => '0', 'ipv6_import' => '',
         'ipv6_community_name' => '', 'ipv6_community' => '',
         'hold_time' => '240',
@@ -1252,7 +1252,7 @@ if (!isset($xray->bgpcommunities)) {
     $xray->addChild('bgpcommunities');
 }
 
-$networkComm = '65444, 120, 65444:200, 65444:210, 65444:700, 65444:710, 65444:720, 65444:730, 65444:740, 65444:750, 65444:760, 65444:770, 65444:780, 65444:790, 65444:800';
+$networkComm = '65444:120, 65444:200, 65444:210, 65444:700, 65444:710, 65444:720, 65444:730, 65444:740, 65444:750, 65444:760, 65444:770, 65444:780, 65444:790, 65444:800';
 $changed = false;
 $changed = xray_seed_array_if_empty($xray->bgpfilters, 'filter', [
     ['enabled' => '1', 'name' => 'filter_refilter', 'community' => '', 'family' => 'ipv4', 'reject_default' => '1', 'tun_if' => 'ACTIVE_TUN4_IF'],
@@ -1261,7 +1261,7 @@ $changed = xray_seed_array_if_empty($xray->bgpfilters, 'filter', [
     ['enabled' => '1', 'name' => 'filter_antifilter_network_v6', 'community' => 'community_ANTIFILTER_NETWORK', 'family' => 'ipv6', 'reject_default' => '1', 'tun_if' => 'ACTIVE_TUN6_IF'],
 ]) || $changed;
 $changed = xray_seed_array_if_empty($xray->bgpcommunities, 'community', [
-    ['enabled' => '1', 'name' => 'community_ANTIFILTER_DOWNLOAD', 'communities' => '65432, 500'],
+    ['enabled' => '1', 'name' => 'community_ANTIFILTER_DOWNLOAD', 'communities' => '65432:500'],
     ['enabled' => '1', 'name' => 'community_ANTIFILTER_NETWORK', 'communities' => $networkComm],
 ]) || $changed;
 

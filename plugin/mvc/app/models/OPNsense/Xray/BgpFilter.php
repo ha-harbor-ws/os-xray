@@ -88,6 +88,26 @@ class BgpFilter extends BaseModel
             $item->community = 'community_' . $c;
             $changed = true;
         }
+        $byName = [];
+        $uuids  = [];
+        $comms = new BgpCommunity();
+        if (method_exists($comms->community, 'iterateItems')) {
+            foreach ($comms->community->iterateItems() as $uuid => $item) {
+                $n = (string)$item->name;
+                $byName[$n] = $uuid;
+                $uuids[$uuid] = true;
+            }
+        }
+        foreach ($this->filter->iterateItems() as $item) {
+            $c = trim((string)$item->community);
+            if ($c === '' || isset($uuids[$c])) {
+                continue;
+            }
+            if (isset($byName[$c])) {
+                $item->community = $byName[$c];
+                $changed = true;
+            }
+        }
         if ($changed) {
             $this->serializeToConfig();
             Config::getInstance()->save();

@@ -9,21 +9,20 @@
         <id>filter.name</id>
         <label>Name</label>
         <type>text</type>
-        <help>BIRD filter name (must be unique). Must match the include file name without .inc, e.g. filter_refilter → /usr/local/etc/bird/filter_refilter.inc. Use this name in a peer Import field.</help>
-        <hint>e.g. filter_refilter</hint>
+        <help>BIRD filter name (must be unique). Must match the include file name without .inc, e.g. NAME → /usr/local/etc/bird/NAME.inc. Use this name in a peer Import field.</help>
+        <hint>NAME</hint>
     </field>
     <field>
         <id>filter.community</id>
         <label>Community</label>
-        <type>text</type>
-        <help>Optional BIRD community define name (same as the community include without .inc, e.g. community_ANTIFILTER_DOWNLOAD).</help>
-        <hint>community_ANTIFILTER_DOWNLOAD</hint>
+        <type>dropdown</type>
+        <help>Select one enabled BGP community define. Leave as none for a filter without community match.</help>
     </field>
     <field>
         <id>filter.family</id>
         <label>Address family</label>
         <type>dropdown</type>
-        <help>Selects default-route match (0.0.0.0/0 or ::/0) and the default TUN define if Interface is empty.</help>
+        <help>Selects default-route match (0.0.0.0/0 or ::/0) and the TUN define shown in Interface.</help>
     </field>
     <field>
         <id>filter.reject_default</id>
@@ -35,7 +34,7 @@
         <id>filter.tun_if</id>
         <label>Interface</label>
         <type>text</type>
-        <help>BIRD identifier assigned to ifname (e.g. ACTIVE_TUN4_IF). Leave empty to use ACTIVE_TUN4_IF or ACTIVE_TUN6_IF from the address family.</help>
-        <hint>ACTIVE_TUN4_IF</hint>
+        <readonly>true</readonly>
+        <help>BIRD ifname identifier, shown for reference. It follows Address family: ACTIVE_TUN4_IF for IPv4, ACTIVE_TUN6_IF for IPv6.</help>
     </field>
 </form>

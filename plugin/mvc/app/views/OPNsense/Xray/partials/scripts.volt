@@ -123,7 +123,6 @@
 
         // ── BGP peers / filters / communities CRUD ──────────────────
         var peerStatusCache = {};
-        var peerDialogUuid = '';
         var birdRunning = false;
         var peerConfigDirty = false;
 
@@ -148,37 +147,15 @@
             });
         }
 
-        function applyPeerStatusToDialog() {
-            var $box = $('#dlgPeerStatus');
-            if (!$box.length) {
-                return;
-            }
-            if (!peerDialogUuid) {
-                $('#dlgPeerState').text('—');
-                $('#dlgPeerInfo').text('{{ lang._("Save the peer first") }}');
-                $('#dlgPeerImported').text('—');
-                return;
-            }
-            var info = peerStatusCache[peerDialogUuid];
-            if (!info) {
-                $('#dlgPeerState').text('—');
-                $('#dlgPeerInfo').text(birdRunning ? '{{ lang._("No status yet") }}' : '{{ lang._("bird not running") }}');
-                $('#dlgPeerImported').text('—');
-                return;
-            }
-            $('#dlgPeerState').text(info.state || '—');
-            $('#dlgPeerInfo').text(info.info || '—');
-            $('#dlgPeerImported').text(info.imported != null ? info.imported : 0);
-        }
-
         function updateBirdToolbar() {
-            $('#badge_bird')
+            $('.xray-badge-bird')
                 .removeClass('label-success label-danger label-default')
                 .addClass(birdRunning ? 'label-success' : 'label-danger')
                 .text('bird: ' + (birdRunning ? 'running' : 'stopped'));
-            $('#btnBirdStart').prop('disabled', birdRunning);
-            $('#btnBirdStop').prop('disabled', !birdRunning);
-            $('#btnBirdTestAll').prop('disabled', !birdRunning);
+            $('.xray-btn-bird-start').prop('disabled', birdRunning);
+            $('.xray-btn-bird-stop').prop('disabled', !birdRunning);
+            $('.xray-btn-bird-restart').prop('disabled', !birdRunning);
+            $('.xray-btn-bird-testall').prop('disabled', !birdRunning);
             if (birdRunning && peerConfigDirty) {
                 $('#bgpPeerApplyBox').show();
             } else {
@@ -196,9 +173,8 @@
                 return false;
             }
             birdRunning = !!data.running;
-            peerStatusCache = data.peers || {};
+            peerStatusCache = birdRunning ? (data.peers || {}) : {};
             applyPeerStatusToGrid();
-            applyPeerStatusToDialog();
             updateBirdToolbar();
             return true;
         }
@@ -209,14 +185,12 @@
                     birdRunning = false;
                     peerStatusCache = {};
                     applyPeerStatusToGrid();
-                    applyPeerStatusToDialog();
                     updateBirdToolbar();
                     return;
                 }
                 birdRunning = !!data.running;
                 peerStatusCache = birdRunning ? (data.peers || {}) : {};
                 applyPeerStatusToGrid();
-                applyPeerStatusToDialog();
                 updateBirdToolbar();
             });
         }
@@ -277,12 +251,6 @@
         $(document).on('click', '#grid-bgppeers .cmd-peer-stop', function () {
             peerServiceAction('stopItem', $(this).data('row-id'));
         });
-        $(document).on('click', '#grid-bgppeers .command-edit', function () {
-            peerDialogUuid = $(this).data('row-id') || '';
-        });
-        $(document).on('click', '#grid-bgppeers button[data-action="add"]', function () {
-            peerDialogUuid = '';
-        });
         $('#grid-bgpfilters').UIBootgrid({
             search: '/api/xray/bgpfilter/searchItem',
             get:    '/api/xray/bgpfilter/getItem/',
@@ -302,19 +270,21 @@
 
         $('#DialogBgpPeer').on('shown.bs.modal', function () {
             $(this).find('.selectpicker').selectpicker('refresh');
-            if (!$('#dlgPeerStatus').length) {
-                var statusHtml =
-                    '<div id="dlgPeerStatus" class="alert alert-info" style="margin: 0 0 12px;">' +
-                        '<strong>{{ lang._("Status") }}</strong>' +
-                        '<div style="margin-top: 6px; font-size: 13px;">' +
-                            '<div>{{ lang._("State") }}: <span id="dlgPeerState">—</span></div>' +
-                            '<div>{{ lang._("Info") }}: <span id="dlgPeerInfo">—</span></div>' +
-                            '<div>{{ lang._("Imported prefixes") }}: <span id="dlgPeerImported">—</span></div>' +
-                        '</div>' +
-                    '</div>';
-                $(this).find('.modal-body').prepend(statusHtml);
-            }
-            applyPeerStatusToDialog();
+        });
+
+        function filterTunIfFromFamily($dlg) {
+            var fam = $dlg.find('[id="filter.family"]').val();
+            var tun = (fam === 'ipv6') ? 'ACTIVE_TUN6_IF' : 'ACTIVE_TUN4_IF';
+            $dlg.find('[id="filter.tun_if"]').val(tun).prop('readonly', true);
+        }
+
+        $('#DialogBgpFilter').on('shown.bs.modal', function () {
+            var $dlg = $(this);
+            $dlg.find('.selectpicker').selectpicker('refresh');
+            filterTunIfFromFamily($dlg);
+        });
+        $(document).on('changed.bs.select change', '#DialogBgpFilter [id="filter.family"]', function () {
+            filterTunIfFromFamily($('#DialogBgpFilter'));
         });
 
         $(document).ajaxSuccess(function (e, xhr, settings) {
@@ -350,7 +320,7 @@
             });
         }
 
-        $('#btnBirdStart').click(function () {
+        $(document).on('click', '.xray-btn-bird-start', function () {
             birdServiceAction('startBird', $(this), function () {
                 birdRunning = true;
                 peerConfigDirty = false;
@@ -358,26 +328,33 @@
                 openRoutingPeersStatus();
             });
         });
-        $('#btnBirdStop').click(function () {
+        $(document).on('click', '.xray-btn-bird-stop', function () {
             birdServiceAction('stopBird', $(this), function () {
                 birdRunning = false;
                 peerStatusCache = {};
                 applyPeerStatusToGrid();
-                applyPeerStatusToDialog();
                 updateBirdToolbar();
             });
         });
-        $('#btnBirdTestAll').click(function () {
+        $(document).on('click', '.xray-btn-bird-restart', function () {
+            birdServiceAction('restartBird', $(this), function () {
+                birdRunning = true;
+                updateBirdToolbar();
+                openRoutingPeersStatus();
+            });
+        });
+        $(document).on('click', '.xray-btn-bird-testall', function () {
             if (!birdRunning) {
-                $('#birdTestAllResult').removeClass('text-success').addClass('text-danger')
+                $('.xray-bird-test-result').removeClass('text-success').addClass('text-danger')
                     .text("{{ lang._('BIRD is not running.') }}");
                 return;
             }
             var $btn = $(this).prop('disabled', true);
-            var $res = $('#birdTestAllResult');
+            var $res = $('.xray-bird-test-result');
             $res.removeClass('text-success text-danger').text("{{ lang._('Testing...') }}");
             ajaxGet("/api/xray/bgppeer/statusAll", {}, function (data) {
                 $btn.prop('disabled', false);
+                updateBirdToolbar();
                 if (!applyPeerStatusPayload(data) || !birdRunning) {
                     $res.removeClass('text-success').addClass('text-danger')
                         .text("{{ lang._('BIRD is not running.') }}");
@@ -402,7 +379,7 @@
             if ($grid.length) {
                 $grid.bootgrid('reload');
             }
-            if (href === '#routing-peers') {
+            if (href.indexOf('#routing-') === 0) {
                 openRoutingPeersStatus();
             }
         });

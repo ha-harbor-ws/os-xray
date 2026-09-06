@@ -14,7 +14,7 @@
         <label>Name</label>
         <type>text</type>
         <help>BIRD protocol name (must be unique). The include file is /usr/local/etc/bird/peer_NAME.inc.</help>
-        <hint>e.g. refilter, antifilter_download</hint>
+        <hint>NAME</hint>
     </field>
     <field>
         <id>peer.local_as</id>

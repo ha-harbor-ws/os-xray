@@ -1,31 +1,5 @@
 <div id="routing-peers" class="tab-pane fade in">
-    <div class="row">
-        <section class="col-xs-12">
-            <div style="padding: 8px 15px; border-bottom: 1px solid #ddd;
-                        display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
-                <div>
-                    <span id="badge_bird" class="label label-default">bird: ...</span>
-                </div>
-                <div style="width: 1px; height: 22px; background: #ddd;"></div>
-                <div style="display: flex; gap: 4px;">
-                    <button id="btnBirdStart" class="btn btn-xs btn-success"
-                            title="{{ lang._('Start BIRD') }}">
-                        <i class="fa fa-play fa-fw"></i> {{ lang._('Start') }}
-                    </button>
-                    <button id="btnBirdStop" class="btn btn-xs btn-danger"
-                            title="{{ lang._('Stop BIRD') }}">
-                        <i class="fa fa-stop fa-fw"></i> {{ lang._('Stop') }}
-                    </button>
-                </div>
-                <div style="width: 1px; height: 22px; background: #ddd;"></div>
-                <button id="btnBirdTestAll" class="btn btn-xs btn-default"
-                        title="{{ lang._('Refresh peer status via birdc show protocols all') }}">
-                    <i class="fa fa-plug fa-fw"></i> {{ lang._('Test All') }}
-                </button>
-                <span id="birdTestAllResult" style="font-size: 12px;"></span>
-            </div>
-        </section>
-    </div>
+    {{ partial('OPNsense/Xray/partials/toolbar_bird') }}
     <div class="row">
         <section class="col-xs-12">
             <table id="grid-bgppeers"
@@ -57,6 +31,12 @@
                         <th data-column-id="ipv6"
                             data-width="5em"
                             data-type="string">{{ lang._('IPv6') }}</th>
+                        <th data-column-id="ipv4_route_int"
+                            data-type="string"
+                            data-width="14em">{{ lang._('IPv4 route int') }}</th>
+                        <th data-column-id="ipv6_route_int"
+                            data-type="string"
+                            data-width="14em">{{ lang._('IPv6 route int') }}</th>
                         <th data-column-id="peer_status"
                             data-formatter="peerStatus"
                             data-sortable="false"
@@ -95,6 +75,7 @@
 </div>
 
 <div id="routing-filters" class="tab-pane fade">
+    {{ partial('OPNsense/Xray/partials/toolbar_bird') }}
     <div class="row">
         <section class="col-xs-12">
             <table id="grid-bgpfilters"
@@ -150,6 +131,7 @@
 </div>
 
 <div id="routing-communities" class="tab-pane fade">
+    {{ partial('OPNsense/Xray/partials/toolbar_bird') }}
     <div class="row">
         <section class="col-xs-12">
             <table id="grid-bgpcommunities"

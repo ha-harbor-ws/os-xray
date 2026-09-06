@@ -20,7 +20,7 @@ Format: [Semantic Versioning](https://semver.org/).
 - **Inbound sniffing** — SOCKS inbound sniffing for single-stack instances (`destOverride`: http, tls, quic; `metadataOnly`: false); dual-stack (IPv4+IPv6) → sniffing disabled
 
 ### Changed
-- Peer **IPv4 Import filter** / **IPv6 Import filter** are single-select dropdowns of existing BGP filters (none = import nothing)
+- BGP community GUI uses `ASN:value` lists (e.g. `65444:200, 65444:210`); `.inc` files still store BIRD `define NAME = [ (65444, 200), ... ];`
 - `50-xray`: IPv6 on TUN always assigned from OPNsense Interfaces when configured; IPv4 on TUN still follows instance IPv4 checkbox
 - `xray-service-control.php`: when instance IPv6 is off, routing blocks `::/0` (blackhole) and DNS `queryStrategy` is `UseIPv4`; routing `domainStrategy` is `IPOnDemand` for single-stack (IPv4-only or IPv6-only) and `IPIfNonMatch` for dual-stack; proxy outbound gets `domainStrategy` UseIPv4 / UseIPv6 for single-stack
 - `xray-ifstats.php` / Diagnostics tab: show TUN IPv6, IP stack mode and DNS servers

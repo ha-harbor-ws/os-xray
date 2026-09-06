@@ -9,7 +9,7 @@ class BgpPeer extends BaseModel
 {
     public static function builtinPeerRows(): array
     {
-        $networkComm = '65444, 120, 65444:200, 65444:210, 65444:700, 65444:710, 65444:720, 65444:730, 65444:740, 65444:750, 65444:760, 65444:770, 65444:780, 65444:790, 65444:800';
+        $networkComm = '65444:120, 65444:200, 65444:210, 65444:700, 65444:710, 65444:720, 65444:730, 65444:740, 65444:750, 65444:760, 65444:770, 65444:780, 65444:790, 65444:800';
         return [
             [
                 'enabled'              => '0',
@@ -38,7 +38,7 @@ class BgpPeer extends BaseModel
                 'ipv4'                 => '1',
                 'ipv4_import'          => 'filter_antifilter_download',
                 'ipv4_community_name'  => 'community_ANTIFILTER_DOWNLOAD',
-                'ipv4_community'       => '65432, 500',
+                'ipv4_community'       => '65432:500',
                 'ipv6'                 => '0',
                 'ipv6_import'          => '',
                 'ipv6_community_name'  => '',

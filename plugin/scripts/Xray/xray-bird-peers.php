@@ -16,6 +16,26 @@ if (!defined('XRAY_BIRD_GENERATED_LIST')) {
     define('XRAY_BIRD_GENERATED_LIST', '/usr/local/etc/bird/.xray-bgp-generated');
 }
 
+function xray_bird_active_tun_if(string $family = 'ipv4'): string
+{
+    $family = strtolower($family);
+    if ($family === 'ipv6' || $family === 'inet6') {
+        $file = XRAY_BIRD_INC_DIR . '/active_tun_v6.inc';
+        $def  = 'ACTIVE_TUN6_IF';
+    } else {
+        $file = XRAY_BIRD_INC_DIR . '/active_tun_v4.inc';
+        $def  = 'ACTIVE_TUN4_IF';
+    }
+    if (!is_readable($file)) {
+        return '';
+    }
+    $text = (string)file_get_contents($file);
+    if (preg_match('/define\s+' . preg_quote($def, '/') . '\s*=\s*"([^"]+)"/', $text, $m)) {
+        return $m[1];
+    }
+    return '';
+}
+
 function xray_bgp_template_names(): array
 {
     return ['refilter', 'antifilter_download', 'antifilter_network'];
@@ -513,6 +533,15 @@ function xray_bgp_format_communities_inc(array $pairs): string
     return implode(', ', $parts);
 }
 
+function xray_bgp_format_communities_gui(array $pairs): string
+{
+    $parts = [];
+    foreach ($pairs as $pair) {
+        $parts[] = (int)$pair[0] . ':' . (int)$pair[1];
+    }
+    return implode(', ', $parts);
+}
+
 function xray_bird_community_ident(string $name): string
 {
     $ident = xray_bgp_community_ident($name);
@@ -638,6 +667,28 @@ function xray_get_bgp_filters_from_config(): array
     }
 }
 
+function xray_resolve_community_define(string $value): string
+{
+    $value = trim($value);
+    if ($value === '' || strcasecmp($value, 'none') === 0) {
+        return '';
+    }
+    static $byUuid = null;
+    if ($byUuid === null) {
+        $byUuid = [];
+        foreach (xray_get_bgp_communities_from_config() as $uuid => $c) {
+            $ident = xray_bird_community_ident((string)($c['name'] ?? ''));
+            if ($ident !== '') {
+                $byUuid[$uuid] = $ident;
+            }
+        }
+    }
+    if (isset($byUuid[$value])) {
+        return $byUuid[$value];
+    }
+    return xray_bird_community_ident($value);
+}
+
 function xray_bird_render_filter(array $f): string
 {
     $name = xray_bird_filter_ident((string)($f['name'] ?? ''));
@@ -650,7 +701,7 @@ function xray_bird_render_filter(array $f): string
     if ($tun === '' || !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $tun)) {
         $tun = ($fam === 'ipv6') ? 'ACTIVE_TUN6_IF' : 'ACTIVE_TUN4_IF';
     }
-    $comm      = xray_bird_community_ident((string)($f['community'] ?? ''));
+    $comm      = xray_resolve_community_define((string)($f['community'] ?? ''));
     $rejectDef = (($f['reject_default'] ?? '1') === '1');
 
     $body = [];
@@ -981,17 +1032,21 @@ function xray_bird_write_peers(): void
 
 function xray_bird_is_running(): bool
 {
-    exec('/usr/bin/pgrep -qx bird', $o, $rc);
-    return $rc === 0;
+    $out = [];
+    exec('/usr/sbin/service bird status 2>&1', $out, $rc);
+    $text = strtolower(implode("\n", $out));
+    if (strpos($text, 'not running') !== false) {
+        return false;
+    }
+    if ($rc === 0 && preg_match('/\bis running\b/', $text)) {
+        return true;
+    }
+    return $rc === 0 && $text !== '';
 }
 
 function xray_bird_reload_config(): void
 {
-    if (!is_executable('/usr/local/sbin/birdc')) {
-        return;
-    }
-    exec('/usr/bin/pgrep -x bird >/dev/null 2>&1', $o, $rc);
-    if ($rc !== 0) {
+    if (!is_executable('/usr/local/sbin/birdc') || !xray_bird_is_running()) {
         return;
     }
     exec('/usr/local/sbin/birdc configure 2>&1');
@@ -1062,12 +1117,15 @@ function xray_bgp_peer_protocol_names(): array
 function xray_bgp_peers_runtime_status(): array
 {
     $running = xray_bird_is_running();
-    $peers   = xray_get_bgp_peers_from_config();
-    $names   = xray_bgp_peer_protocol_names();
-    $live    = [];
-    if ($running) {
-        $live = xray_parse_birdc_protocols_all(xray_birdc_query('show protocols all'));
+    if (!$running) {
+        return [
+            'running' => false,
+            'peers'   => [],
+        ];
     }
+    $peers = xray_get_bgp_peers_from_config();
+    $names = xray_bgp_peer_protocol_names();
+    $live  = xray_parse_birdc_protocols_all(xray_birdc_query('show protocols all'));
     $result = [];
     foreach ($peers as $uuid => $p) {
         $proto   = $names[$uuid] ?? '';
@@ -1080,9 +1138,7 @@ function xray_bgp_peers_runtime_status(): array
             'info'     => '—',
             'imported' => 0,
         ];
-        if (!$running) {
-            $row['info'] = 'bird not running';
-        } elseif (!$enabled) {
+        if (!$enabled) {
             $row['state'] = 'disabled';
             $row['info']  = 'not in BIRD config';
         } elseif ($proto !== '' && isset($live[$proto])) {
@@ -1096,7 +1152,7 @@ function xray_bgp_peers_runtime_status(): array
         $result[$uuid] = $row;
     }
     return [
-        'running' => $running,
+        'running' => true,
         'peers'   => $result,
     ];
 }

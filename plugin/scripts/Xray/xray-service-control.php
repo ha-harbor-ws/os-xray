@@ -969,6 +969,11 @@ switch ($action) {
         echo "OK\n";
         break;
 
+    case 'birdrestart':
+        xray_bird_service('restart');
+        echo "OK\n";
+        break;
+
     case 'bgpstatus':
         echo json_encode(xray_bgp_peers_runtime_status()) . "\n";
         break;

@@ -16,10 +16,10 @@ class IndexController extends \OPNsense\Base\IndexController
         $this->view->bgppeerForm      = $this->getForm('bgppeer');
         $this->view->bgpfilterForm    = $this->getForm('bgpfilter');
         $this->view->bgpcommunityForm = $this->getForm('bgpcommunity');
-        (new BgpFilter())->seedDefaultFiltersIfEmpty();
-        (new BgpFilter())->migrateAcceptFilterNames();
         (new BgpCommunity())->seedDefaultCommunitiesIfEmpty();
         (new BgpCommunity())->migrateCommunityFileNames();
+        (new BgpFilter())->seedDefaultFiltersIfEmpty();
+        (new BgpFilter())->migrateAcceptFilterNames();
         (new BgpPeer())->seedDefaultPeersIfEmpty();
         (new BgpPeer())->migrateAcceptImportNames();
         $this->view->pick('OPNsense/Xray/general');

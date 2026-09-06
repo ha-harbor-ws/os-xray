@@ -2,7 +2,7 @@
 <model>
     <mount>//OPNsense/xray/bgpfilters</mount>
     <description>Xray BGP filter settings</description>
-    <version>1.0.1</version>
+    <version>1.0.2</version>
     <items>
         <filter type="ArrayField">
             <enabled type="BooleanField">
@@ -19,10 +19,22 @@
                     </check001>
                 </Constraints>
             </name>
-            <community type="TextField">
+            <community type="ModelRelationField">
                 <Required>N</Required>
-                <Mask>/^([A-Za-z_][A-Za-z0-9_]*)?$/</Mask>
-                <ValidationMessage>BIRD community define name, or empty</ValidationMessage>
+                <Multiple>N</Multiple>
+                <BlankDesc>none</BlankDesc>
+                <DisableCache>Y</DisableCache>
+                <Model>
+                    <communities>
+                        <source>OPNsense.Xray.BgpCommunity</source>
+                        <items>community</items>
+                        <display>name</display>
+                        <filters>
+                            <enabled>/^(?!0).*$/</enabled>
+                        </filters>
+                    </communities>
+                </Model>
+                <ValidationMessage>Select an enabled BGP community, or none.</ValidationMessage>
             </community>
             <family type="OptionField">
                 <Required>Y</Required>
@@ -36,6 +48,7 @@
                 <Default>1</Default>
             </reject_default>
             <tun_if type="TextField">
+                <Default>ACTIVE_TUN4_IF</Default>
                 <Required>N</Required>
             </tun_if>
         </filter>

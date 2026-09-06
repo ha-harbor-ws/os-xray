@@ -80,10 +80,17 @@
         <hint>1.1.1.1,8.8.8.8</hint>
     </field>
     <field>
-        <id>instance.weight</id>
-        <label>Weight</label>
+        <id>instance.weight_ipv4</id>
+        <label>Weight IPv4</label>
         <type>text</type>
-        <help>Interface weight for route selection. Values range from 1 to 1000. The higher the weight, the higher the priority of the interface.</help>
+        <help>IPv4 interface weight for route selection. Values range from 1 to 1000. The higher the weight, the higher the priority of the interface. Default is 1.</help>
+        <hint>1</hint>
+    </field>
+    <field>
+        <id>instance.weight_ipv6</id>
+        <label>Weight IPv6</label>
+        <type>text</type>
+        <help>IPv6 interface weight for route selection. Values range from 1 to 1000. The higher the weight, the higher the priority of the interface. Default is 1.</help>
         <hint>1</hint>
     </field>
     <field>

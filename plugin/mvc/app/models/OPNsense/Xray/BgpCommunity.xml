@@ -2,7 +2,7 @@
 <model>
     <mount>//OPNsense/xray/bgpcommunities</mount>
     <description>Xray BGP community settings</description>
-    <version>1.0.1</version>
+    <version>1.0.2</version>
     <items>
         <community type="ArrayField">
             <enabled type="BooleanField">
@@ -21,6 +21,8 @@
             </name>
             <communities type="TextField">
                 <Required>Y</Required>
+                <Mask>/^\d+:\d+(\s*,\s*\d+:\d+)*$/</Mask>
+                <ValidationMessage>Use ASN:value pairs separated by commas, no trailing comma (e.g. 65444:200, 65444:210)</ValidationMessage>
             </communities>
         </community>
     </items>
