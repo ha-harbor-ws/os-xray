@@ -2,7 +2,7 @@
 <model>
     <mount>//OPNsense/xray/bgppeers</mount>
     <description>Xray BGP peer settings</description>
-    <version>1.0.1</version>
+    <version>1.0.3</version>
     <items>
         <peer type="ArrayField">
             <enabled type="BooleanField">
@@ -12,6 +12,12 @@
                 <Required>Y</Required>
                 <Mask>/^[A-Za-z_][A-Za-z0-9_]*$/</Mask>
                 <ValidationMessage>BIRD protocol name: letters, digits, underscore; must start with a letter or underscore</ValidationMessage>
+                <Constraints>
+                    <check001>
+                        <type>UniqueConstraint</type>
+                        <ValidationMessage>A BGP peer with this name already exists.</ValidationMessage>
+                    </check001>
+                </Constraints>
             </name>
             <local_as type="IntegerField">
                 <Default>65103</Default>
@@ -36,9 +42,19 @@
             <ipv4 type="BooleanField">
                 <Default>1</Default>
             </ipv4>
-            <ipv4_import type="TextField">
-                <Default>accept_refilter</Default>
+            <ipv4_import type="ModelRelationField">
                 <Required>N</Required>
+                <Multiple>N</Multiple>
+                <BlankDesc>none</BlankDesc>
+                <DisableCache>Y</DisableCache>
+                <Model>
+                    <filters>
+                        <source>OPNsense.Xray.BgpFilter</source>
+                        <items>filter</items>
+                        <display>name</display>
+                    </filters>
+                </Model>
+                <ValidationMessage>Select an existing BGP filter, or none.</ValidationMessage>
             </ipv4_import>
             <ipv4_community_name type="TextField">
                 <Required>N</Required>
@@ -53,9 +69,19 @@
             <ipv6 type="BooleanField">
                 <Default>0</Default>
             </ipv6>
-            <ipv6_import type="TextField">
-                <Default>accept_antifilter_network_v6</Default>
+            <ipv6_import type="ModelRelationField">
                 <Required>N</Required>
+                <Multiple>N</Multiple>
+                <BlankDesc>none</BlankDesc>
+                <DisableCache>Y</DisableCache>
+                <Model>
+                    <filters>
+                        <source>OPNsense.Xray.BgpFilter</source>
+                        <items>filter</items>
+                        <display>name</display>
+                    </filters>
+                </Model>
+                <ValidationMessage>Select an existing BGP filter, or none.</ValidationMessage>
             </ipv6_import>
             <ipv6_community_name type="TextField">
                 <Required>N</Required>

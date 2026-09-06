@@ -19,7 +19,7 @@ class BgpPeer extends BaseModel
                 'neighbor_as'          => '65412',
                 'source_address'       => '',
                 'ipv4'                 => '1',
-                'ipv4_import'          => 'accept_refilter',
+                'ipv4_import'          => 'filter_refilter',
                 'ipv4_community_name'  => '',
                 'ipv4_community'       => '',
                 'ipv6'                 => '0',
@@ -36,8 +36,8 @@ class BgpPeer extends BaseModel
                 'neighbor_as'          => '65432',
                 'source_address'       => '',
                 'ipv4'                 => '1',
-                'ipv4_import'          => 'accept_antifilter_download',
-                'ipv4_community_name'  => 'ANTIFILTER_DOWNLOAD',
+                'ipv4_import'          => 'filter_antifilter_download',
+                'ipv4_community_name'  => 'community_ANTIFILTER_DOWNLOAD',
                 'ipv4_community'       => '65432, 500',
                 'ipv6'                 => '0',
                 'ipv6_import'          => '',
@@ -53,12 +53,12 @@ class BgpPeer extends BaseModel
                 'neighbor_as'          => '65444',
                 'source_address'       => '',
                 'ipv4'                 => '1',
-                'ipv4_import'          => 'accept_antifilter_network_v4',
-                'ipv4_community_name'  => 'ANTIFILTER_NETWORK',
+                'ipv4_import'          => 'filter_antifilter_network_v4',
+                'ipv4_community_name'  => 'community_ANTIFILTER_NETWORK',
                 'ipv4_community'       => $networkComm,
                 'ipv6'                 => '1',
-                'ipv6_import'          => 'accept_antifilter_network_v6',
-                'ipv6_community_name'  => 'ANTIFILTER_NETWORK',
+                'ipv6_import'          => 'filter_antifilter_network_v6',
+                'ipv6_community_name'  => 'community_ANTIFILTER_NETWORK',
                 'ipv6_community'       => $networkComm,
                 'hold_time'            => '240',
             ],
@@ -94,5 +94,52 @@ class BgpPeer extends BaseModel
 
         $this->serializeToConfig();
         Config::getInstance()->save();
+    }
+
+    public function migrateAcceptImportNames(): void
+    {
+        if (!method_exists($this->peer, 'iterateItems')) {
+            return;
+        }
+        $byName = [];
+        $uuids  = [];
+        $filters = new BgpFilter();
+        if (method_exists($filters->filter, 'iterateItems')) {
+            foreach ($filters->filter->iterateItems() as $uuid => $item) {
+                $n = (string)$item->name;
+                $byName[$n] = $uuid;
+                $uuids[$uuid] = true;
+                if (strncasecmp($n, 'filter_', 7) === 0) {
+                    $short = substr($n, 7);
+                    $byName[$short] = $uuid;
+                    $byName['accept_' . $short] = $uuid;
+                }
+            }
+        }
+        $changed = false;
+        foreach ($this->peer->iterateItems() as $item) {
+            foreach (['ipv4_import', 'ipv6_import'] as $field) {
+                $n = trim((string)$item->{$field});
+                if ($n === '' || isset($uuids[$n])) {
+                    continue;
+                }
+                if (isset($byName[$n])) {
+                    $item->{$field} = $byName[$n];
+                    $changed = true;
+                }
+            }
+            foreach (['ipv4_community_name', 'ipv6_community_name'] as $field) {
+                $n = trim((string)$item->{$field});
+                if ($n === '' || strncasecmp($n, 'community_', 10) === 0) {
+                    continue;
+                }
+                $item->{$field} = 'community_' . $n;
+                $changed = true;
+            }
+        }
+        if ($changed) {
+            $this->serializeToConfig();
+            Config::getInstance()->save();
+        }
     }
 }

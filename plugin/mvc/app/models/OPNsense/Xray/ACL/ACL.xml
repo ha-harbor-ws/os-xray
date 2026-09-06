@@ -21,6 +21,20 @@
             <pattern>api/xray/bgppeer/*</pattern>
         </patterns>
     </acl_xray_bgppeer>
+    <acl_xray_bgpfilter>
+        <n>Xray: BGP filter settings</n>
+        <description>Allow access to Xray BGP filter configuration</description>
+        <patterns>
+            <pattern>api/xray/bgpfilter/*</pattern>
+        </patterns>
+    </acl_xray_bgpfilter>
+    <acl_xray_bgpcommunity>
+        <n>Xray: BGP community settings</n>
+        <description>Allow access to Xray BGP community configuration</description>
+        <patterns>
+            <pattern>api/xray/bgpcommunity/*</pattern>
+        </patterns>
+    </acl_xray_bgpcommunity>
     <acl_xray_service>
         <n>Xray: Service control</n>
         <description>Allow access to Xray service control (start, stop, reconfigure, status)</description>

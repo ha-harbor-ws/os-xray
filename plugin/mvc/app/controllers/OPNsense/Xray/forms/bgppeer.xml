@@ -7,13 +7,13 @@
         <id>peer.enabled</id>
         <label>Enabled</label>
         <type>checkbox</type>
-        <help>Include this peer in BIRD. Disabled peers are not written into the active include list.</help>
+        <help>Include this peer in BIRD. Disabled peers are not written into the active include list until you click Apply (BIRD restart).</help>
     </field>
     <field>
         <id>peer.name</id>
         <label>Name</label>
         <type>text</type>
-        <help>BIRD protocol name (must be unique). The include file is /usr/local/etc/bird/NAME.inc.</help>
+        <help>BIRD protocol name (must be unique). The include file is /usr/local/etc/bird/peer_NAME.inc.</help>
         <hint>e.g. refilter, antifilter_download</hint>
     </field>
     <field>
@@ -52,24 +52,9 @@
     </field>
     <field>
         <id>peer.ipv4_import</id>
-        <label>IPv4 Import</label>
-        <type>text</type>
-        <help>none, all, or a filter name defined in bird.conf (e.g. accept_refilter).</help>
-        <hint>accept_refilter</hint>
-    </field>
-    <field>
-        <id>peer.ipv4_community_name</id>
-        <label>IPv4 Community name</label>
-        <type>text</type>
-        <help>Name of the community include file (without path). Written as /usr/local/etc/bird/NAME.inc and used as the BIRD define name (e.g. ANTIFILTER_DOWNLOAD).</help>
-        <hint>ANTIFILTER_DOWNLOAD</hint>
-    </field>
-    <field>
-        <id>peer.ipv4_community</id>
-        <label>IPv4 Community</label>
-        <type>text</type>
-        <help>Communities as pairs: 65444, 120 or 65444:200 (also 65444,:210). Saved in the inc file as (65444, 120), (65444, 200).</help>
-        <hint>65432, 500</hint>
+        <label>IPv4 Import filter</label>
+        <type>dropdown</type>
+        <help>Select one configured BGP filter. Leave as none to import nothing.</help>
     </field>
     <field>
         <id>peer.ipv6</id>
@@ -79,23 +64,9 @@
     </field>
     <field>
         <id>peer.ipv6_import</id>
-        <label>IPv6 Import</label>
-        <type>text</type>
-        <help>none, all, or a filter name (e.g. accept_antifilter_network_v6).</help>
-    </field>
-    <field>
-        <id>peer.ipv6_community_name</id>
-        <label>IPv6 Community name</label>
-        <type>text</type>
-        <help>Name of the IPv6 community include file (without path), used as the BIRD define name.</help>
-        <hint>ANTIFILTER_NETWORK</hint>
-    </field>
-    <field>
-        <id>peer.ipv6_community</id>
-        <label>IPv6 Community</label>
-        <type>text</type>
-        <help>Same pair syntax as IPv4 Community. Saved as (ASN, VALUE) tuples in the inc file.</help>
-        <hint>65444, 120, 65444:200</hint>
+        <label>IPv6 Import filter</label>
+        <type>dropdown</type>
+        <help>Select one configured BGP filter. Leave as none to import nothing.</help>
     </field>
     <field>
         <type>header</type>

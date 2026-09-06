@@ -1,9 +1,9 @@
-protocol bgp antifilter_download {
+protocol bgp refilter {
     local as 65103;
-    neighbor 45.154.73.71 as 65432;
+    neighbor 165.22.127.207 as 65412;
     # source address <WAN_IPv4>;
     ipv4 {
-        import filter accept_antifilter_download;
+        import filter filter_refilter;
         export none;
     };
     multihop;

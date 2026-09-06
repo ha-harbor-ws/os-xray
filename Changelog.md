@@ -13,18 +13,21 @@ Format: [Semantic Versioning](https://semver.org/).
 - **TUN lifecycle aligned with upstream** — на stop не вызываем `ifconfig destroy` (TUN убирает tun2socks); destroy только для stale iface перед start и при delete instance; Prevent interface removal остаётся для reboot/assignment
 
 ### Added
-- **Routing tab / BGP** — three default peers from original bird.conf (`refilter`, `antifilter_download`, `antifilter_network`) are pre-created disabled. Edit dialog: IPv4/IPv6 Import plus Community name + Community values. `bird.conf` includes `communities.inc` and `filters.inc` (`accept_*.inc`)
+- **Routing tab / BGP** — dropdown: BGP peers, BGP filter, BGP community. Peers write peer_NAME.inc; filters are named filter_NAME (file filter_NAME.inc); communities are named community_NAME (file community_NAME.inc, BIRD define community_NAME). Peer/filter/community names are unique (OPNsense UniqueConstraint).
 - **Per-instance IP stack** — checkboxes `IPv4` / `IPv6` (both allowed) control TUN address assignment and xray DNS/routing strategy
 - **Per-instance DNS servers** — field `dns_servers` (comma-separated) written into generated xray config for each instance
+- **BGP peer status / BIRD control** — peer table toolbar: Start (`service bird start`), Stop (`service bird stop`), Test All (`birdc show protocols all`). After peer config changes, if BIRD is running, an Apply button appears under the table (`service bird restart`, sessions reset). Status (state / info / imported prefixes) is loaded when opening BGP peers and only if BIRD is running.
 - **Inbound sniffing** — SOCKS inbound sniffing for single-stack instances (`destOverride`: http, tls, quic; `metadataOnly`: false); dual-stack (IPv4+IPv6) → sniffing disabled
 
 ### Changed
+- Peer **IPv4 Import filter** / **IPv6 Import filter** are single-select dropdowns of existing BGP filters (none = import nothing)
 - `50-xray`: IPv6 on TUN always assigned from OPNsense Interfaces when configured; IPv4 on TUN still follows instance IPv4 checkbox
 - `xray-service-control.php`: when instance IPv6 is off, routing blocks `::/0` (blackhole) and DNS `queryStrategy` is `UseIPv4`; routing `domainStrategy` is `IPOnDemand` for single-stack (IPv4-only or IPv6-only) and `IPIfNonMatch` for dual-stack; proxy outbound gets `domainStrategy` UseIPv4 / UseIPv6 for single-stack
 - `xray-ifstats.php` / Diagnostics tab: show TUN IPv6, IP stack mode and DNS servers
+- Instance dialog: IP Stack & DNS and Routing are one section (IP Stack & DNS & Routing)
 - `install.sh`: migration step 4.8 adds defaults for existing instances
 - `install.sh`: check for FreeBSD package `bird2`; if missing, run `pkg update` and `pkg install -y bird2`
-- `install.sh`: fill `router id` / BGP `source address` from live WAN IPv4/IPv6 (`route`/`ifconfig`, not only config.xml); seed three disabled BGP peers if none exist
+- `install.sh`: fill `router id` / BGP `source address` from live WAN IPv4/IPv6 (`route`/`ifconfig`, not only config.xml); seed default BGP peers, filters and communities if none exist
 
 ## [3.0.1] - TBD
 ### Added

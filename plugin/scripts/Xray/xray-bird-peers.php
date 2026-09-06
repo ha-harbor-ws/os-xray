@@ -244,7 +244,10 @@ function xray_bird_write_router_id(): void
 function xray_bird_apply_source_placeholders(): void
 {
     foreach (xray_bgp_template_names() as $name) {
-        $path = XRAY_BIRD_INC_DIR . '/' . $name . '.inc';
+        $path = XRAY_BIRD_INC_DIR . '/' . xray_bird_inc_filename($name);
+        if (!is_readable($path)) {
+            $path = XRAY_BIRD_INC_DIR . '/' . $name . '.inc';
+        }
         if (!is_readable($path)) {
             continue;
         }
@@ -438,7 +441,10 @@ function xray_bgp_conf_default_peer(): array
 {
     $text = '';
     foreach (xray_bgp_template_names() as $name) {
-        $path = XRAY_BIRD_INC_DIR . '/' . $name . '.inc';
+        $path = XRAY_BIRD_INC_DIR . '/' . xray_bird_inc_filename($name);
+        if (!is_readable($path)) {
+            $path = XRAY_BIRD_INC_DIR . '/' . $name . '.inc';
+        }
         if (is_readable($path)) {
             $text .= (string)file_get_contents($path) . "\n";
         }
@@ -507,27 +513,48 @@ function xray_bgp_format_communities_inc(array $pairs): string
     return implode(', ', $parts);
 }
 
-function xray_bird_community_define_name(string $ident): string
+function xray_bird_community_ident(string $name): string
 {
-    if (strncasecmp($ident, 'community_', 10) === 0) {
-        return substr($ident, 10);
+    $ident = xray_bgp_community_ident($name);
+    if ($ident === '') {
+        return '';
+    }
+    if (strncasecmp($ident, 'community_', 10) !== 0) {
+        $ident = 'community_' . $ident;
     }
     return $ident;
 }
 
 function xray_bird_community_filename(string $ident): string
 {
-    if (strncasecmp($ident, 'community_', 10) === 0) {
-        return $ident . '.inc';
+    $ident = xray_bird_community_ident($ident);
+    if ($ident === '') {
+        return '';
     }
-    return 'community_' . $ident . '.inc';
+    return $ident . '.inc';
+}
+
+function xray_bird_filter_filename(string $ident): string
+{
+    $ident = xray_bgp_community_ident($ident);
+    if (strncasecmp($ident, 'accept_', 7) === 0) {
+        $ident = 'filter_' . substr($ident, 7);
+    } elseif (strncasecmp($ident, 'filter_', 7) !== 0) {
+        $ident = 'filter_' . $ident;
+    }
+    return $ident . '.inc';
+}
+
+function xray_bird_filter_ident(string $name): string
+{
+    return basename(xray_bird_filter_filename($name), '.inc');
 }
 
 function xray_bird_default_community_defines(): array
 {
     return [
-        'ANTIFILTER_DOWNLOAD' => 'define ANTIFILTER_DOWNLOAD = [ (65432, 500) ];' . "\n",
-        'ANTIFILTER_NETWORK'  => 'define ANTIFILTER_NETWORK = [ (65444, 120), (65444, 200), (65444, 210), (65444, 700), (65444, 710), (65444, 720), (65444, 730), (65444, 740), (65444, 750), (65444, 760), (65444, 770), (65444, 780), (65444, 790), (65444, 800) ];' . "\n",
+        'community_ANTIFILTER_DOWNLOAD' => 'define community_ANTIFILTER_DOWNLOAD = [ (65432, 500) ];' . "\n",
+        'community_ANTIFILTER_NETWORK'  => 'define community_ANTIFILTER_NETWORK = [ (65444, 120), (65444, 200), (65444, 210), (65444, 700), (65444, 710), (65444, 720), (65444, 730), (65444, 740), (65444, 750), (65444, 760), (65444, 770), (65444, 780), (65444, 790), (65444, 800) ];' . "\n",
     ];
 }
 
@@ -535,35 +562,211 @@ function xray_bird_ensure_default_community_files(string $dir): void
 {
     foreach (xray_bird_default_community_defines() as $ident => $body) {
         $file = $dir . '/' . xray_bird_community_filename($ident);
-        if (!is_file($file)) {
-            file_put_contents($file, $body);
-            @chmod($file, 0644);
+        if ($file === '' || is_file($file)) {
+            continue;
         }
+        file_put_contents($file, $body);
+        @chmod($file, 0644);
     }
 }
 
 function xray_bird_write_community_file(string $dir, string $ident, array $pairs): string
 {
-    $define = xray_bird_community_define_name($ident);
-    $file   = $dir . '/' . xray_bird_community_filename($ident);
-    $body   = 'define ' . $define . ' = [ ' . xray_bgp_format_communities_inc($pairs) . ' ];' . "\n";
+    $ident = xray_bird_community_ident($ident);
+    if ($ident === '') {
+        return '';
+    }
+    $file = $dir . '/' . $ident . '.inc';
+    $body = 'define ' . $ident . ' = [ ' . xray_bgp_format_communities_inc($pairs) . ' ];' . "\n";
     file_put_contents($file, $body);
     @chmod($file, 0644);
     return $file;
 }
 
-function xray_bird_impexp_line(string $kind, string $value): string
+function xray_get_bgp_communities_from_config(): array
+{
+    try {
+        $cfg  = \OPNsense\Core\Config::getInstance()->object();
+        $node = $cfg->OPNsense->xray->bgpcommunities ?? null;
+        if (!$node || !isset($node->community)) {
+            return [];
+        }
+        $result = [];
+        foreach ($node->community as $item) {
+            $uuid = (string)$item['uuid'];
+            if ($uuid === '') {
+                continue;
+            }
+            $result[$uuid] = [
+                'enabled'     => ((string)($item->enabled ?? '1') === '1') ? '1' : '0',
+                'name'        => (string)($item->name ?? ''),
+                'communities' => (string)($item->communities ?? ''),
+            ];
+        }
+        return $result;
+    } catch (\Throwable $e) {
+        return [];
+    }
+}
+
+function xray_get_bgp_filters_from_config(): array
+{
+    try {
+        $cfg  = \OPNsense\Core\Config::getInstance()->object();
+        $node = $cfg->OPNsense->xray->bgpfilters ?? null;
+        if (!$node || !isset($node->filter)) {
+            return [];
+        }
+        $result = [];
+        foreach ($node->filter as $item) {
+            $uuid = (string)$item['uuid'];
+            if ($uuid === '') {
+                continue;
+            }
+            $result[$uuid] = [
+                'enabled'        => ((string)($item->enabled ?? '1') === '1') ? '1' : '0',
+                'name'           => (string)($item->name ?? ''),
+                'community'      => (string)($item->community ?? ''),
+                'family'         => (string)($item->family ?? 'ipv4'),
+                'reject_default' => ((string)($item->reject_default ?? '1') === '1') ? '1' : '0',
+                'tun_if'         => (string)($item->tun_if ?? ''),
+            ];
+        }
+        return $result;
+    } catch (\Throwable $e) {
+        return [];
+    }
+}
+
+function xray_bird_render_filter(array $f): string
+{
+    $name = xray_bird_filter_ident((string)($f['name'] ?? ''));
+    if ($name === '') {
+        return '';
+    }
+    $fam    = ((string)($f['family'] ?? 'ipv4') === 'ipv6') ? 'ipv6' : 'ipv4';
+    $defNet = ($fam === 'ipv6') ? '::/0' : '0.0.0.0/0';
+    $tun    = trim((string)($f['tun_if'] ?? ''));
+    if ($tun === '' || !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $tun)) {
+        $tun = ($fam === 'ipv6') ? 'ACTIVE_TUN6_IF' : 'ACTIVE_TUN4_IF';
+    }
+    $comm      = xray_bird_community_ident((string)($f['community'] ?? ''));
+    $rejectDef = (($f['reject_default'] ?? '1') === '1');
+
+    $body = [];
+    if ($rejectDef) {
+        $body[] = '       if net = ' . $defNet . ' then reject;';
+    }
+    $body[] = '       ifname = ' . $tun . ';';
+    $body[] = '       accept;';
+
+    if ($comm !== '') {
+        return 'filter ' . $name . " {\n    if bgp_community ~ " . $comm . " then { \n"
+            . implode("\n", $body) . "\n    }\n    reject; \n}\n";
+    }
+    $plain = [];
+    foreach ($body as $line) {
+        $plain[] = preg_replace('/^       /', '    ', $line);
+    }
+    return 'filter ' . $name . " {\n" . implode("\n", $plain) . "\n}\n";
+}
+
+function xray_bird_write_gui_communities(string $dir, array &$written, array &$commFiles): void
+{
+    $rows = xray_get_bgp_communities_from_config();
+    if ($rows === []) {
+        xray_bird_ensure_default_community_files($dir);
+        return;
+    }
+    foreach ($rows as $c) {
+        if (($c['enabled'] ?? '0') !== '1') {
+            continue;
+        }
+        $ident = xray_bird_community_ident((string)$c['name']);
+        $pairs = xray_bgp_parse_communities((string)$c['communities']);
+        if ($ident === '' || $pairs === []) {
+            continue;
+        }
+        $file = xray_bird_write_community_file($dir, $ident, $pairs);
+        if ($file === '') {
+            continue;
+        }
+        $commFiles[$file] = true;
+        $written[$file]   = true;
+    }
+}
+
+function xray_bird_write_gui_filters(string $dir, array &$written, array &$templates): void
+{
+    $filters = xray_get_bgp_filters_from_config();
+    $inc     = ['# generated by os-xray — BGP import filters', ''];
+    if ($filters === []) {
+        foreach (['filter_antifilter_download', 'filter_antifilter_network_v4',
+                  'filter_antifilter_network_v6', 'filter_refilter'] as $n) {
+            $inc[] = 'include "' . $dir . '/' . xray_bird_filter_filename($n) . '";';
+        }
+        $inc[] = '';
+        file_put_contents($dir . '/filters.inc', implode("\n", $inc));
+        @chmod($dir . '/filters.inc', 0644);
+        return;
+    }
+    foreach ($filters as $f) {
+        $name = xray_bird_filter_ident((string)($f['name'] ?? ''));
+        if ($name === '') {
+            continue;
+        }
+        $templates[$name] = true;
+        if (($f['enabled'] ?? '0') !== '1') {
+            continue;
+        }
+        $file = $dir . '/' . xray_bird_filter_filename($name);
+        $body = xray_bird_render_filter($f);
+        if ($body === '') {
+            continue;
+        }
+        file_put_contents($file, $body);
+        @chmod($file, 0644);
+        $written[$file] = true;
+        $inc[] = 'include "' . $file . '";';
+    }
+    $inc[] = '';
+    file_put_contents($dir . '/filters.inc', implode("\n", $inc));
+    @chmod($dir . '/filters.inc', 0644);
+}
+
+function xray_resolve_import_filter(string $value): string
 {
     $value = trim($value);
     if ($value === '' || strcasecmp($value, 'none') === 0) {
-        return "        {$kind} none;";
+        return 'none';
     }
     if (strcasecmp($value, 'all') === 0) {
-        return "        {$kind} all;";
+        return 'all';
     }
-    $ident = preg_replace('/[^A-Za-z0-9_]/', '', $value);
-    if ($ident === '') {
+    static $byUuid = null;
+    if ($byUuid === null) {
+        $byUuid = [];
+        foreach (xray_get_bgp_filters_from_config() as $uuid => $f) {
+            $ident = xray_bird_filter_ident((string)($f['name'] ?? ''));
+            if ($ident !== '') {
+                $byUuid[$uuid] = $ident;
+            }
+        }
+    }
+    if (isset($byUuid[$value])) {
+        return $byUuid[$value];
+    }
+    return xray_bird_filter_ident($value);
+}
+
+function xray_bird_impexp_line(string $kind, string $value): string
+{
+    $ident = xray_resolve_import_filter($value);
+    if ($ident === '' || strcasecmp($ident, 'none') === 0) {
         return "        {$kind} none;";
+    }
+    if (strcasecmp($ident, 'all') === 0) {
+        return "        {$kind} all;";
     }
     return "        {$kind} filter {$ident};";
 }
@@ -650,23 +853,7 @@ function xray_get_bgp_peers_from_config(): array
 
 function xray_bird_inc_filename(string $protoName): string
 {
-    $reserved = [
-        'active_tun_v4' => true,
-        'active_tun_v6' => true,
-        'ANTIFILTER_DOWNLOAD'           => true,
-        'ANTIFILTER_NETWORK'            => true,
-        'communities'                   => true,
-        'router_id'                     => true,
-        'accept_refilter'               => true,
-        'accept_antifilter_download'    => true,
-        'accept_antifilter_network_v4'  => true,
-        'accept_antifilter_network_v6'  => true,
-        'community_ANTIFILTER_DOWNLOAD' => true,
-        'community_ANTIFILTER_NETWORK'  => true,
-        'bgp'                           => true,
-        'peers'                         => true,
-    ];
-    if (isset($reserved[$protoName])) {
+    if (strncasecmp($protoName, 'peer_', 5) !== 0) {
         $protoName = 'peer_' . $protoName;
     }
     return $protoName . '.inc';
@@ -679,27 +866,29 @@ function xray_bird_write_peers(): void
         @mkdir($dir, 0755, true);
     }
     xray_bird_write_router_id();
-    xray_bird_ensure_default_community_files($dir);
+    $commFiles = [];
+    $written   = [];
+    xray_bird_write_gui_communities($dir, $written, $commFiles);
 
     $peers     = xray_get_bgp_peers_from_config();
     $used      = [];
-    $written   = [];
     $incLines  = ['# generated by os-xray — BGP peer includes', ''];
     $templates = array_fill_keys(array_merge(
         xray_bgp_template_names(),
-        ['ANTIFILTER_DOWNLOAD', 'ANTIFILTER_NETWORK', 'communities',
+        ['communities',
          'community_ANTIFILTER_DOWNLOAD', 'community_ANTIFILTER_NETWORK',
-         'filters', 'accept_refilter', 'accept_antifilter_download',
-         'accept_antifilter_network_v4', 'accept_antifilter_network_v6', 'router_id']
+         'filters', 'router_id',
+         'peer_refilter', 'peer_antifilter_download', 'peer_antifilter_network',
+         'filter_refilter', 'filter_antifilter_download',
+         'filter_antifilter_network_v4', 'filter_antifilter_network_v6']
     ), true);
-    $commFiles = [];
 
     foreach ($peers as $uuid => $p) {
         foreach ([
             ['ipv4_community_name', 'ipv4_community'],
             ['ipv6_community_name', 'ipv6_community'],
         ] as $keys) {
-            $ident = xray_bgp_community_ident((string)($p[$keys[0]] ?? ''));
+            $ident = xray_bird_community_ident((string)($p[$keys[0]] ?? ''));
             if ($ident === '') {
                 continue;
             }
@@ -708,6 +897,9 @@ function xray_bird_write_peers(): void
                 continue;
             }
             $cfile = xray_bird_write_community_file($dir, $ident, $pairs);
+            if ($cfile === '') {
+                continue;
+            }
             $commFiles[$cfile] = true;
             $written[$cfile]   = true;
         }
@@ -728,12 +920,16 @@ function xray_bird_write_peers(): void
         $incLines[] = 'include "' . $file . '";';
     }
 
+    xray_bird_write_gui_filters($dir, $written, $templates);
+
     $commLines = ['# generated by os-xray — BGP community defines', ''];
     $seenInc   = [];
-    foreach (['community_ANTIFILTER_DOWNLOAD', 'community_ANTIFILTER_NETWORK'] as $ident) {
-        $cfile = $dir . '/' . $ident . '.inc';
-        $commLines[]     = 'include "' . $cfile . '";';
-        $seenInc[$cfile] = true;
+    if (count($commFiles) === 0) {
+        foreach (['community_ANTIFILTER_DOWNLOAD', 'community_ANTIFILTER_NETWORK'] as $ident) {
+            $cfile = $dir . '/' . $ident . '.inc';
+            $commLines[]     = 'include "' . $cfile . '";';
+            $seenInc[$cfile] = true;
+        }
     }
     foreach (array_keys($commFiles) as $cfile) {
         if (!isset($seenInc[$cfile])) {
@@ -783,6 +979,12 @@ function xray_bird_write_peers(): void
     @chmod(XRAY_BIRD_PEERS_INC, 0644);
 }
 
+function xray_bird_is_running(): bool
+{
+    exec('/usr/bin/pgrep -qx bird', $o, $rc);
+    return $rc === 0;
+}
+
 function xray_bird_reload_config(): void
 {
     if (!is_executable('/usr/local/sbin/birdc')) {
@@ -793,4 +995,108 @@ function xray_bird_reload_config(): void
         return;
     }
     exec('/usr/local/sbin/birdc configure 2>&1');
+}
+
+function xray_birdc_query(string $query): string
+{
+    if (!preg_match('/^[A-Za-z0-9_ ]+$/', $query)) {
+        return '';
+    }
+    $birdc = '/usr/local/sbin/birdc';
+    if (!is_executable($birdc)) {
+        return '';
+    }
+    $out = [];
+    exec($birdc . ' ' . escapeshellarg($query) . ' 2>&1', $out);
+    return implode("\n", $out);
+}
+
+function xray_parse_birdc_protocols_all(string $text): array
+{
+    $result = [];
+    $cur    = null;
+    foreach (preg_split("/\r\n|\n|\r/", $text) as $line) {
+        if (preg_match('/^(\S+)\s+BGP\s+\S+\s+(\S+)\s+(\S+)\s*(.*)$/', $line, $m)) {
+            if (strcasecmp($m[1], 'Name') === 0) {
+                $cur = null;
+                continue;
+            }
+            $cur = $m[1];
+            $result[$cur] = [
+                'state'    => $m[2],
+                'info'     => trim($m[4]),
+                'imported' => 0,
+            ];
+            continue;
+        }
+        if ($cur === null) {
+            continue;
+        }
+        if (preg_match('/^\S+\s+(Device|Direct|Kernel|Pipe|RPKI|Static|Babel|OSPF|RIP|BFD)\s+/', $line)) {
+            $cur = null;
+            continue;
+        }
+        if (preg_match('/^\s+BGP state:\s+(.+)$/', $line, $sm)) {
+            $result[$cur]['info'] = trim($sm[1]);
+            continue;
+        }
+        if (preg_match('/^\s+Routes:\s+(\d+)\s+imported/', $line, $rm)) {
+            $result[$cur]['imported'] += (int)$rm[1];
+        }
+    }
+    return $result;
+}
+
+function xray_bgp_peer_protocol_names(): array
+{
+    $peers = xray_get_bgp_peers_from_config();
+    $used  = [];
+    $map   = [];
+    foreach ($peers as $uuid => $p) {
+        $name = (string)($p['name'] ?? '');
+        $map[$uuid] = xray_bird_protocol_name($name !== '' ? $name : 'peer', $uuid, $used);
+    }
+    return $map;
+}
+
+function xray_bgp_peers_runtime_status(): array
+{
+    $running = xray_bird_is_running();
+    $peers   = xray_get_bgp_peers_from_config();
+    $names   = xray_bgp_peer_protocol_names();
+    $live    = [];
+    if ($running) {
+        $live = xray_parse_birdc_protocols_all(xray_birdc_query('show protocols all'));
+    }
+    $result = [];
+    foreach ($peers as $uuid => $p) {
+        $proto   = $names[$uuid] ?? '';
+        $enabled = ($p['enabled'] ?? '0') === '1';
+        $row     = [
+            'name'     => (string)($p['name'] ?? ''),
+            'proto'    => $proto,
+            'enabled'  => $enabled,
+            'state'    => '—',
+            'info'     => '—',
+            'imported' => 0,
+        ];
+        if (!$running) {
+            $row['info'] = 'bird not running';
+        } elseif (!$enabled) {
+            $row['state'] = 'disabled';
+            $row['info']  = 'not in BIRD config';
+        } elseif ($proto !== '' && isset($live[$proto])) {
+            $row['state']    = $live[$proto]['state'];
+            $row['info']     = $live[$proto]['info'] !== '' ? $live[$proto]['info'] : '—';
+            $row['imported'] = $live[$proto]['imported'];
+        } else {
+            $row['state'] = 'down';
+            $row['info']  = 'not in BIRD';
+        }
+        $result[$uuid] = $row;
+    }
+    return [
+        'running' => $running,
+        'peers'   => $result,
+    ];
 }

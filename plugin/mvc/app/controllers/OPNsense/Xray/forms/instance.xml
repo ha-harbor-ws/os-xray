@@ -58,7 +58,7 @@
     </field>
     <field>
         <type>header</type>
-        <label>IP Stack &amp; DNS</label>
+        <label>IP Stack &amp; DNS &amp; Routing</label>
     </field>
     <field>
         <id>instance.use_ipv4</id>
@@ -80,8 +80,11 @@
         <hint>1.1.1.1,8.8.8.8</hint>
     </field>
     <field>
-        <type>header</type>
-        <label>Routing</label>
+        <id>instance.weight</id>
+        <label>Weight</label>
+        <type>text</type>
+        <help>Interface weight for route selection. Values range from 1 to 1000. The higher the weight, the higher the priority of the interface.</help>
+        <hint>1</hint>
     </field>
     <field>
         <id>instance.bypass_networks</id>

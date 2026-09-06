@@ -64,7 +64,8 @@ xray_shell_fill_wan_bird() {
         warn "WAN IPv4 not found for router id"
     fi
     for _peer in refilter antifilter_download antifilter_network; do
-        _f="/usr/local/etc/bird/${_peer}.inc"
+        _f="/usr/local/etc/bird/peer_${_peer}.inc"
+        [ -f "$_f" ] || _f="/usr/local/etc/bird/${_peer}.inc"
         [ -f "$_f" ] || continue
         _src="$_v4"
         [ -n "$_src" ] || continue
@@ -121,6 +122,9 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/etc/bird/refilter.inc
     rm -f  /usr/local/etc/bird/antifilter_download.inc
     rm -f  /usr/local/etc/bird/antifilter_network.inc
+    rm -f  /usr/local/etc/bird/peer_refilter.inc
+    rm -f  /usr/local/etc/bird/peer_antifilter_download.inc
+    rm -f  /usr/local/etc/bird/peer_antifilter_network.inc
     rm -f  /usr/local/etc/bird/ANTIFILTER_DOWNLOAD.inc
     rm -f  /usr/local/etc/bird/ANTIFILTER_NETWORK.inc
     rm -f  /usr/local/etc/bird/community_ANTIFILTER_DOWNLOAD.inc
@@ -132,6 +136,14 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/etc/bird/accept_antifilter_download.inc
     rm -f  /usr/local/etc/bird/accept_antifilter_network_v4.inc
     rm -f  /usr/local/etc/bird/accept_antifilter_network_v6.inc
+    rm -f  /usr/local/etc/bird/filter_accept_refilter.inc
+    rm -f  /usr/local/etc/bird/filter_accept_antifilter_download.inc
+    rm -f  /usr/local/etc/bird/filter_accept_antifilter_network_v4.inc
+    rm -f  /usr/local/etc/bird/filter_accept_antifilter_network_v6.inc
+    rm -f  /usr/local/etc/bird/filter_refilter.inc
+    rm -f  /usr/local/etc/bird/filter_antifilter_download.inc
+    rm -f  /usr/local/etc/bird/filter_antifilter_network_v4.inc
+    rm -f  /usr/local/etc/bird/filter_antifilter_network_v6.inc
     rm -f  /usr/local/etc/bird/community_antifilter_download.inc
     rm -f  /usr/local/etc/bird/community_antifilter_network.inc
     rm -f  /usr/local/etc/bird/.xray-bgp-generated
@@ -660,23 +672,54 @@ install_bird_inc() {
     return 1
 }
 
-for _PEER in refilter antifilter_download antifilter_network \
-             accept_refilter accept_antifilter_download \
-             accept_antifilter_network_v4 accept_antifilter_network_v6 \
-             filters router_id communities; do
+for _PEER in filters router_id communities; do
     if ! install_bird_inc "$_PEER"; then
         warn "Failed to install ${_PEER}.inc"
     fi
 done
 
+if ! install_bird_inc peer_refilter refilter; then
+    warn "Failed to install peer_refilter.inc"
+fi
+if ! install_bird_inc peer_antifilter_download antifilter_download; then
+    warn "Failed to install peer_antifilter_download.inc"
+fi
+if ! install_bird_inc peer_antifilter_network antifilter_network; then
+    warn "Failed to install peer_antifilter_network.inc"
+fi
+
+if ! install_bird_inc filter_refilter filter_accept_refilter accept_refilter; then
+    warn "Failed to install filter_refilter.inc"
+fi
+if ! install_bird_inc filter_antifilter_download filter_accept_antifilter_download accept_antifilter_download; then
+    warn "Failed to install filter_antifilter_download.inc"
+fi
+if ! install_bird_inc filter_antifilter_network_v4 filter_accept_antifilter_network_v4 accept_antifilter_network_v4; then
+    warn "Failed to install filter_antifilter_network_v4.inc"
+fi
+if ! install_bird_inc filter_antifilter_network_v6 filter_accept_antifilter_network_v6 accept_antifilter_network_v6; then
+    warn "Failed to install filter_antifilter_network_v6.inc"
+fi
+rm -f "$BIRD_INC_DIR/refilter.inc" \
+      "$BIRD_INC_DIR/antifilter_download.inc" \
+      "$BIRD_INC_DIR/antifilter_network.inc" \
+      "$BIRD_INC_DIR/accept_refilter.inc" \
+      "$BIRD_INC_DIR/accept_antifilter_download.inc" \
+      "$BIRD_INC_DIR/accept_antifilter_network_v4.inc" \
+      "$BIRD_INC_DIR/accept_antifilter_network_v6.inc" \
+      "$BIRD_INC_DIR/filter_accept_refilter.inc" \
+      "$BIRD_INC_DIR/filter_accept_antifilter_download.inc" \
+      "$BIRD_INC_DIR/filter_accept_antifilter_network_v4.inc" \
+      "$BIRD_INC_DIR/filter_accept_antifilter_network_v6.inc"
+
 if ! install_bird_inc community_ANTIFILTER_DOWNLOAD community_antifilter_download; then
-    printf '%s\n' 'define ANTIFILTER_DOWNLOAD = [ (65432, 500) ];' \
+    printf '%s\n' 'define community_ANTIFILTER_DOWNLOAD = [ (65432, 500) ];' \
         > "$BIRD_INC_DIR/community_ANTIFILTER_DOWNLOAD.inc"
     chmod 0644 "$BIRD_INC_DIR/community_ANTIFILTER_DOWNLOAD.inc"
     echo "[OK]  $BIRD_INC_DIR/community_ANTIFILTER_DOWNLOAD.inc (from original bird.conf)"
 fi
 if ! install_bird_inc community_ANTIFILTER_NETWORK community_antifilter_network; then
-    printf '%s\n' 'define ANTIFILTER_NETWORK = [ (65444, 120), (65444, 200), (65444, 210), (65444, 700), (65444, 710), (65444, 720), (65444, 730), (65444, 740), (65444, 750), (65444, 760), (65444, 770), (65444, 780), (65444, 790), (65444, 800) ];' \
+    printf '%s\n' 'define community_ANTIFILTER_NETWORK = [ (65444, 120), (65444, 200), (65444, 210), (65444, 700), (65444, 710), (65444, 720), (65444, 730), (65444, 740), (65444, 750), (65444, 760), (65444, 770), (65444, 780), (65444, 790), (65444, 800) ];' \
         > "$BIRD_INC_DIR/community_ANTIFILTER_NETWORK.inc"
     chmod 0644 "$BIRD_INC_DIR/community_ANTIFILTER_NETWORK.inc"
     echo "[OK]  $BIRD_INC_DIR/community_ANTIFILTER_NETWORK.inc (from original bird.conf)"
@@ -1113,7 +1156,7 @@ $peers = [
         'enabled' => '0', 'name' => 'refilter', 'local_as' => '65103',
         'neighbor' => '165.22.127.207', 'neighbor_as' => '65412',
         'source_address' => $src4,
-        'ipv4' => '1', 'ipv4_import' => 'accept_refilter',
+        'ipv4' => '1', 'ipv4_import' => 'filter_refilter',
         'ipv4_community_name' => '', 'ipv4_community' => '',
         'ipv6' => '0', 'ipv6_import' => '',
         'ipv6_community_name' => '', 'ipv6_community' => '',
@@ -1123,8 +1166,8 @@ $peers = [
         'enabled' => '0', 'name' => 'antifilter_download', 'local_as' => '65103',
         'neighbor' => '45.154.73.71', 'neighbor_as' => '65432',
         'source_address' => $src4,
-        'ipv4' => '1', 'ipv4_import' => 'accept_antifilter_download',
-        'ipv4_community_name' => 'ANTIFILTER_DOWNLOAD', 'ipv4_community' => '65432, 500',
+        'ipv4' => '1', 'ipv4_import' => 'filter_antifilter_download',
+        'ipv4_community_name' => 'community_ANTIFILTER_DOWNLOAD', 'ipv4_community' => '65432, 500',
         'ipv6' => '0', 'ipv6_import' => '',
         'ipv6_community_name' => '', 'ipv6_community' => '',
         'hold_time' => '240',
@@ -1133,10 +1176,10 @@ $peers = [
         'enabled' => '0', 'name' => 'antifilter_network', 'local_as' => '65103',
         'neighbor' => '45.148.244.55', 'neighbor_as' => '65444',
         'source_address' => $src4,
-        'ipv4' => '1', 'ipv4_import' => 'accept_antifilter_network_v4',
-        'ipv4_community_name' => 'ANTIFILTER_NETWORK', 'ipv4_community' => $networkComm,
-        'ipv6' => '1', 'ipv6_import' => 'accept_antifilter_network_v6',
-        'ipv6_community_name' => 'ANTIFILTER_NETWORK', 'ipv6_community' => $networkComm,
+        'ipv4' => '1', 'ipv4_import' => 'filter_antifilter_network_v4',
+        'ipv4_community_name' => 'community_ANTIFILTER_NETWORK', 'ipv4_community' => $networkComm,
+        'ipv6' => '1', 'ipv6_import' => 'filter_antifilter_network_v6',
+        'ipv6_community_name' => 'community_ANTIFILTER_NETWORK', 'ipv6_community' => $networkComm,
         'hold_time' => '240',
     ],
 ];
@@ -1162,6 +1205,100 @@ elif [ "$_SEED_BGP_OK" = "SKIP" ]; then
     echo "[SKIP] BGP peers already present."
 else
     warn "BGP peer seed failed."
+fi
+
+# ── Шаг 4.10: Seed default BGP filters and communities ────────────────────────
+echo ""
+echo "==> Step 4.10: Seeding default BGP filters and communities if none exist..."
+_SEED_BGP_EXTRA_OK=$(php << 'PHPEOF'
+<?php
+set_include_path('/usr/local/etc/inc' . PATH_SEPARATOR . get_include_path());
+require_once('config.inc');
+
+function xray_bgp_uuid(): string
+{
+    $data = random_bytes(16);
+    $data[6] = chr((ord($data[6]) & 0x0f) | 0x40);
+    $data[8] = chr((ord($data[8]) & 0x3f) | 0x80);
+    return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
+}
+
+function xray_seed_array_if_empty($parent, string $childName, array $rows): bool
+{
+    if (isset($parent->{$childName})) {
+        foreach ($parent->{$childName} as $item) {
+            return false;
+        }
+    }
+    foreach ($rows as $row) {
+        $node = $parent->addChild($childName);
+        $node->addAttribute('uuid', xray_bgp_uuid());
+        foreach ($row as $k => $v) {
+            $node->addChild($k, htmlspecialchars((string)$v, ENT_XML1 | ENT_QUOTES, 'UTF-8'));
+        }
+    }
+    return true;
+}
+
+$cfg = OPNsense\Core\Config::getInstance();
+$obj = $cfg->object();
+$xray = $obj->OPNsense->xray ?? null;
+if (!$xray) { echo "SKIP"; exit(0); }
+
+if (!isset($xray->bgpfilters)) {
+    $xray->addChild('bgpfilters');
+}
+if (!isset($xray->bgpcommunities)) {
+    $xray->addChild('bgpcommunities');
+}
+
+$networkComm = '65444, 120, 65444:200, 65444:210, 65444:700, 65444:710, 65444:720, 65444:730, 65444:740, 65444:750, 65444:760, 65444:770, 65444:780, 65444:790, 65444:800';
+$changed = false;
+$changed = xray_seed_array_if_empty($xray->bgpfilters, 'filter', [
+    ['enabled' => '1', 'name' => 'filter_refilter', 'community' => '', 'family' => 'ipv4', 'reject_default' => '1', 'tun_if' => 'ACTIVE_TUN4_IF'],
+    ['enabled' => '1', 'name' => 'filter_antifilter_download', 'community' => 'community_ANTIFILTER_DOWNLOAD', 'family' => 'ipv4', 'reject_default' => '1', 'tun_if' => 'ACTIVE_TUN4_IF'],
+    ['enabled' => '1', 'name' => 'filter_antifilter_network_v4', 'community' => 'community_ANTIFILTER_NETWORK', 'family' => 'ipv4', 'reject_default' => '1', 'tun_if' => 'ACTIVE_TUN4_IF'],
+    ['enabled' => '1', 'name' => 'filter_antifilter_network_v6', 'community' => 'community_ANTIFILTER_NETWORK', 'family' => 'ipv6', 'reject_default' => '1', 'tun_if' => 'ACTIVE_TUN6_IF'],
+]) || $changed;
+$changed = xray_seed_array_if_empty($xray->bgpcommunities, 'community', [
+    ['enabled' => '1', 'name' => 'community_ANTIFILTER_DOWNLOAD', 'communities' => '65432, 500'],
+    ['enabled' => '1', 'name' => 'community_ANTIFILTER_NETWORK', 'communities' => $networkComm],
+]) || $changed;
+
+$byName = [];
+if (isset($xray->bgpfilters->filter)) {
+    foreach ($xray->bgpfilters->filter as $f) {
+        $byName[(string)$f->name] = (string)$f['uuid'];
+    }
+}
+if (isset($xray->bgppeers->peer)) {
+    foreach ($xray->bgppeers->peer as $p) {
+        foreach (['ipv4_import', 'ipv6_import'] as $field) {
+            $v = trim((string)($p->{$field} ?? ''));
+            if ($v === '' || !isset($byName[$v])) {
+                continue;
+            }
+            $p->{$field} = $byName[$v];
+            $changed = true;
+        }
+    }
+}
+
+if ($changed) {
+    $cfg->save();
+    echo "OK";
+} else {
+    echo "SKIP";
+}
+PHPEOF
+) || true
+
+if [ "$_SEED_BGP_EXTRA_OK" = "OK" ]; then
+    echo "[OK]  Added default BGP filters and communities."
+elif [ "$_SEED_BGP_EXTRA_OK" = "SKIP" ]; then
+    echo "[SKIP] BGP filters/communities already present."
+else
+    warn "BGP filter/community seed failed."
 fi
 
 if ! grep -q '^router id [0-9]' /usr/local/etc/bird/router_id.inc 2>/dev/null; then

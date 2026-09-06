@@ -1,0 +1,41 @@
+<form>
+    <field>
+        <id>filter.enabled</id>
+        <label>Enabled</label>
+        <type>checkbox</type>
+        <help>Include this filter in filters.inc. Disabled filters are not loaded by BIRD.</help>
+    </field>
+    <field>
+        <id>filter.name</id>
+        <label>Name</label>
+        <type>text</type>
+        <help>BIRD filter name (must be unique). Must match the include file name without .inc, e.g. filter_refilter → /usr/local/etc/bird/filter_refilter.inc. Use this name in a peer Import field.</help>
+        <hint>e.g. filter_refilter</hint>
+    </field>
+    <field>
+        <id>filter.community</id>
+        <label>Community</label>
+        <type>text</type>
+        <help>Optional BIRD community define name (same as the community include without .inc, e.g. community_ANTIFILTER_DOWNLOAD).</help>
+        <hint>community_ANTIFILTER_DOWNLOAD</hint>
+    </field>
+    <field>
+        <id>filter.family</id>
+        <label>Address family</label>
+        <type>dropdown</type>
+        <help>Selects default-route match (0.0.0.0/0 or ::/0) and the default TUN define if Interface is empty.</help>
+    </field>
+    <field>
+        <id>filter.reject_default</id>
+        <label>Reject default route</label>
+        <type>checkbox</type>
+        <help>Reject 0.0.0.0/0 (IPv4) or ::/0 (IPv6) before accepting other prefixes.</help>
+    </field>
+    <field>
+        <id>filter.tun_if</id>
+        <label>Interface</label>
+        <type>text</type>
+        <help>BIRD identifier assigned to ifname (e.g. ACTIVE_TUN4_IF). Leave empty to use ACTIVE_TUN4_IF or ACTIVE_TUN6_IF from the address family.</help>
+        <hint>ACTIVE_TUN4_IF</hint>
+    </field>
+</form>

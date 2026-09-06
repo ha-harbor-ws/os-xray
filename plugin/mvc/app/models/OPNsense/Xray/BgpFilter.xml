@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<model>
+    <mount>//OPNsense/xray/bgpfilters</mount>
+    <description>Xray BGP filter settings</description>
+    <version>1.0.1</version>
+    <items>
+        <filter type="ArrayField">
+            <enabled type="BooleanField">
+                <Default>1</Default>
+            </enabled>
+            <name type="TextField">
+                <Required>Y</Required>
+                <Mask>/^[A-Za-z_][A-Za-z0-9_]*$/</Mask>
+                <ValidationMessage>BIRD filter name: letters, digits, underscore; must start with a letter or underscore</ValidationMessage>
+                <Constraints>
+                    <check001>
+                        <type>UniqueConstraint</type>
+                        <ValidationMessage>A BGP filter with this name already exists.</ValidationMessage>
+                    </check001>
+                </Constraints>
+            </name>
+            <community type="TextField">
+                <Required>N</Required>
+                <Mask>/^([A-Za-z_][A-Za-z0-9_]*)?$/</Mask>
+                <ValidationMessage>BIRD community define name, or empty</ValidationMessage>
+            </community>
+            <family type="OptionField">
+                <Required>Y</Required>
+                <Default>ipv4</Default>
+                <OptionValues>
+                    <ipv4>IPv4</ipv4>
+                    <ipv6>IPv6</ipv6>
+                </OptionValues>
+            </family>
+            <reject_default type="BooleanField">
+                <Default>1</Default>
+            </reject_default>
+            <tun_if type="TextField">
+                <Required>N</Required>
+            </tun_if>
+        </filter>
+    </items>
+</model>

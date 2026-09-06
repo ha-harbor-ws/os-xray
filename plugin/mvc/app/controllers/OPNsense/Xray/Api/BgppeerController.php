@@ -12,7 +12,10 @@ class BgppeerController extends ApiMutableModelControllerBase
 
     public function searchItemAction()
     {
+        (new \OPNsense\Xray\BgpFilter())->seedDefaultFiltersIfEmpty();
+        (new \OPNsense\Xray\BgpFilter())->migrateAcceptFilterNames();
         (new \OPNsense\Xray\BgpPeer())->seedDefaultPeersIfEmpty();
+        (new \OPNsense\Xray\BgpPeer())->migrateAcceptImportNames();
         return $this->searchBase('peer', [
             'enabled',
             'name',
@@ -26,9 +29,49 @@ class BgppeerController extends ApiMutableModelControllerBase
 
     public function toggleItemAction($uuid, $enabled = null)
     {
-        $result = $this->toggleBase('peer', $uuid, $enabled);
-        $this->syncBirdPeers();
-        return $result;
+        return $this->toggleBase('peer', $uuid, $enabled);
+    }
+
+    public function startItemAction($uuid)
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+        return $this->toggleBase('peer', $uuid, '1');
+    }
+
+    public function stopItemAction($uuid)
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+        return $this->toggleBase('peer', $uuid, '0');
+    }
+
+    public function statusAllAction()
+    {
+        $backend = new Backend();
+        $result  = $backend->configdRun('xray bgpstatus');
+        $decoded = json_decode($result, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            return $decoded;
+        }
+        return ['error' => trim((string)$result), 'running' => false, 'peers' => []];
+    }
+
+    public function applyAction()
+    {
+        return $this->birdCmd('bgprestart');
+    }
+
+    public function startBirdAction()
+    {
+        return $this->birdCmd('birdstart');
+    }
+
+    public function stopBirdAction()
+    {
+        return $this->birdCmd('birdstop');
     }
 
     public function getItemAction($uuid = null)
@@ -37,6 +80,9 @@ class BgppeerController extends ApiMutableModelControllerBase
         if (($uuid === null || $uuid === '') && isset($result['peer']) && is_array($result['peer'])) {
             $defaults = $this->defaultsFromBgpConf();
             foreach ($defaults as $key => $value) {
+                if ($key === 'ipv4_import' || $key === 'ipv6_import') {
+                    continue;
+                }
                 if (!array_key_exists($key, $result['peer'])) {
                     continue;
                 }
@@ -60,28 +106,32 @@ class BgppeerController extends ApiMutableModelControllerBase
 
     public function addItemAction()
     {
-        $result = $this->addBase('peer', 'peer');
-        $this->syncBirdPeers();
-        return $result;
+        return $this->addBase('peer', 'peer');
     }
 
     public function setItemAction($uuid)
     {
-        $result = $this->setBase('peer', 'peer', $uuid);
-        $this->syncBirdPeers();
-        return $result;
+        return $this->setBase('peer', 'peer', $uuid);
     }
 
     public function delItemAction($uuid)
     {
-        $result = $this->delBase('peer', $uuid);
-        $this->syncBirdPeers();
-        return $result;
+        return $this->delBase('peer', $uuid);
     }
 
-    private function syncBirdPeers(): void
+    private function birdCmd(string $action): array
     {
-        (new Backend())->configdRun('xray bgpwrite');
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+        $output = trim((new Backend())->configdRun('xray ' . $action));
+        $failed = $output === ''
+            || stripos($output, 'ERROR') !== false
+            || stripos($output, 'failed') !== false;
+        return [
+            'result'  => $failed ? 'failed' : 'ok',
+            'message' => $output !== '' ? $output : 'No response from configd',
+        ];
     }
 
     private function defaultsFromBgpConf(): array

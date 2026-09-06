@@ -952,6 +952,27 @@ switch ($action) {
         echo "OK\n";
         break;
 
+    case 'bgprestart':
+        xray_bird_write_peers();
+        xray_bird_service('restart');
+        echo "OK\n";
+        break;
+
+    case 'birdstart':
+        xray_bird_write_peers();
+        xray_bird_service('start');
+        echo "OK\n";
+        break;
+
+    case 'birdstop':
+        xray_bird_service('stop');
+        echo "OK\n";
+        break;
+
+    case 'bgpstatus':
+        echo json_encode(xray_bgp_peers_runtime_status()) . "\n";
+        break;
+
     case 'status':
         do_status($inst_uuid);
         break;
