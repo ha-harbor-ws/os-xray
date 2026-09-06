@@ -186,12 +186,29 @@ function xray_cron(): array
 {
     return [
         ['xray_cron_watchdog', '/', '*', '*', '*', '*'],
+        ['xray_cron_autoroute', '/', '*', '*', '*', '*'],
     ];
 }
 
 function xray_cron_watchdog(): void
 {
     (new OPNsense\Core\Backend())->configdRun('xray watchdog');
+}
+
+function xray_cron_autoroute(): void
+{
+    $cfg = OPNsense\Core\Config::getInstance()->object();
+    $g   = $cfg->OPNsense->xray->general ?? null;
+    if ((string)($g->enabled ?? '0') !== '1') {
+        return;
+    }
+    if ((string)($g->bgp_enabled ?? '0') !== '1') {
+        return;
+    }
+    if ((string)($g->bgp_auto_route ?? '0') !== '1') {
+        return;
+    }
+    (new OPNsense\Core\Backend())->configdRun('xray birdautoroute');
 }
 
 function xray_xmlrpc_sync()

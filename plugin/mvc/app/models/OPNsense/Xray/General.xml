@@ -2,7 +2,7 @@
 <model>
     <mount>//OPNsense/xray/general</mount>
     <description>Xray General Settings</description>
-    <version>1.0.2</version>
+    <version>1.0.5</version>
     <items>
         <enabled type="BooleanField">
             <default>0</default>
@@ -17,5 +17,31 @@
             <default>0</default>
             <Required>N</Required>
         </bgp_enabled>
+        <bgp_auto_route type="BooleanField">
+            <default>0</default>
+            <Required>N</Required>
+        </bgp_auto_route>
+        <bgp_weight_used_ipv4 type="BooleanField">
+            <default>0</default>
+            <Required>N</Required>
+        </bgp_weight_used_ipv4>
+        <bgp_weight_used_ipv6 type="BooleanField">
+            <default>0</default>
+            <Required>N</Required>
+        </bgp_weight_used_ipv6>
+        <bgp_auto_route_polls type="IntegerField">
+            <Default>3</Default>
+            <MinimumValue>1</MinimumValue>
+            <MaximumValue>20</MaximumValue>
+            <Required>Y</Required>
+            <ValidationMessage>Polls must be an integer from 1 to 20.</ValidationMessage>
+        </bgp_auto_route_polls>
+        <bgp_auto_route_interval type="IntegerField">
+            <Default>10</Default>
+            <MinimumValue>1</MinimumValue>
+            <MaximumValue>1440</MaximumValue>
+            <Required>Y</Required>
+            <ValidationMessage>Interval must be from 1 to 1440 minutes.</ValidationMessage>
+        </bgp_auto_route_interval>
     </items>
 </model>

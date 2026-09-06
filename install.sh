@@ -75,7 +75,7 @@ xray_write_bird_log_configs() {
     fi
 
     cat > /usr/local/etc/syslog-ng.conf.d/bird.conf << 'EOF'
-# BIRD logs (os-xray): bird.conf uses "log syslog all;"
+# BIRD logs (os-xray): bird.conf uses "log syslog { warning };" by default
 destination d_bird {
     file("/var/log/bird/bird.log"
          owner("root")
@@ -142,6 +142,7 @@ if [ "${1:-}" = "uninstall" ]; then
     # v2.0.0: per-instance PID, lock, flag, config files
     rm -f /var/run/xray_core_*.pid /var/run/tun2socks_*.pid
     rm -f /var/run/xray_start_*.lock /var/run/xray_stopped_*.flag
+    rm -f /var/run/xray_autoroute.last /var/run/xray_autoroute_state.json
     rm -f /usr/local/etc/xray-core/config-*.json
     rm -f /usr/local/tun2socks/config-*.yaml
     # v1.x legacy files
@@ -154,6 +155,7 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/opnsense/scripts/Xray/xray-watchdog.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-ifstats.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-peers.php
+    rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-active-tun.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-log.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-log.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-loglevel.php
@@ -693,6 +695,15 @@ elif fetch -o "$BIRD_CONF_DST" "$BIRD_CONF_URL" 2>/dev/null; then
     echo "[OK]  $BIRD_CONF_DST (from $BIRD_CONF_URL)"
 else
     warn "Failed to install bird.conf from git. Place it at $BIRD_CONF_DST manually."
+fi
+if [ -f "$BIRD_CONF_DST" ]; then
+    if grep -q '^log syslog' "$BIRD_CONF_DST"; then
+        sed -i '' -e 's/^log syslog.*/log syslog { warning };/' "$BIRD_CONF_DST"
+    else
+        printf '%s\n' 'log syslog { warning };' | cat - "$BIRD_CONF_DST" > "${BIRD_CONF_DST}.tmp" \
+            && mv "${BIRD_CONF_DST}.tmp" "$BIRD_CONF_DST"
+    fi
+    echo "[OK]  log syslog { warning }; in $BIRD_CONF_DST"
 fi
 
 echo "==> Creating $BIRD_INC_DIR includes..."

@@ -17,4 +17,36 @@
         <type>checkbox</type>
         <help>Enable BIRD (sysrc bird_enable="YES" / "NO", then service bird start or stop on Apply). After reboot and on Apply, BIRD starts only if at least one Xray tun2socks process is running. BGP peers are configured on the Routing tab.</help>
     </field>
+    <field>
+        <id>general.bgp_auto_route</id>
+        <label>Auto route</label>
+        <type>checkbox</type>
+        <help>Automatic interface selection based on minimum latency (default: three polls, 10 minutes between polls).</help>
+    </field>
+    <field>
+        <id>general.bgp_weight_used_ipv4</id>
+        <label>IPv4 Weight is used</label>
+        <type>checkbox</type>
+        <help>Use instance Weight IPv4 when choosing the active IPv4 tun2socks (at BIRD start and on Auto route). If disabled, IPv4 selection ignores weight.</help>
+    </field>
+    <field>
+        <id>general.bgp_weight_used_ipv6</id>
+        <label>IPv6 Weight is used</label>
+        <type>checkbox</type>
+        <help>Use instance Weight IPv6 when choosing the active IPv6 tun2socks (at BIRD start and on Auto route). If disabled, IPv6 selection ignores weight.</help>
+    </field>
+    <field>
+        <id>general.bgp_auto_route_polls</id>
+        <label>Auto route polls</label>
+        <type>text</type>
+        <help>Number of latency probes per tun2socks interface. The lowest successful time_total is used. Default is 3.</help>
+        <hint>3</hint>
+    </field>
+    <field>
+        <id>general.bgp_auto_route_interval</id>
+        <label>Auto route interval (minutes)</label>
+        <type>text</type>
+        <help>Minutes between automatic selection runs. Default is 10.</help>
+        <hint>10</hint>
+    </field>
 </form>

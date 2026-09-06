@@ -3,6 +3,7 @@
 
 require_once('config.inc');
 require_once(__DIR__ . '/xray-bird-peers.php');
+require_once(__DIR__ . '/xray-bird-active-tun.php');
 
 // ─── Shared constants (not per-instance) ─────────────────────────────────────
 define('XRAY_BIN',          '/usr/local/bin/xray-core');
@@ -785,6 +786,50 @@ function xray_bird_service(string $verb): void
     exec('/usr/sbin/service bird ' . escapeshellarg($verb) . ' 2>&1');
 }
 
+/**
+ * Выбор active TUN и старт/рестарт BIRD только при успешном HTTP через SOCKS.
+ * Не используется из birdsync.
+ */
+function xray_bird_gated_start(string $verb): bool
+{
+    $sel = xray_bird_select_and_write_active_tun();
+    if (empty($sel['ok'])) {
+        echo "bird: no tun2socks with successful HTTP — skip {$verb}\n";
+        return false;
+    }
+    if (!empty($sel['changed'])) {
+        xray_bird_service('onerestart');
+        echo "bird: active tun changed — service bird onerestart\n";
+        return true;
+    }
+    xray_bird_service($verb);
+    if (in_array($verb, ['start', 'onestart', 'restart', 'onerestart'], true)) {
+        xray_bird_reload_config();
+    }
+    return true;
+}
+
+/** General Apply: Enable BGP → выбор TUN и старт; иначе останов. */
+function xray_bird_apply_general_bgp(): void
+{
+    xray_bird_write_peers();
+    if (!xray_bgp_enabled()) {
+        xray_sysrc_bird_enable(false);
+        xray_bird_service('stop');
+        echo "bird: BGP off, bird_enable=NO, stopped\n";
+        return;
+    }
+    xray_sysrc_bird_enable(true);
+    if (!xray_any_tun2socks_running()) {
+        xray_bird_service('stop');
+        echo "bird: BGP on, no tun2socks, stopped\n";
+        return;
+    }
+    if (!xray_bird_gated_start('start')) {
+        echo "bird: BGP on, no working SOCKS — not starting\n";
+    }
+}
+
 function xray_bird_hold(): void
 {
     if (xray_bgp_enabled()) {
@@ -931,11 +976,11 @@ switch ($action) {
         }
         if ($anyFailed) {
             echo "ERROR: One or more instances failed to start.\n";
-            xray_bird_sync();
+            xray_bird_apply_general_bgp();
             exit(1);
         }
         echo "OK\n";
-        xray_bird_sync();
+        xray_bird_apply_general_bgp();
         exit(0);
 
     case 'birdhold':
@@ -954,13 +999,19 @@ switch ($action) {
 
     case 'bgprestart':
         xray_bird_write_peers();
-        xray_bird_service('onerestart');
+        if (!xray_bird_gated_start('onerestart')) {
+            echo "ERROR: BIRD not restarted — no tun2socks with HTTP success\n";
+            exit(1);
+        }
         echo "OK\n";
         break;
 
     case 'birdstart':
         xray_bird_write_direct_ifs();
-        xray_bird_service('onestart');
+        if (!xray_bird_gated_start('onestart')) {
+            echo "ERROR: BIRD not started — no tun2socks with HTTP success\n";
+            exit(1);
+        }
         echo "OK\n";
         break;
 
@@ -971,7 +1022,10 @@ switch ($action) {
 
     case 'birdrestart':
         xray_bird_write_direct_ifs();
-        xray_bird_service('onerestart');
+        if (!xray_bird_gated_start('onerestart')) {
+            echo "ERROR: BIRD not restarted — no tun2socks with HTTP success\n";
+            exit(1);
+        }
         echo "OK\n";
         break;
 
