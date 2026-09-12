@@ -18,6 +18,12 @@
         <help>Enable BIRD (sysrc bird_enable="YES" / "NO", then service bird start or stop on Apply). After reboot and on Apply, BIRD starts only if at least one Xray tun2socks process is running. BGP peers are configured on the Routing tab.</help>
     </field>
     <field>
+        <id>general.dnstap_bgp_enabled</id>
+        <label>dnstap_bgp</label>
+        <type>checkbox</type>
+        <help>Enable dnstap-bgp (sysrc dnstap_bgp_enable="YES" / "NO", then service dnstap_bgp start or stop on Apply). When enabled, the service starts now and after reboot. When disabled, it is stopped and removed from autostart.</help>
+    </field>
+    <field>
         <id>general.bgp_auto_route</id>
         <label>Auto route</label>
         <type>checkbox</type>

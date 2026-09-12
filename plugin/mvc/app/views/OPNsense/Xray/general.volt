@@ -12,6 +12,7 @@
             <li><a data-toggle="tab" href="#routing-communities">{{ lang._('BGP community') }}</a></li>
         </ul>
     </li>
+    <li><a data-toggle="tab" href="#dnstap">{{ lang._('DNStap') }}</a></li>
     <li><a data-toggle="tab" href="#general">{{ lang._('General') }}</a></li>
     <li><a data-toggle="tab" href="#logs">{{ lang._('Log') }}</a></li>
 </ul>
@@ -19,6 +20,7 @@
 <div class="tab-content content-box">
     {{ partial('OPNsense/Xray/partials/tab_instances') }}
     {{ partial('OPNsense/Xray/partials/tab_routing') }}
+    {{ partial('OPNsense/Xray/partials/tab_dnstap') }}
 
     <div id="general" class="tab-pane fade in">
         {{ partial("layout_partials/base_form", {'fields': generalForm, 'id': 'frm_general_settings'}) }}

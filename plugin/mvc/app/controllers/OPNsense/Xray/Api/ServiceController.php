@@ -304,4 +304,77 @@ class ServiceController extends ApiMutableServiceControllerBase
                 : "HTTP {$httpCode} — unexpected response from 1.1.1.1",
         ];
     }
+
+    /**
+     * GET /api/xray/service/dnstapconf — current dnstap-bgp files.
+     */
+    public function dnstapconfAction()
+    {
+        $raw = trim((string)(new Backend())->configdRun('xray dnstapconf'));
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+        return ['result' => 'failed', 'message' => $raw !== '' ? $raw : 'No response from configd'];
+    }
+
+    /**
+     * POST /api/xray/service/dnstapwrite — stage files and write via configd.
+     */
+    public function dnstapwriteAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+
+        $conf    = (string)$this->request->getPost('conf', 'string', '');
+        $domains = (string)$this->request->getPost('domains', 'string', '');
+        $rc      = (string)$this->request->getPost('rc', 'string', '');
+        if ($conf === '' && $domains === '' && $rc === '') {
+            $json = $this->request->getJsonRawBody();
+            if (is_object($json)) {
+                $conf    = (string)($json->conf ?? '');
+                $domains = (string)($json->domains ?? '');
+                $rc      = (string)($json->rc ?? '');
+            } elseif (is_array($json)) {
+                $conf    = (string)($json['conf'] ?? '');
+                $domains = (string)($json['domains'] ?? '');
+                $rc      = (string)($json['rc'] ?? '');
+            }
+        }
+
+        if ($conf === '' && $domains === '' && $rc === '') {
+            return ['result' => 'ok', 'message' => 'Nothing to write'];
+        }
+
+        $max = 524288;
+        foreach (['conf' => $conf, 'domains' => $domains, 'rc' => $rc] as $name => $body) {
+            if (strlen($body) > $max) {
+                return ['result' => 'failed', 'message' => $name . ' is too large'];
+            }
+            if (strpos($body, "\0") !== false) {
+                return ['result' => 'failed', 'message' => $name . ' contains binary data'];
+            }
+        }
+
+        $staged = '/tmp/xray_dnstap_write.json';
+        $payload = json_encode([
+            'conf'    => $conf,
+            'domains' => $domains,
+            'rc'      => $rc,
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($payload === false || file_put_contents($staged, $payload) === false) {
+            return ['result' => 'failed', 'message' => 'Cannot stage dnstap files'];
+        }
+        @chmod($staged, 0600);
+
+        $output = trim((string)(new Backend())->configdRun('xray dnstapwrite'));
+        $failed = $output === ''
+            || stripos($output, 'ERROR') !== false
+            || stripos($output, 'failed') !== false;
+        return [
+            'result'  => $failed ? 'failed' : 'ok',
+            'message' => $output !== '' ? $output : 'No response from configd',
+        ];
+    }
 }

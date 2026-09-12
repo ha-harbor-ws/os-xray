@@ -34,6 +34,26 @@ VERSION_FILE="/usr/local/opnsense/mvc/app/models/OPNsense/Xray/version.txt"
 warn() { echo "[WARN] $*" >&2; }
 die()  { echo "[ERROR] $*" >&2; exit 1; }
 
+xray_copy_dnstap_bgp_samples() {
+    _copied=0
+    for _src in /usr/local/etc/dnstap-bgp/*.sample /usr/local/etc/rc.conf.d/dnstap_bgp.sample; do
+        [ -f "$_src" ] || continue
+        _dst="${_src%.sample}"
+        if [ -e "$_dst" ]; then
+            echo "[OK]  $_dst exists — skip"
+            continue
+        fi
+        _dir=$(dirname "$_dst")
+        [ -d "$_dir" ] || mkdir -p "$_dir"
+        install -m 0644 "$_src" "$_dst"
+        echo "[OK]  $_dst (from $(basename "$_src"))"
+        _copied=1
+    done
+    if [ "$_copied" = "0" ]; then
+        echo "[INFO] dnstap-bgp sample configs: nothing new to copy"
+    fi
+}
+
 xray_detect_wan_if() {
     /sbin/route -n get -inet default 2>/dev/null | awk '/interface:/{print $2; exit}'
 }
@@ -159,6 +179,7 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/opnsense/scripts/Xray/xray-log.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-log.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-loglevel.php
+    rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-conf.php
     rmdir  /usr/local/opnsense/scripts/Xray 2>/dev/null || true
     # BUG-11: удаляем конфиг ротации логов newsyslog
     rm -f  /etc/newsyslog.conf.d/xray.conf
@@ -680,6 +701,54 @@ else
         warn "Failed to install bird2. Install manually: pkg update && pkg install bird2"
         BINARIES_OK=0
     fi
+fi
+
+# os-dnstap-bgp — OPNsense pkg с GitHub (не из репозитория pkg)
+DTAP_GH_REPO="ha-harbor-ws/dnstap-bgp"
+DTAP_PKG_FALLBACK="https://github.com/${DTAP_GH_REPO}/releases/download/v1.2.1/os-dnstap-bgp-1.2.1-opnsense26.7-freebsd15-amd64.pkg"
+
+echo "==> Installing os-dnstap-bgp from https://github.com/${DTAP_GH_REPO} ..."
+DTAP_FRESH_INSTALL=0
+if pkg info -e os-dnstap-bgp >/dev/null 2>&1; then
+    DTAP_VER=$(pkg query '%v' os-dnstap-bgp 2>/dev/null || echo 'installed')
+    echo "[OK]  os-dnstap-bgp: $DTAP_VER (already installed, configs unchanged)"
+else
+    DTAP_JSON="/tmp/os-dnstap-bgp-latest.json"
+    DTAP_PKG="/tmp/os-dnstap-bgp.pkg"
+    DTAP_URL=""
+    if fetch -o "$DTAP_JSON" "https://api.github.com/repos/${DTAP_GH_REPO}/releases/latest" 2>/dev/null; then
+        DTAP_URL=$(php -r '
+$j = json_decode((string)file_get_contents($argv[1]), true);
+if (!is_array($j)) { exit(1); }
+foreach (($j["assets"] ?? []) as $a) {
+    $n = (string)($a["name"] ?? "");
+    if (preg_match("/^os-dnstap-bgp-.*\\.pkg\$/", $n)) {
+        echo (string)($a["browser_download_url"] ?? "");
+        exit(0);
+    }
+}
+exit(1);
+' "$DTAP_JSON" 2>/dev/null || true)
+    fi
+    if [ -z "$DTAP_URL" ]; then
+        DTAP_URL="$DTAP_PKG_FALLBACK"
+        warn "GitHub API unavailable — using $DTAP_URL"
+    fi
+    if fetch -o "$DTAP_PKG" "$DTAP_URL" 2>/dev/null && pkg add "$DTAP_PKG"; then
+        DTAP_VER=$(pkg query '%v' os-dnstap-bgp 2>/dev/null || echo 'installed')
+        echo "[OK]  os-dnstap-bgp installed: $DTAP_VER"
+        DTAP_FRESH_INSTALL=1
+    else
+        warn "Failed to install os-dnstap-bgp."
+        warn "Install manually: fetch the .pkg from https://github.com/${DTAP_GH_REPO}/releases and run: pkg add <file>.pkg"
+        BINARIES_OK=0
+    fi
+    rm -f "$DTAP_JSON" "$DTAP_PKG"
+fi
+
+if [ "$DTAP_FRESH_INSTALL" = "1" ]; then
+    echo "==> Copying dnstap-bgp sample configs (first install only)..."
+    xray_copy_dnstap_bgp_samples
 fi
 
 echo "==> Creating BIRD log directory and syslog-ng / newsyslog configs..."

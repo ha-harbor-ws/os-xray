@@ -863,6 +863,45 @@ function xray_bird_sync(): void
     echo "bird sync: BGP on, no tun2socks, bird stopped\n";
 }
 
+function xray_dnstap_bgp_enabled(): bool
+{
+    $cfg = OPNsense\Core\Config::getInstance()->object();
+    return (string)($cfg->OPNsense->xray->general->dnstap_bgp_enabled ?? '0') === '1';
+}
+
+function xray_sysrc_dnstap_bgp_enable(bool $enable): void
+{
+    $arg = $enable ? 'dnstap_bgp_enable="YES"' : 'dnstap_bgp_enable="NO"';
+    exec('/usr/sbin/sysrc ' . escapeshellarg($arg) . ' 2>&1');
+    $local = '/usr/local/etc/rc.conf.d/dnstap_bgp';
+    if (is_file($local)) {
+        exec('/usr/sbin/sysrc -f ' . escapeshellarg($local) . ' ' . escapeshellarg($arg) . ' 2>&1');
+    }
+}
+
+function xray_dnstap_bgp_service(string $verb): void
+{
+    if (!is_file('/usr/local/etc/rc.d/dnstap_bgp') && !is_file('/etc/rc.d/dnstap_bgp')) {
+        echo "dnstap_bgp: rc script not found — skip {$verb}\n";
+        return;
+    }
+    exec('/usr/sbin/service dnstap_bgp ' . escapeshellarg($verb) . ' 2>&1');
+}
+
+/** General Apply: Enable dnstap_bgp → autostart + start; иначе стоп и выкл. автозапуска. */
+function xray_dnstap_apply_general(): void
+{
+    if (!xray_dnstap_bgp_enabled()) {
+        xray_sysrc_dnstap_bgp_enable(false);
+        xray_dnstap_bgp_service('stop');
+        echo "dnstap_bgp: off, enable=NO, stopped\n";
+        return;
+    }
+    xray_sysrc_dnstap_bgp_enable(true);
+    xray_dnstap_bgp_service('start');
+    echo "dnstap_bgp: on, enable=YES, started\n";
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 $action    = $argv[1] ?? 'status';
 $inst_uuid = isset($argv[2]) ? trim($argv[2]) : '';
@@ -980,10 +1019,12 @@ switch ($action) {
         if ($anyFailed) {
             echo "ERROR: One or more instances failed to start.\n";
             xray_bird_apply_general_bgp();
+            xray_dnstap_apply_general();
             exit(1);
         }
         echo "OK\n";
         xray_bird_apply_general_bgp();
+        xray_dnstap_apply_general();
         exit(0);
 
     case 'birdhold':

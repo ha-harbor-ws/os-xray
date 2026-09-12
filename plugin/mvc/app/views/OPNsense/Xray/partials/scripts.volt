@@ -314,10 +314,47 @@
             return $('#routing-peers, #routing-filters, #routing-communities').filter('.active').length > 0;
         }
 
+        function isDnstapTab() {
+            return $('#dnstap').filter('.active').length > 0;
+        }
+
+        function updateDnstapBadge(running) {
+            $('.xray-badge-dnstap')
+                .removeClass('label-success label-danger label-default')
+                .addClass(running ? 'label-success' : 'label-danger')
+                .text('dnstap_bgp: ' + (running ? 'running' : 'stopped'));
+        }
+
+        function loadDnstapConf() {
+            ajaxGet('/api/xray/service/dnstapconf', {}, function (data) {
+                if (!data || data.result === 'failed') {
+                    updateDnstapBadge(false);
+                    return;
+                }
+                updateDnstapBadge(!!data.running);
+                var files = data.files || {};
+                if (files.conf) {
+                    $('#dnstapConfEditor').val(files.conf.body || '');
+                    $('#dnstapConfPath').text(files.conf.path || '');
+                }
+                if (files.domains) {
+                    $('#dnstapDomainsEditor').val(files.domains.body || '');
+                    $('#dnstapDomainsPath').text(files.domains.path || '');
+                }
+                if (files.rc) {
+                    $('#dnstapRcEditor').val(files.rc.body || '');
+                    $('#dnstapRcPath').text(files.rc.path || '');
+                }
+            });
+        }
+
         function setApplyEndpoint() {
-            var endpoint = isBgpRoutingTab()
-                ? '/api/xray/service/bgpwrite'
-                : '/api/xray/service/reconfigure';
+            var endpoint = '/api/xray/service/reconfigure';
+            if (isBgpRoutingTab()) {
+                endpoint = '/api/xray/service/bgpwrite';
+            } else if (isDnstapTab()) {
+                endpoint = '/api/xray/service/dnstapwrite';
+            }
             $('#reconfigureAct').data('endpoint', endpoint).attr('data-endpoint', endpoint);
         }
 
@@ -337,19 +374,50 @@
             }
         });
 
+        $('a[data-toggle="tab"][href="#dnstap"]').on('shown.bs.tab', function () {
+            loadDnstapConf();
+        });
+
         // ── General settings form ───────────────────────────────────
         mapDataToFormUI({'frm_general_settings': "/api/xray/general/get"}).done(function () {
             formatTokenizersUI();
             $('.selectpicker').selectpicker('refresh');
         });
 
-        // ── Apply: routing tabs → bgpwrite; otherwise save general + reconfigure ──
+        // ── Apply: routing → bgpwrite; DNStap → files; otherwise general + reconfigure ──
         setApplyEndpoint();
         $("#reconfigureAct").SimpleActionButton({
             onPreAction: function () {
                 var dfObj = new $.Deferred();
                 if (isBgpRoutingTab()) {
                     dfObj.resolve();
+                    return dfObj;
+                }
+                if (isDnstapTab()) {
+                    $.ajax({
+                        url: '/api/xray/service/dnstapwrite',
+                        type: 'POST',
+                        dataType: 'json',
+                        data: {
+                            conf: $('#dnstapConfEditor').val() || '',
+                            domains: $('#dnstapDomainsEditor').val() || '',
+                            rc: $('#dnstapRcEditor').val() || ''
+                        },
+                        success: function (data) {
+                            if (data && data.result === 'failed') {
+                                alert('{{ lang._("Failed to write dnstap-bgp config:") }} '
+                                    + (data.message || 'unknown error'));
+                                dfObj.reject();
+                                return;
+                            }
+                            loadDnstapConf();
+                            dfObj.resolve();
+                        },
+                        error: function (xhr) {
+                            alert('{{ lang._("HTTP error:") }} ' + xhr.status);
+                            dfObj.reject();
+                        }
+                    });
                     return dfObj;
                 }
                 saveFormToEndpoint("/api/xray/general/set", 'frm_general_settings', function () {

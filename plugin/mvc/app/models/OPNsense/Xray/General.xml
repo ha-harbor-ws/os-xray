@@ -2,7 +2,7 @@
 <model>
     <mount>//OPNsense/xray/general</mount>
     <description>Xray General Settings</description>
-    <version>1.0.5</version>
+    <version>1.0.6</version>
     <items>
         <enabled type="BooleanField">
             <default>0</default>
@@ -17,6 +17,10 @@
             <default>0</default>
             <Required>N</Required>
         </bgp_enabled>
+        <dnstap_bgp_enabled type="BooleanField">
+            <default>0</default>
+            <Required>N</Required>
+        </dnstap_bgp_enabled>
         <bgp_auto_route type="BooleanField">
             <default>0</default>
             <Required>N</Required>
