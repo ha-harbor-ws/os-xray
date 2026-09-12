@@ -325,6 +325,39 @@
                 .text('dnstap_bgp: ' + (running ? 'running' : 'stopped'));
         }
 
+        function dnstapKvRow(key, value, removable) {
+            var $tr = $('<tr/>');
+            $tr.append($('<td class="dnstap-k"/>').text(key));
+            var $inp = $('<input type="text" class="form-control"/>')
+                .attr('data-key', key)
+                .val(value == null ? '' : String(value));
+            $tr.append($('<td/>').append($inp));
+            if (removable) {
+                var $del = $('<button type="button" class="btn btn-xs btn-default dnstap-domain-del"/>')
+                    .html('<span class="fa fa-fw fa-trash-o"></span>');
+                $tr.append($('<td/>').append($del));
+            }
+            return $tr;
+        }
+
+        function dnstapFillKv($tbody, rows, removable) {
+            $tbody.empty();
+            (rows || []).forEach(function (row) {
+                $tbody.append(dnstapKvRow(row.key || '', row.value || '', !!removable));
+            });
+        }
+
+        function dnstapCollectKv($tbody) {
+            var rows = [];
+            $tbody.find('input').each(function () {
+                rows.push({
+                    key: String($(this).attr('data-key') || ''),
+                    value: $(this).val() || ''
+                });
+            });
+            return rows;
+        }
+
         function loadDnstapConf() {
             ajaxGet('/api/xray/service/dnstapconf', {}, function (data) {
                 if (!data || data.result === 'failed') {
@@ -332,19 +365,16 @@
                     return;
                 }
                 updateDnstapBadge(!!data.running);
-                var files = data.files || {};
-                if (files.conf) {
-                    $('#dnstapConfEditor').val(files.conf.body || '');
-                    $('#dnstapConfPath').text(files.conf.path || '');
+                var paths = data.paths || {};
+                $('#dnstapConfPath').text(paths.conf || '');
+                $('#dnstapDomainsPath').text(paths.domains || '');
+                $('#dnstapRcPath').text(paths.rc || '');
+                dnstapFillKv($('#dnstapConfKv'), data.conf || [], false);
+                dnstapFillKv($('#dnstapDomainsKv'), data.domains || [], true);
+                if ($('#dnstapDomainsKv tr').length === 0) {
+                    $('#dnstapDomainsKv').append(dnstapKvRow('domain', '', true));
                 }
-                if (files.domains) {
-                    $('#dnstapDomainsEditor').val(files.domains.body || '');
-                    $('#dnstapDomainsPath').text(files.domains.path || '');
-                }
-                if (files.rc) {
-                    $('#dnstapRcEditor').val(files.rc.body || '');
-                    $('#dnstapRcPath').text(files.rc.path || '');
-                }
+                dnstapFillKv($('#dnstapRcKv'), data.rc || [], false);
             });
         }
 
@@ -378,6 +408,16 @@
             loadDnstapConf();
         });
 
+        $(document).on('click', '#dnstapDomainAdd', function () {
+            $('#dnstapDomainsKv').append(dnstapKvRow('domain', '', true));
+        });
+        $(document).on('click', '.dnstap-domain-del', function () {
+            $(this).closest('tr').remove();
+            if ($('#dnstapDomainsKv tr').length === 0) {
+                $('#dnstapDomainsKv').append(dnstapKvRow('domain', '', true));
+            }
+        });
+
         // ── General settings form ───────────────────────────────────
         mapDataToFormUI({'frm_general_settings': "/api/xray/general/get"}).done(function () {
             formatTokenizersUI();
@@ -399,9 +439,9 @@
                         type: 'POST',
                         dataType: 'json',
                         data: {
-                            conf: $('#dnstapConfEditor').val() || '',
-                            domains: $('#dnstapDomainsEditor').val() || '',
-                            rc: $('#dnstapRcEditor').val() || ''
+                            conf: JSON.stringify(dnstapCollectKv($('#dnstapConfKv'))),
+                            domains: JSON.stringify(dnstapCollectKv($('#dnstapDomainsKv'))),
+                            rc: JSON.stringify(dnstapCollectKv($('#dnstapRcKv')))
                         },
                         success: function (data) {
                             if (data && data.result === 'failed') {

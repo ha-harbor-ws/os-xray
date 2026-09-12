@@ -327,41 +327,42 @@ class ServiceController extends ApiMutableServiceControllerBase
             return ['result' => 'failed', 'message' => 'POST required'];
         }
 
-        $conf    = (string)$this->request->getPost('conf', 'string', '');
-        $domains = (string)$this->request->getPost('domains', 'string', '');
-        $rc      = (string)$this->request->getPost('rc', 'string', '');
-        if ($conf === '' && $domains === '' && $rc === '') {
+        $conf    = $this->request->getPost('conf');
+        $domains = $this->request->getPost('domains');
+        $rc      = $this->request->getPost('rc');
+        if ($conf === null && $domains === null && $rc === null) {
             $json = $this->request->getJsonRawBody();
             if (is_object($json)) {
-                $conf    = (string)($json->conf ?? '');
-                $domains = (string)($json->domains ?? '');
-                $rc      = (string)($json->rc ?? '');
+                $conf    = $json->conf ?? null;
+                $domains = $json->domains ?? null;
+                $rc      = $json->rc ?? null;
             } elseif (is_array($json)) {
-                $conf    = (string)($json['conf'] ?? '');
-                $domains = (string)($json['domains'] ?? '');
-                $rc      = (string)($json['rc'] ?? '');
+                $conf    = $json['conf'] ?? null;
+                $domains = $json['domains'] ?? null;
+                $rc      = $json['rc'] ?? null;
             }
         }
 
-        if ($conf === '' && $domains === '' && $rc === '') {
+        if ($conf === null && $domains === null && $rc === null) {
             return ['result' => 'ok', 'message' => 'Nothing to write'];
         }
 
-        $max = 524288;
-        foreach (['conf' => $conf, 'domains' => $domains, 'rc' => $rc] as $name => $body) {
-            if (strlen($body) > $max) {
-                return ['result' => 'failed', 'message' => $name . ' is too large'];
+        $decodeRows = static function ($raw): array {
+            if (is_array($raw)) {
+                return $raw;
             }
-            if (strpos($body, "\0") !== false) {
-                return ['result' => 'failed', 'message' => $name . ' contains binary data'];
+            if (is_string($raw) && $raw !== '') {
+                $j = json_decode($raw, true);
+                return is_array($j) ? $j : [];
             }
-        }
+            return [];
+        };
 
         $staged = '/tmp/xray_dnstap_write.json';
         $payload = json_encode([
-            'conf'    => $conf,
-            'domains' => $domains,
-            'rc'      => $rc,
+            'conf'    => $decodeRows($conf),
+            'domains' => $decodeRows($domains),
+            'rc'      => $decodeRows($rc),
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($payload === false || file_put_contents($staged, $payload) === false) {
             return ['result' => 'failed', 'message' => 'Cannot stage dnstap files'];

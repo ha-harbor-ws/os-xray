@@ -5,27 +5,55 @@
                         display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
                 <span class="xray-badge-dnstap label label-default">dnstap_bgp: ...</span>
                 <span class="text-muted" style="font-size: 12px;">
-                    {{ lang._('Apply writes all three files. If the service is running, it is restarted.') }}
+                    {{ lang._('Values are loaded from the current files. Apply writes them back.') }}
                 </span>
             </div>
         </section>
     </div>
     <div class="row">
         <section class="col-xs-12" style="padding: 15px;">
-            <h4 style="margin-top: 0;">{{ lang._('Config') }}</h4>
-            <p class="text-muted" id="dnstapConfPath" style="margin-top: 0;"></p>
-            <textarea id="dnstapConfEditor" class="form-control" spellcheck="false"
-                      style="min-height: 280px; font-family: monospace; font-size: 12px;"></textarea>
+            <h4 style="margin-top: 0;">{{ lang._('Config') }}
+                <small class="text-muted" id="dnstapConfPath"></small>
+            </h4>
+            <table class="table table-condensed table-striped">
+                <thead>
+                    <tr>
+                        <th style="width: 28%;">{{ lang._('Key') }}</th>
+                        <th>{{ lang._('Value') }}</th>
+                    </tr>
+                </thead>
+                <tbody id="dnstapConfKv"></tbody>
+            </table>
 
-            <h4>{{ lang._('Domains') }}</h4>
-            <p class="text-muted" id="dnstapDomainsPath" style="margin-top: 0;"></p>
-            <textarea id="dnstapDomainsEditor" class="form-control" spellcheck="false"
-                      style="min-height: 200px; font-family: monospace; font-size: 12px;"></textarea>
+            <h4>{{ lang._('Domains') }}
+                <small class="text-muted" id="dnstapDomainsPath"></small>
+            </h4>
+            <table class="table table-condensed table-striped">
+                <thead>
+                    <tr>
+                        <th style="width: 28%;">{{ lang._('Key') }}</th>
+                        <th>{{ lang._('Value') }}</th>
+                        <th style="width: 4em;"></th>
+                    </tr>
+                </thead>
+                <tbody id="dnstapDomainsKv"></tbody>
+            </table>
+            <button type="button" class="btn btn-xs btn-primary" id="dnstapDomainAdd">
+                <span class="fa fa-fw fa-plus"></span> {{ lang._('Add domain') }}
+            </button>
 
-            <h4>{{ lang._('rc.conf') }}</h4>
-            <p class="text-muted" id="dnstapRcPath" style="margin-top: 0;"></p>
-            <textarea id="dnstapRcEditor" class="form-control" spellcheck="false"
-                      style="min-height: 180px; font-family: monospace; font-size: 12px;"></textarea>
+            <h4 style="margin-top: 20px;">{{ lang._('rc.conf') }}
+                <small class="text-muted" id="dnstapRcPath"></small>
+            </h4>
+            <table class="table table-condensed table-striped">
+                <thead>
+                    <tr>
+                        <th style="width: 28%;">{{ lang._('Key') }}</th>
+                        <th>{{ lang._('Value') }}</th>
+                    </tr>
+                </thead>
+                <tbody id="dnstapRcKv"></tbody>
+            </table>
         </section>
     </div>
 </div>
