@@ -3,12 +3,12 @@
 # os-xray
 
 [![Repository](https://img.shields.io/badge/GitHub-ha--harbor--ws%2Fos--xray-blue)](https://github.com/ha-harbor-ws/os-xray)
-[![Branch](https://img.shields.io/badge/branch-feature%2Ftun--ipv6--dns--useipv4-green)](https://github.com/ha-harbor-ws/os-xray/tree/feature/tun-ipv6-dns-useipv4)
+[![Branch](https://img.shields.io/badge/branch-develop-green)](https://github.com/ha-harbor-ws/os-xray/tree/develop)
 [![License](https://img.shields.io/github/license/ha-harbor-ws/os-xray)](https://github.com/ha-harbor-ws/os-xray/blob/develop/LICENSE)
 [![OPNsense](https://img.shields.io/badge/OPNsense-25.x%20%2F%2026.x-blue)](https://opnsense.org)
 [![FreeBSD](https://img.shields.io/badge/FreeBSD-14.x%20amd64-red)](https://freebsd.org)
 
-**Xray-core VPN plugin for OPNsense** — v3.0.1
+**Xray-core VPN plugin for OPNsense** — v3.1.0
 
 Xray-core + tun2socks — native VPN client for OPNsense with selective routing support. VLESS+Reality via wizard or custom config.json (any protocol/transport). Bypasses DPI blocking by disguising traffic as legitimate TLS.
 
@@ -28,13 +28,18 @@ Xray-core + tun2socks — native VPN client for OPNsense with selective routing 
 - **Start / Stop / Restart buttons** — manage the service directly from GUI without page reload
 - **Validate Config button** — dry-run config through `xray -test` without stopping the service (in instance dialog footer)
 - **Test Connection button** — verifies that xray-core is actually proxying traffic
-- **Log tab** — Boot Log and Xray Core Log directly in GUI
+- **Log tab** — Boot Log, Xray Core Log and Bird Log in the GUI
 - **Diagnostics tab** — TUN interface stats: IP, MTU, bytes, packets, process uptime, Ping RTT to VPN server; auto-refresh every 30 seconds
 - **Copy Debug Info button** — collects diagnostics + logs into a modal for easy copy to issue reports
 - **Bypass Networks** — configurable CIDR list of networks for direct routing (VPN bypass)
 - **IP stack per instance** — enable IPv4, IPv6, or both for TUN assignment and xray DNS/routing
 - **DNS servers per instance** — comma-separated DNS list in generated xray config
 - **Watchdog** — automatic restart on xray-core or tun2socks crash (configurable)
+- **Routing (BGP / BIRD2)** — BGP peers, filters and communities in the GUI; Apply on that tab writes includes and runs `birdc configure` (sessions are not reset)
+- **Active tun2socks for BIRD** — `ACTIVE_TUN4_IF` / `ACTIVE_TUN6_IF` chosen by SOCKS latency (and optional instance weight); BIRD starts only if at least one SOCKS probe returns HTTP 200–399
+- **Auto route** — cron once a minute; real SOCKS polls once per **Auto route interval**; after N polls (or if the current TUN dies) the best TUN is selected by average latency
+- **DNStap BGP** — installer adds `os-dnstap-bgp` from GitHub; General **Enable DNStap BGP** controls autostart; the DNStap tab edits live key/value settings from the package configs
+- **Bird Log** — last lines of `/var/log/bird/bird.log` and syslog log class (`birdc configure`, no BIRD process restart)
 - **Auto-start after reboot** — interface comes up automatically, no need to press Apply manually
 - ACL permissions — GUI and API access only for authorized users with `page-vpn-xray` role
 
@@ -59,19 +64,23 @@ Firewall Rules (selective routing)
 | Component  | Version                 |
 |------------|-------------------------|
 | OPNsense   | 25.x / 26.x            |
-| FreeBSD    | 14.x amd64             |
+| FreeBSD    | 14.x / 15.x amd64      |
 | xray-core  | 24.x+ (recommended)    |
 | tun2socks  | Any recent version     |
+| bird2      | FreeBSD pkg (installer) |
+| os-dnstap-bgp | GitHub pkg (optional, OPNsense 26.7) |
 
 ---
 
 ## Installation
 
+The latest plugin is on the **`develop`** branch (GitHub default). Clone or fetch that branch — do not use old feature-branch URLs.
+
 **Option 1 — via git clone (recommended)**
 
 ```sh
 cd /tmp
-git clone -b feature/tun-ipv6-dns-useipv4 https://github.com/ha-harbor-ws/os-xray.git
+git clone -b develop https://github.com/ha-harbor-ws/os-xray.git
 cd os-xray
 sh install.sh
 ```
@@ -79,20 +88,22 @@ sh install.sh
 **Option 2 — via archive**
 
 ```sh
-fetch -o /tmp/os-xray.tar.gz https://github.com/ha-harbor-ws/os-xray/archive/refs/heads/feature/tun-ipv6-dns-useipv4.tar.gz
-cd /tmp && tar xf os-xray.tar.gz && cd os-xray-feature-tun-ipv6-dns-useipv4
+fetch -o /tmp/os-xray.tar.gz https://github.com/ha-harbor-ws/os-xray/archive/refs/heads/develop.tar.gz
+cd /tmp && tar xf os-xray.tar.gz && cd os-xray-develop
 sh install.sh
 ```
 
 The installer automatically:
 
-- Shows current and new plugin version and asks for confirmation
+- Shows current and new plugin version (`PLUGIN_VERSION` in `install.sh`, currently **3.1.0**) and asks for confirmation
 - Checks xray-core version — if below 24.x, offers automatic upgrade
 - Checks for xray-core and tun2socks binaries — if missing, displays download links
+- Installs FreeBSD package **bird2** if it is missing
+- Downloads **os-dnstap-bgp** from [ha-harbor-ws/dnstap-bgp](https://github.com/ha-harbor-ws/dnstap-bgp/releases) and `pkg add`s it when not already installed (sample configs are copied only on first install, existing files are not overwritten)
 - Checks if the SOCKS5 port (default 10808) is already in use
 - Finds existing configs and imports them into OPNsense (GUI fields are pre-filled)
 - Copies all plugin files, restarts configd, clears caches
-- Installs boot script for auto-start after reboot
+- Installs boot scripts for auto-start after reboot (`birdsync` / BIRD gated by tun2socks)
 
 Check installed version:
 ```sh
@@ -113,8 +124,13 @@ Refresh browser (`Ctrl+F5`) → **VPN → Xray**
    - *(Optional)* **Bypass Networks** field — specify networks that should bypass VPN (default: private networks 10/8, 172.16/12, 192.168/16)
    - **Validate Config** button (dialog footer) — validate config without restarting the service
 2. **General** tab → check **Enable Xray** (and **Enable Watchdog** if desired)
-3. Press **Apply**
+   - **Enable BGP** — allow BIRD2; the daemon starts only when at least one tun2socks process is up and a SOCKS probe succeeds
+   - **Auto route** — enable cron-based TUN selection for BIRD (`ACTIVE_TUN4_IF` / `ACTIVE_TUN6_IF`); set **Auto route interval** (seconds between SOCKS polls)
+   - **Enable DNStap BGP** — `sysrc dnstap_bgp_enable` and start/stop the service **only if** `os-dnstap-bgp` is installed; otherwise Apply skips it
+3. Press **Apply** (this does **not** run Auto route poll loops; polls live in cron)
 4. **Test Connection** button — verify the tunnel is working (shows HTTP 200)
+5. **Routing** tab — BGP peers, filters, communities. **Apply** writes BIRD includes and runs `birdc configure` (no `service bird restart`, BGP sessions stay up)
+6. **DNStap** tab — key/value tables from `dnstap-bgp.conf`, `domains.txt`, `rc.conf.d/dnstap_bgp`. **Apply** writes those files and restarts dnstap only if the service is already running
 
 ---
 
@@ -181,6 +197,42 @@ Log saved to `/tmp/xray_syshook.log` (append mode, rotated at 50 KB).
 When **Enable Watchdog** is on, cron checks xray-core and tun2socks every minute. If either process crashes, both are restarted automatically. Events are logged to `/var/log/xray-watchdog.log` (rotation: 3 files, 100 KB each).
 
 Watchdog does not restart the service if it was stopped manually via the **Stop** button or **Apply** with Enable unchecked.
+
+---
+
+## Routing (BGP / BIRD2)
+
+BIRD2 is installed by `install.sh`. Live config is `/usr/local/etc/bird.conf` plus includes under `/usr/local/etc/bird/` (`peer_*.inc`, `filter_*.inc`, `community_*.inc`).
+
+**Why `birdc configure` instead of restarting BIRD.** Changing the active TUN or saving peers/filters/communities must not tear down BGP sessions. The plugin writes files and reloads config in-place. There are no GUI Start/Stop/Restart buttons for the BIRD daemon; `birdsync` only keeps BIRD in sync with tun2socks (start if a tunnel is up, stop if none).
+
+**Apply on the Routing tab** generates includes from the GUI and runs `birdc configure`. It does not reconfigure Xray instances.
+
+**Peer table.** Columns IPv4 / IPv6 show imported prefix counts from `birdc` channels. Status is session state/info only (not a prefix sum).
+
+**Gated start.** BIRD starts only if **Enable BGP** is on, at least one tun2socks is running, and a SOCKS probe through an instance returns HTTP 200–399. One probe per address family — Apply does not spin while polling every instance.
+
+**Active TUN.** BIRD uses `ACTIVE_TUN4_IF` / `ACTIVE_TUN6_IF`. With **Auto route** off, the first healthy instance (optional **Weight**) is used. Changing the active interface also uses `birdc configure`.
+
+---
+
+## Auto route
+
+This is **not** a daemon and does not hold a lock. Cron runs once a minute (`xray autoroute`). Real SOCKS polls happen only when **Auto route interval** seconds have passed since the last poll (state in `/var/run/xray_autoroute_state.json`). After N samples (or if the current TUN dies) the plugin picks the TUN with the best average latency and, if the interface changed, reloads BIRD with `birdc configure`.
+
+**Apply does not run the poll loop** — that used to block the GUI spinner.
+
+---
+
+## DNStap BGP
+
+Package [os-dnstap-bgp](https://github.com/ha-harbor-ws/dnstap-bgp) is installed from GitHub Releases during `install.sh` (`pkg add` of the latest `.pkg`). Sample configs are copied **only on first install**; existing files are left as-is.
+
+**Enable DNStap BGP** (General) sets `dnstap_bgp_enable` in rc.conf and starts or stops the service. If the binary, rc.d script or package is missing, Apply does nothing — it will not fail because `service dnstap_bgp` is absent.
+
+The installer does **not** start dnstap. Start happens on Apply when the checkbox is on and the package is present.
+
+The **DNStap** tab (after Routing) shows key/value tables parsed from the live files. Apply writes those files and restarts the service only if it is already running.
 
 ---
 
@@ -852,6 +904,7 @@ Full changelog in [CHANGELOG.md](CHANGELOG.md).
 
 | Version | Changes |
 |---------|---------|
+| 3.1.0  | BIRD2 + Routing GUI; Apply/`birdc configure` without resetting BGP; Auto route via cron; active TUN by SOCKS latency; DNStap BGP package + GUI; gated BIRD start |
 | 3.0.1  | Fix multiple multi-instance bugs |
 | 3.0.0  | Multi-instance (ArrayField), per-instance state in table, Import VLESS and Validate Config inside dialog, custom config use SOCKS5 from the form, rename uuid→vless_uuid, migrate into install.sh |
 | 2.0.0   | Custom Config (wizard/custom), VLESS import with auto-generated config.json for any transport, xhttp↔splithttp normalization, xray-core version check on install |

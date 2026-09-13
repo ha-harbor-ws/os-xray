@@ -12,16 +12,21 @@ Format: [Semantic Versioning](https://semver.org/).
 - **TUN cleanup on instance delete** — при удалении instance через GUI вызывается `xray delete`: stop, destroy TUN, удаление per-instance конфигов/PID/логов
 - **Invalid routing.domainStrategy** — `UseIPv4`/`UseIPv6` недопустимы в routing (только в dns.queryStrategy); routing всегда `IPIfNonMatch`, иначе `xray -test` падал и start не завершался; запись config-*.json теперь с явной проверкой ошибок
 - **TUN lifecycle aligned with upstream** — на stop не вызываем `ifconfig destroy` (TUN убирает tun2socks); destroy только для stale iface перед start и при delete instance; Prevent interface removal остаётся для reboot/assignment
+- **DNStap без пакета** — Apply не вызывает `service dnstap_bgp`, если бинарь/rc.d/`os-dnstap-bgp` отсутствуют
 
 ### Added
-- **Auto route** — по одной попытке с интервалом из General; промежуточные `time_total` в `/var/run/xray_autoroute_state.json`; выбор по среднему; обрыв цикла если нет коннекта через текущий active TUN, затем новый цикл. Старт/рестарт BIRD без изменений.
-- **Routing tab / BGP** — dropdown: BGP peers, BGP filter, BGP community. Peers write peer_NAME.inc; filters are named filter_NAME (file filter_NAME.inc); communities are named community_NAME (file community_NAME.inc, BIRD define community_NAME). Peer/filter/community names are unique (OPNsense UniqueConstraint).
+- **Auto route** — cron раз в минуту; реальный SOCKS-опрос раз в **Auto route interval**; состояние в `/var/run/xray_autoroute_state.json`; выбор TUN по среднему latency; Apply цикл опросов не запускает
+- **Routing tab / BGP** — dropdown: BGP peers, BGP filter, BGP community. Peers write peer_NAME.inc; filters `filter_NAME.inc`; communities `community_NAME.inc`. Имена уникальны (UniqueConstraint)
 - **Per-instance IP stack** — checkboxes `IPv4` / `IPv6` (both allowed) control TUN address assignment and xray DNS/routing strategy
 - **Per-instance DNS servers** — field `dns_servers` (comma-separated) written into generated xray config for each instance
-- **BGP peer status / BIRD control** — peer table toolbar: Start (`service bird start`), Stop (`service bird stop`), Test All (`birdc show protocols all`). After peer config changes, if BIRD is running, an Apply button appears under the table (`service bird restart`, sessions reset). Status (state / info / imported prefixes) is loaded when opening BGP peers and only if BIRD is running.
+- **BGP peer status** — колонки IPv4/IPv6: imported prefixes по каналам `birdc`; Status: state/info. Apply на Routing: `birdc configure` (сессии не сбрасываются)
 - **Inbound sniffing** — SOCKS inbound sniffing for single-stack instances (`destOverride`: http, tls, quic; `metadataOnly`: false); dual-stack (IPv4+IPv6) → sniffing disabled
+- **DNStap BGP** — `install.sh` ставит `os-dnstap-bgp` с GitHub Releases; General **Enable DNStap BGP**; вкладка DNStap (ключ/значение из живых конфигов)
 
 ### Changed
+- Смена active TUN и Apply Routing — `birdc configure`, не `service bird restart`. Удалены birdstart/birdstop/birdrestart из actions/API
+- `birdsync` синхронизирует только «жив ли tun2socks», без выбора TUN и без SOCKS
+- Условный старт BIRD: один SOCKS-probe на семейство (не серия Auto route polls на Apply)
 - BGP community GUI uses `ASN:value` lists (e.g. `65444:200, 65444:210`); `.inc` files still store BIRD `define NAME = [ (65444, 200), ... ];`
 - `50-xray`: IPv6 on TUN always assigned from OPNsense Interfaces when configured; IPv4 on TUN still follows instance IPv4 checkbox
 - `xray-service-control.php`: when instance IPv6 is off, routing blocks `::/0` (blackhole) and DNS `queryStrategy` is `UseIPv4`; routing `domainStrategy` is `IPOnDemand` for single-stack (IPv4-only or IPv6-only) and `IPIfNonMatch` for dual-stack; proxy outbound gets `domainStrategy` UseIPv4 / UseIPv6 for single-stack
@@ -30,6 +35,7 @@ Format: [Semantic Versioning](https://semver.org/).
 - `install.sh`: migration step 4.8 adds defaults for existing instances
 - `install.sh`: check for FreeBSD package `bird2`; if missing, run `pkg update` and `pkg install -y bird2`
 - `install.sh`: fill `router id` / BGP `source address` from live WAN IPv4/IPv6 (`route`/`ifconfig`, not only config.xml); seed default BGP peers, filters and communities if none exist
+- Документация и `REPO_BRANCH` установщика — ветка **develop**
 
 ## [3.0.1] - TBD
 ### Added

@@ -3,12 +3,12 @@
 # os-xray
 
 [![Repository](https://img.shields.io/badge/GitHub-ha--harbor--ws%2Fos--xray-blue)](https://github.com/ha-harbor-ws/os-xray)
-[![Branch](https://img.shields.io/badge/branch-feature%2Ftun--ipv6--dns--useipv4-green)](https://github.com/ha-harbor-ws/os-xray/tree/feature/tun-ipv6-dns-useipv4)
+[![Branch](https://img.shields.io/badge/branch-develop-green)](https://github.com/ha-harbor-ws/os-xray/tree/develop)
 [![License](https://img.shields.io/github/license/ha-harbor-ws/os-xray)](https://github.com/ha-harbor-ws/os-xray/blob/develop/LICENSE)
 [![OPNsense](https://img.shields.io/badge/OPNsense-25.x%20%2F%2026.x-blue)](https://opnsense.org)
 [![FreeBSD](https://img.shields.io/badge/FreeBSD-14.x%20amd64-red)](https://freebsd.org)
 
-**Xray-core VPN plugin for OPNsense** — v3.0.1
+**Xray-core VPN plugin for OPNsense** — v3.1.0
 
 Xray-core + tun2socks — нативный VPN-клиент для OPNsense с поддержкой селективной маршрутизации. VLESS+Reality через визард или произвольный config.json (любой протокол/транспорт). Обходит DPI-блокировки за счёт маскировки трафика под легитимный TLS.
 
@@ -27,13 +27,18 @@ Xray-core + tun2socks — нативный VPN-клиент для OPNsense с �
 - **Кнопки Start / Stop / Restart** — управление сервисом прямо из GUI без перезагрузки страницы
 - **Кнопка Validate Config** — в footer диалога инстанса, сухой прогон конфига через `xray -test` без остановки сервиса
 - **Кнопка Test Connection** — проверяет, что xray-core реально проксирует трафик
-- **Вкладка Log** — Boot Log и Xray Core Log прямо в GUI
+- **Вкладка Log** — Boot Log, Xray Core Log и Bird Log в GUI
 - **Вкладка Diagnostics** — статистика TUN-интерфейса: IP, MTU, байты, пакеты, uptime процессов, Ping RTT до VPN-сервера; автообновление каждые 30 секунд
 - **Кнопка Copy Debug Info** — собирает diagnostics + логи в модалку для копирования в issue-репорт
 - **Bypass Networks** — настраиваемый список CIDR-сетей для обхода VPN (direct routing)
 - **IP stack на инстанс** — чекбоксы IPv4 / IPv6 (можно оба) для TUN и xray DNS/routing
 - **DNS на инстанс** — поле dns_servers (через запятую) в config.json xray
 - **Watchdog** — автоматический перезапуск при падении xray-core или tun2socks (настраивается)
+- **Routing (BGP / BIRD2)** — пиры, фильтры и community в GUI; Apply на этой вкладке пишет includes и делает `birdc configure` (BGP-сессии не сбрасываются)
+- **Активный tun2socks для BIRD** — `ACTIVE_TUN4_IF` / `ACTIVE_TUN6_IF` выбираются по latency SOCKS (и опционально по Weight инстанса); BIRD стартует только если хотя бы один SOCKS дал HTTP 200–399
+- **Auto route** — cron каждую минуту; реальный опрос SOCKS раз в **Auto route interval**; после N попыток (или если текущий TUN не отвечает) выбирается лучший TUN по среднему latency
+- **DNStap BGP** — установщик ставит `os-dnstap-bgp` с GitHub; **Enable DNStap BGP** в General включает автозапуск; вкладка DNStap правит живые ключ/значение из конфигов пакета
+- **Bird Log** — хвост `/var/log/bird/bird.log` и класс syslog (`birdc configure`, без рестарта процесса BIRD)
 - **Автозапуск после ребута** — интерфейс поднимается автоматически, нажимать Apply вручную не нужно
 - ACL-права — доступ к GUI и API только для авторизованных пользователей с ролью `page-vpn-xray`
 
@@ -58,19 +63,23 @@ Firewall Rules (селективная маршрутизация)
 | Компонент  | Версия                  |
 |------------|-------------------------|
 | OPNsense   | 25.x / 26.x             |
-| FreeBSD    | 14.x amd64              |
+| FreeBSD    | 14.x / 15.x amd64       |
 | xray-core  | 24.x+ (рекомендуется)   |
 | tun2socks  | Любая актуальная        |
+| bird2      | Пакет FreeBSD (ставит install.sh) |
+| os-dnstap-bgp | Пакет с GitHub (опционально, OPNsense 26.7) |
 
 ---
 
 ## Установка
 
+Актуальная версия плагина — ветка **`develop`** (ветка по умолчанию на GitHub). Клонируйте или скачивайте её, а не старые feature-ветки.
+
 **Вариант 1 — через git clone (рекомендуется)**
 
 ```sh
 cd /tmp
-git clone -b feature/tun-ipv6-dns-useipv4 https://github.com/ha-harbor-ws/os-xray.git
+git clone -b develop https://github.com/ha-harbor-ws/os-xray.git
 cd os-xray
 sh install.sh
 ```
@@ -78,20 +87,22 @@ sh install.sh
 **Вариант 2 — через архив**
 
 ```sh
-fetch -o /tmp/os-xray.tar.gz https://github.com/ha-harbor-ws/os-xray/archive/refs/heads/feature/tun-ipv6-dns-useipv4.tar.gz
-cd /tmp && tar xf os-xray.tar.gz && cd os-xray-feature-tun-ipv6-dns-useipv4
+fetch -o /tmp/os-xray.tar.gz https://github.com/ha-harbor-ws/os-xray/archive/refs/heads/develop.tar.gz
+cd /tmp && tar xf os-xray.tar.gz && cd os-xray-develop
 sh install.sh
 ```
 
 Установщик автоматически:
 
-- Покажет текущую и новую версию плагина и запросит подтверждение
+- Покажет текущую и новую версию плагина (`PLUGIN_VERSION` в `install.sh`, сейчас **3.1.0**) и запросит подтверждение
 - Проверит версию xray-core — если ниже 24.x, предложит автоматическое обновление
 - Проверит наличие бинарников xray-core и tun2socks — если их нет, выведет ссылки для скачивания
+- Установит пакет FreeBSD **bird2**, если его нет
+- Скачает **os-dnstap-bgp** с [ha-harbor-ws/dnstap-bgp](https://github.com/ha-harbor-ws/dnstap-bgp/releases) и сделает `pkg add`, если пакет ещё не стоит (sample-конфиги копируются только при первой установке, существующие файлы не перезаписываются)
 - Проверит, не занят ли SOCKS5-порт (10808 по умолчанию) другим процессом
 - Найдёт существующие конфиги и импортирует их в OPNsense (поля в GUI заполнятся сразу)
 - Скопирует все файлы плагина, перезапустит configd, очистит кеши
-- Установит boot-скрипт для автозапуска после ребута
+- Установит boot-скрипты для автозапуска после ребута (`birdsync` / BIRD зависит от tun2socks)
 
 Проверить установленную версию:
 ```sh
@@ -111,10 +122,15 @@ configctl xray version
 3. *(Опционально)* Поле **Bypass Networks** — укажи сети, которые должны идти в обход VPN (по умолчанию: частные сети 10/8, 172.16/12, 192.168/16)
 4. *(Опционально)* **Config Mode** → Custom — для ручной вставки произвольного config.json (любой протокол/транспорт xray-core)
 5. *(Опционально)* Кнопка **Validate Config** в footer диалога — сухой прогон конфига через `xray -test` без остановки сервиса
-6. Нажми **Save**, затем вкладка **General** → установи галку **Enable Xray** (и **Enable Watchdog** по желанию)
-7. Нажми **Apply**
+6. Нажми **Save**, затем вкладка **General** → галка **Enable Xray** (и **Enable Watchdog** по желанию)
+   - **Enable BGP** — разрешить BIRD2; процесс стартует только если жив tun2socks и SOCKS-проверка дала HTTP 200–399
+   - **Auto route** — выбор активного TUN для BIRD по cron (`ACTIVE_TUN4_IF` / `ACTIVE_TUN6_IF`); **Auto route interval** — пауза между опросами SOCKS
+   - **Enable DNStap BGP** — `sysrc dnstap_bgp_enable` и start/stop **только если** пакет `os-dnstap-bgp` установлен; иначе Apply его не трогает
+7. Нажми **Apply** (цикл Auto route **не** запускается с Apply; опросы идут из cron)
 8. Кнопка **Test Connection** — убедись, что туннель работает (показывает HTTP 200)
 9. В таблице инстансов колонка **Status** показывает xray/tun2socks для каждого подключения
+10. Вкладка **Routing** — пиры BGP, фильтры, community. **Apply** пишет includes BIRD и делает `birdc configure` (без `service bird restart`, сессии не рвутся)
+11. Вкладка **DNStap** — таблицы ключ/значение из `dnstap-bgp.conf`, `domains.txt`, `rc.conf.d/dnstap_bgp`. **Apply** пишет файлы и делает restart только если сервис уже running
 
 ---
 
@@ -181,6 +197,42 @@ MSS Clamping для Xray не требуется (в отличие от WireGua
 При включённом **Enable Watchdog** cron каждую минуту проверяет живость xray-core и tun2socks. При падении любого из процессов — оба перезапускаются автоматически. События пишутся в `/var/log/xray-watchdog.log` (ротация: 3 файла по 100 KB).
 
 Watchdog не перезапускает сервис если он был остановлен вручную через кнопку **Stop** или **Apply** с отключённым Enable.
+
+---
+
+## Routing (BGP / BIRD2)
+
+BIRD2 ставит `install.sh`. Рабочий конфиг — `/usr/local/etc/bird.conf` и includes в `/usr/local/etc/bird/` (`peer_*.inc`, `filter_*.inc`, `community_*.inc`).
+
+**Почему `birdc configure`, а не рестарт BIRD.** Смена активного TUN и сохранение пиров/фильтров/community не должны рвать BGP-сессии. Плагин пишет файлы и перечитывает конфиг на лету. Кнопок Start/Stop/Restart демона BIRD в GUI нет; `birdsync` только синхронизирует «жив ли tun2socks» (старт, если туннель есть, стоп, если нет).
+
+**Apply на вкладке Routing** генерирует includes из GUI и вызывает `birdc configure`. Инстансы Xray при этом не reconfigure.
+
+**Таблица пиров.** Колонки IPv4 / IPv6 — число imported-префиксов по каналам `birdc`. Status — state/info сессии (без суммы префиксов).
+
+**Условный старт.** BIRD стартует только если включён **Enable BGP**, жив хотя бы один tun2socks и SOCKS-проверка дала HTTP 200–399. Один probe на семейство адресов — Apply не крутит спиннер из‑за серии опросов.
+
+**Активный TUN.** BIRD смотрит `ACTIVE_TUN4_IF` / `ACTIVE_TUN6_IF`. Без **Auto route** берётся первый живой инстанс (опционально **Weight**). Смена интерфейса тоже через `birdc configure`.
+
+---
+
+## Auto route
+
+Это **не** демон и без flock. Cron раз в минуту (`xray autoroute`). Реальный опрос SOCKS — только когда прошёл **Auto route interval** с прошлого poll (состояние в `/var/run/xray_autoroute_state.json`). После N попыток (или если текущий TUN умер) выбирается TUN с лучшим средним latency; если интерфейс сменился — `birdc configure`.
+
+**Apply не запускает цикл опросов** — раньше из‑за этого GUI зависал на спиннере.
+
+---
+
+## DNStap BGP
+
+Пакет [os-dnstap-bgp](https://github.com/ha-harbor-ws/dnstap-bgp) ставится с GitHub Releases в `install.sh` (`pkg add` последнего `.pkg`). Sample-конфиги копируются **только при первой установке пакета**; существующие файлы не перезаписываются.
+
+**Enable DNStap BGP** (General) пишет `dnstap_bgp_enable` в rc.conf и стартует/останавливает сервис. Если нет бинаря, rc.d или пакета — Apply пропускает шаг и не падает из‑за отсутствия `service dnstap_bgp`.
+
+Установщик **не** запускает dnstap. Старт — только Apply при включённом чекбоксе и установленном пакете.
+
+Вкладка **DNStap** (после Routing) показывает таблицы ключ/значение из живых файлов. Apply пишет эти файлы и делает restart, только если сервис уже running.
 
 ---
 
@@ -852,6 +904,7 @@ install -m 0755 /tmp/tun2socks-freebsd-amd64 /usr/local/tun2socks/tun2socks
 
 | Версия | Что изменилось |
 |--------|---------------|
+| 3.1.0  | BIRD2 + GUI Routing; Apply/`birdc configure` без сброса BGP; Auto route через cron; активный TUN по latency SOCKS; пакет DNStap BGP + GUI; условный старт BIRD |
 | 3.0.1  | Исправления ошибок мульти-инстанцов |
 | 3.0.0  | Мульти-инстанс (ArrayField), per-instance статус в таблице, Import VLESS и Validate Config внутри диалога, custom config использует SOCKS5 из формы, переименование uuid→vless_uuid, миграция в install.sh |
 | 2.0.0  | Custom Config (wizard/custom), Import VLESS с авто-генерацией config.json для любого транспорта, нормализация xhttp↔splithttp, проверка версии xray-core при установке |

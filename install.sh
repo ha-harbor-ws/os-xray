@@ -5,7 +5,7 @@
 # Author: Меркулов Павел Сергеевич
 #
 # Repository: https://github.com/ha-harbor-ws/os-xray
-# Branch:     feature/tun-ipv6-dns-useipv4
+# Branch:     develop
 #
 # Usage:
 #   sh install.sh            — install
@@ -13,7 +13,7 @@
 #
 # Remote install:
 #   cd /tmp
-#   git clone -b feature/tun-ipv6-dns-useipv4 https://github.com/ha-harbor-ws/os-xray.git
+#   git clone -b develop https://github.com/ha-harbor-ws/os-xray.git
 #   cd os-xray && sh install.sh
 
 set -e
@@ -22,7 +22,7 @@ set -u
 PLUGIN_VERSION="3.1.0"
 REPO_OWNER="ha-harbor-ws"
 REPO_NAME="os-xray"
-REPO_BRANCH="feature/tun-ipv6-dns-useipv4"
+REPO_BRANCH="develop"
 REPO_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
 ARCHIVE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/archive/refs/heads/${REPO_BRANCH}.tar.gz"
 PLUGIN_DIR="$(dirname "$0")/plugin"
