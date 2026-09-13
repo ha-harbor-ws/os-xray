@@ -863,6 +863,16 @@ function xray_bird_sync(): void
     echo "bird sync: BGP on, no tun2socks, bird stopped\n";
 }
 
+function xray_dnstap_bgp_installed(): bool
+{
+    if (is_executable('/usr/local/sbin/dnstap-bgp')
+        && (is_file('/usr/local/etc/rc.d/dnstap_bgp') || is_file('/etc/rc.d/dnstap_bgp'))) {
+        return true;
+    }
+    exec('/usr/sbin/pkg info -e os-dnstap-bgp >/dev/null 2>&1', $out, $rc);
+    return $rc === 0 && is_file('/usr/local/etc/rc.d/dnstap_bgp');
+}
+
 function xray_dnstap_bgp_enabled(): bool
 {
     $cfg = OPNsense\Core\Config::getInstance()->object();
@@ -881,16 +891,20 @@ function xray_sysrc_dnstap_bgp_enable(bool $enable): void
 
 function xray_dnstap_bgp_service(string $verb): void
 {
-    if (!is_file('/usr/local/etc/rc.d/dnstap_bgp') && !is_file('/etc/rc.d/dnstap_bgp')) {
-        echo "dnstap_bgp: rc script not found — skip {$verb}\n";
+    if (!xray_dnstap_bgp_installed()) {
+        echo "dnstap_bgp: package not installed — skip {$verb}\n";
         return;
     }
     exec('/usr/sbin/service dnstap_bgp ' . escapeshellarg($verb) . ' 2>&1');
 }
 
-/** General Apply: Enable dnstap_bgp → autostart + start; иначе стоп и выкл. автозапуска. */
+/** General Apply: Enable DNStap BGP → autostart + start; иначе стоп. Без пакета — ничего не трогаем. */
 function xray_dnstap_apply_general(): void
 {
+    if (!xray_dnstap_bgp_installed()) {
+        echo "dnstap_bgp: os-dnstap-bgp is not installed — skip start/stop\n";
+        return;
+    }
     if (!xray_dnstap_bgp_enabled()) {
         xray_sysrc_dnstap_bgp_enable(false);
         xray_dnstap_bgp_service('stop');

@@ -17,6 +17,11 @@ const XRAY_DNSTAP_FILES = [
 
 function xray_dnstap_running(): bool
 {
+    if (!is_executable('/usr/local/sbin/dnstap-bgp')
+        && !is_file('/usr/local/etc/rc.d/dnstap_bgp')
+        && !is_file('/etc/rc.d/dnstap_bgp')) {
+        return false;
+    }
     exec('/usr/sbin/service dnstap_bgp onestatus 2>&1', $out, $rc);
     $text = strtolower(implode("\n", $out));
     if (strpos($text, 'not running') !== false) {
