@@ -34,6 +34,23 @@ VERSION_FILE="/usr/local/opnsense/mvc/app/models/OPNsense/Xray/version.txt"
 warn() { echo "[WARN] $*" >&2; }
 die()  { echo "[ERROR] $*" >&2; exit 1; }
 
+xray_unbound_bin() {
+    for _ub in /usr/local/sbin/unbound /usr/sbin/unbound; do
+        if [ -x "$_ub" ]; then
+            echo "$_ub"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Stock OPNsense unbound is built without DNSTAP. Our replacement prints --enable-dnstap in unbound -V.
+xray_unbound_has_dnstap() {
+    _ub="$(xray_unbound_bin 2>/dev/null || true)"
+    [ -n "$_ub" ] || return 1
+    "$_ub" -V 2>&1 | grep -q -- '--enable-dnstap'
+}
+
 xray_copy_dnstap_bgp_samples() {
     _copied=0
     for _src in /usr/local/etc/dnstap-bgp/*.sample /usr/local/etc/rc.conf.d/dnstap_bgp.sample; do
@@ -180,6 +197,7 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-log.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-loglevel.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-conf.php
+    rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-unbound.php
     rmdir  /usr/local/opnsense/scripts/Xray 2>/dev/null || true
     # BUG-11: удаляем конфиг ротации логов newsyslog
     rm -f  /etc/newsyslog.conf.d/xray.conf
@@ -701,6 +719,58 @@ else
         warn "Failed to install bird2. Install manually: pkg update && pkg install bird2"
         BINARIES_OK=0
     fi
+fi
+
+# unbound с --enable-dnstap — drop-in pkg с GitHub, если штатный unbound без DNSTAP
+UNBOUND_DNSTAP_PKG_URL="https://github.com/ha-harbor-ws/os-unbound/releases/latest/download/unbound-latest.pkg"
+
+echo "==> Checking Unbound for --enable-dnstap ..."
+if xray_unbound_has_dnstap; then
+    _ub="$(xray_unbound_bin)"
+    echo "[OK]  unbound already built with --enable-dnstap ($("$_ub" -V 2>&1 | awk 'NR==1{print; exit}'))"
+else
+    _ub="$(xray_unbound_bin 2>/dev/null || true)"
+    if [ -n "$_ub" ]; then
+        warn "unbound found but compiled without --enable-dnstap — reinstalling from GitHub..."
+    else
+        warn "unbound NOT found — installing from GitHub..."
+    fi
+    UB_PKG="/tmp/unbound-latest.pkg"
+    UB_WAS_RUNNING=0
+    if service unbound onestatus >/dev/null 2>&1; then
+        UB_WAS_RUNNING=1
+    fi
+    if [ "$(pkg query '%k' unbound 2>/dev/null || echo 0)" = "1" ]; then
+        pkg unlock -y unbound >/dev/null 2>&1 || true
+        echo "[INFO] unbound was pkg-locked — unlocked to replace the package"
+    fi
+    if fetch -o "$UB_PKG" "$UNBOUND_DNSTAP_PKG_URL" && pkg add -f "$UB_PKG"; then
+        if xray_unbound_has_dnstap; then
+            _ub="$(xray_unbound_bin)"
+            echo "[OK]  unbound reinstalled with --enable-dnstap ($("$_ub" -V 2>&1 | awk 'NR==1{print; exit}'))"
+        else
+            warn "unbound package installed, but --enable-dnstap still not in unbound -V"
+            BINARIES_OK=0
+        fi
+        if pkg lock -y unbound >/dev/null 2>&1; then
+            echo "[OK]  unbound заблокирован через pkg lock — pkg/OPNsense не перезапишут пакет при обновлении"
+            echo "      Снять блокировку: pkg unlock unbound"
+        else
+            warn "pkg lock unbound failed — OPNsense upgrade may replace this GitHub build"
+        fi
+        if [ "$UB_WAS_RUNNING" = "1" ]; then
+            if service unbound restart >/dev/null 2>&1; then
+                echo "[OK]  unbound restarted"
+            else
+                warn "Could not restart unbound — restart DNS from GUI"
+            fi
+        fi
+    else
+        warn "Failed to install unbound from $UNBOUND_DNSTAP_PKG_URL"
+        warn "Install manually: fetch -o /tmp/unbound-latest.pkg $UNBOUND_DNSTAP_PKG_URL && pkg add -f /tmp/unbound-latest.pkg"
+        BINARIES_OK=0
+    fi
+    rm -f "$UB_PKG"
 fi
 
 # os-dnstap-bgp — OPNsense pkg с GitHub (не из репозитория pkg)

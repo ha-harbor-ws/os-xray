@@ -21,7 +21,7 @@
         <id>general.dnstap_bgp_enabled</id>
         <label>Enable DNStap BGP</label>
         <type>checkbox</type>
-        <help>Enable dnstap-bgp (sysrc dnstap_bgp_enable="YES" / "NO", then service dnstap_bgp start or stop on Apply). When enabled, the service starts now and after reboot. When disabled, it is stopped and removed from autostart.</help>
+        <help>Enable dnstap-bgp (sysrc dnstap_bgp_enable, Unbound dnstap.conf, then start dnstap-bgp). Copies unbound.opnsense.d/dnstap.conf.sample, sets listen socket under /var/unbound/var/run/dnstap-bgp, runs configctl unbound restart, then starts dnstap-bgp. Disable reverses that.</help>
     </field>
     <field>
         <id>general.bgp_auto_route</id>

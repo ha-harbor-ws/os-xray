@@ -417,6 +417,26 @@
                 $('#dnstapDomainsKv').append(dnstapKvRow('domain', '', true));
             }
         });
+        $(document).on('click', '#dnstapStart', function () {
+            var $btn = $(this).prop('disabled', true);
+            ajaxCall('/api/xray/service/dnstapstart', {}, function (data) {
+                $btn.prop('disabled', false);
+                loadDnstapConf();
+                if (!data || data.result === 'failed') {
+                    alert(data && data.message ? data.message : '{{ lang._("Failed to start dnstap-bgp") }}');
+                }
+            });
+        });
+        $(document).on('click', '#dnstapStop', function () {
+            var $btn = $(this).prop('disabled', true);
+            ajaxCall('/api/xray/service/dnstapstop', {}, function (data) {
+                $btn.prop('disabled', false);
+                loadDnstapConf();
+                if (!data || data.result === 'failed') {
+                    alert(data && data.message ? data.message : '{{ lang._("Failed to stop dnstap-bgp") }}');
+                }
+            });
+        });
 
         // ── General settings form ───────────────────────────────────
         mapDataToFormUI({'frm_general_settings': "/api/xray/general/get"}).done(function () {

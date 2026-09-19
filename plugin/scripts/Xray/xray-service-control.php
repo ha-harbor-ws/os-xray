@@ -4,6 +4,7 @@
 require_once('config.inc');
 require_once(__DIR__ . '/xray-bird-peers.php');
 require_once(__DIR__ . '/xray-bird-active-tun.php');
+require_once(__DIR__ . '/xray-dnstap-unbound.php');
 
 // ─── Shared constants (not per-instance) ─────────────────────────────────────
 define('XRAY_BIN',          '/usr/local/bin/xray-core');
@@ -907,13 +908,13 @@ function xray_dnstap_apply_general(): void
     }
     if (!xray_dnstap_bgp_enabled()) {
         xray_sysrc_dnstap_bgp_enable(false);
-        xray_dnstap_bgp_service('stop');
-        echo "dnstap_bgp: off, enable=NO, stopped\n";
+        xray_dnstap_unbound_deactivate();
+        echo "dnstap_bgp: off, enable=NO, Unbound DNSTap include removed\n";
         return;
     }
     xray_sysrc_dnstap_bgp_enable(true);
-    xray_dnstap_bgp_service('start');
-    echo "dnstap_bgp: on, enable=YES, started\n";
+    xray_dnstap_unbound_activate();
+    echo "dnstap_bgp: on, enable=YES, Unbound DNSTap include applied\n";
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────

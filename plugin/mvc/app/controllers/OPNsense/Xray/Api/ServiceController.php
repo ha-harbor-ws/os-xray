@@ -378,4 +378,40 @@ class ServiceController extends ApiMutableServiceControllerBase
             'message' => $output !== '' ? $output : 'No response from configd',
         ];
     }
+
+    /**
+     * POST /api/xray/service/dnstapstart — Unbound include + start dnstap-bgp.
+     */
+    public function dnstapstartAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+        $output = trim((string)(new Backend())->configdRun('xray dnstapstart'));
+        $failed = $output === ''
+            || stripos($output, 'ERROR') !== false
+            || stripos($output, 'failed') !== false;
+        return [
+            'result'  => $failed ? 'failed' : 'ok',
+            'message' => $output !== '' ? $output : 'No response from configd',
+        ];
+    }
+
+    /**
+     * POST /api/xray/service/dnstapstop — stop dnstap-bgp and remove Unbound include.
+     */
+    public function dnstapstopAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+        $output = trim((string)(new Backend())->configdRun('xray dnstapstop'));
+        $failed = $output === ''
+            || stripos($output, 'ERROR') !== false
+            || stripos($output, 'failed') !== false;
+        return [
+            'result'  => $failed ? 'failed' : 'ok',
+            'message' => $output !== '' ? $output : 'No response from configd',
+        ];
+    }
 }

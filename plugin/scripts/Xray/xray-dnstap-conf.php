@@ -7,6 +7,8 @@
  *   xray-dnstap-conf.php write
  */
 
+require_once __DIR__ . '/xray-dnstap-unbound.php';
+
 const XRAY_DNSTAP_STAGED = '/tmp/xray_dnstap_write.json';
 const XRAY_DNSTAP_MAX = 524288;
 const XRAY_DNSTAP_FILES = [
@@ -40,6 +42,34 @@ function xray_dnstap_read_file(string $path): string
         return substr($raw, 0, XRAY_DNSTAP_MAX);
     }
     return $raw;
+}
+
+function xray_dnstap_rc_is_enabled(string $path): bool
+{
+    return (bool)preg_match('/^dnstap_bgp_enable\s*=\s*"?YES"?/mi', xray_dnstap_read_file($path));
+}
+
+function xray_dnstap_sighup(): bool
+{
+    $pid = 0;
+    foreach (['/var/run/dnstap_bgp.pid', '/var/run/dnstap-bgp.pid'] as $pidfile) {
+        if (!is_readable($pidfile)) {
+            continue;
+        }
+        $pid = (int)trim((string)file_get_contents($pidfile));
+        if ($pid > 0) {
+            break;
+        }
+    }
+    if ($pid <= 0) {
+        exec("pgrep -x dnstap-bgp 2>/dev/null", $out, $rc);
+        $pid = (int)trim((string)($out[0] ?? '0'));
+    }
+    if ($pid <= 0) {
+        return false;
+    }
+    exec('kill -HUP ' . $pid . ' 2>&1', $kout, $krc);
+    return $krc === 0;
 }
 
 function xray_dnstap_write_file(string $path, string $body): bool
@@ -296,6 +326,18 @@ function xray_dnstap_rows_from_post($raw): array
 
 $op = strtolower(trim((string)($argv[1] ?? 'get')));
 
+if ($op === 'start') {
+    xray_dnstap_unbound_activate();
+    echo "OK\n";
+    exit(0);
+}
+
+if ($op === 'stop') {
+    xray_dnstap_unbound_deactivate();
+    echo "OK\n";
+    exit(0);
+}
+
 if ($op === 'write') {
     if (!is_readable(XRAY_DNSTAP_STAGED)) {
         echo "OK\n";
@@ -322,9 +364,20 @@ if ($op === 'write') {
             exit(1);
         }
     }
-    if (xray_dnstap_running()) {
-        exec('/usr/sbin/service dnstap_bgp restart 2>&1');
-        echo "OK dnstap_bgp restarted\n";
+    if (xray_dnstap_rc_is_enabled(XRAY_DNSTAP_FILES['rc'])) {
+        if (xray_dnstap_running()) {
+            if (xray_dnstap_sighup()) {
+                echo "OK dnstap_bgp running — sent SIGHUP (Unbound not restarted)\n";
+            } else {
+                echo "ERROR: dnstap_bgp running but SIGHUP failed\n";
+                exit(1);
+            }
+        } else {
+            echo "OK files written, dnstap_bgp not running (Unbound not restarted)\n";
+        }
+    } elseif (xray_dnstap_running()) {
+        xray_dnstap_unbound_deactivate();
+        echo "OK dnstap_bgp stopped, Unbound DNSTap include removed\n";
     } else {
         echo "OK files written, dnstap_bgp not running\n";
     }
