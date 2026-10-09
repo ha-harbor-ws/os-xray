@@ -7,6 +7,12 @@
  *   xray-dnstap-conf.php write
  */
 
+$xray_config_inc = '/usr/local/etc/inc/config.inc';
+if (is_file($xray_config_inc)) {
+    require_once $xray_config_inc;
+} elseif (is_file('config.inc')) {
+    require_once 'config.inc';
+}
 require_once __DIR__ . '/xray-dnstap-unbound.php';
 
 const XRAY_DNSTAP_STAGED = '/tmp/xray_dnstap_write.json';

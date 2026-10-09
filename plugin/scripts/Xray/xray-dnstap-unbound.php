@@ -196,15 +196,19 @@ function xray_dnstap_bird_neighbor_params(): array
 
 function xray_dnstap_sync_bird(bool $enable): void
 {
-    $script = __DIR__ . '/xray-bird-peers.php';
-    if (is_readable($script)) {
-        require_once $script;
+    try {
+        $script = __DIR__ . '/xray-bird-peers.php';
+        if (is_readable($script)) {
+            require_once $script;
+        }
+        if (!function_exists('xray_dnstap_sync_bird_peer')) {
+            echo "dnstap: BIRD peer sync skipped — xray-bird-peers.php unavailable\n";
+            return;
+        }
+        xray_dnstap_sync_bird_peer($enable, xray_dnstap_bird_neighbor_params());
+    } catch (\Throwable $e) {
+        echo "WARN BIRD dnstap peer sync failed: " . $e->getMessage() . "\n";
     }
-    if (!function_exists('xray_dnstap_sync_bird_peer')) {
-        echo "dnstap: BIRD peer sync skipped — xray-bird-peers.php unavailable\n";
-        return;
-    }
-    xray_dnstap_sync_bird_peer($enable, xray_dnstap_bird_neighbor_params());
 }
 
 function xray_dnstap_toml_format_value(string $key, string $v): string

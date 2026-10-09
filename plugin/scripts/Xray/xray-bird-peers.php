@@ -877,7 +877,13 @@ function xray_bird_render_peer(array $p, string $protoName): string
 
 function xray_get_bgp_peers_from_config(): array
 {
-    $cfg  = OPNsense\Core\Config::getInstance()->object();
+    if (!class_exists('OPNsense\\Core\\Config')) {
+        return [];
+    }
+    $cfg = OPNsense\Core\Config::getInstance()->object();
+    if ($cfg === null || !isset($cfg->OPNsense->xray)) {
+        return [];
+    }
     $node = $cfg->OPNsense->xray->bgppeers ?? null;
     if (!$node || !isset($node->peer)) {
         return [];
@@ -1254,12 +1260,16 @@ function xray_dnstap_sync_bird_peer(bool $enable, array $params): void
         if (method_exists($cnf, 'forceReload')) {
             $cnf->forceReload();
         }
-        echo "dnstap: BIRD peer dnstap neighbor {$neighbor} as {$localAs} (iBGP) enabled=" . ($enable ? '1' : '0') . "\n";
+        echo "dnstap: BIRD peer dnstap neighbor {$neighbor} as {$localAs} (iBGP) enabled=" . ($enable ? '1' : '0') . " ipv6=" . ($useV6 ? '1' : '0') . "\n";
     } catch (\Throwable $e) {
         echo "dnstap: config.xml peer update failed: " . $e->getMessage() . "\n";
     }
 
-    xray_bird_write_peers();
-    xray_bird_reload_config();
-    echo "dnstap: BIRD includes rewritten, birdc configure\n";
+    try {
+        xray_bird_write_peers();
+        xray_bird_reload_config();
+        echo "dnstap: BIRD includes rewritten, birdc configure\n";
+    } catch (\Throwable $e) {
+        echo "WARN BIRD rewrite/reload failed: " . $e->getMessage() . "\n";
+    }
 }
