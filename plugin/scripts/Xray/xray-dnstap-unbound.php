@@ -207,6 +207,28 @@ function xray_dnstap_sync_bird(bool $enable): void
     xray_dnstap_sync_bird_peer($enable, xray_dnstap_bird_neighbor_params());
 }
 
+function xray_dnstap_toml_format_value(string $key, string $v): string
+{
+    $v = trim($v);
+    $name = $key;
+    $dot = strrpos($key, '.');
+    if ($dot !== false) {
+        $name = substr($key, $dot + 1);
+    }
+    if ($v === 'true' || $v === 'false') {
+        return $v;
+    }
+    if ($name === 'as' && preg_match('/^-?\d+$/', $v)) {
+        return (string)((int)$v);
+    }
+    return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $v) . '"';
+}
+
+function xray_dnstap_toml_kv_line(string $name, string $v): string
+{
+    return $name . ' = ' . xray_dnstap_toml_format_value($name, $v);
+}
+
 function xray_dnstap_toml_upsert_section(string $text, string $section, array $kv): string
 {
     $lines = preg_split("/\r\n|\n|\r/", $text);
@@ -222,7 +244,7 @@ function xray_dnstap_toml_upsert_section(string $text, string $section, array $k
     $flushMissing = static function () use (&$out, &$seen, $kv): void {
         foreach ($kv as $k => $v) {
             if (empty($seen[$k])) {
-                $out[] = $k . ' = "' . str_replace(['\\', '"'], ['\\\\', '\\"'], (string)$v) . '"';
+                $out[] = xray_dnstap_toml_kv_line($k, (string)$v);
             }
         }
     };
@@ -245,7 +267,7 @@ function xray_dnstap_toml_upsert_section(string $text, string $section, array $k
         }
         if ($in && preg_match('/^([A-Za-z0-9_]+)\s*=/', $trim, $km) && isset($kv[$km[1]])) {
             $k = $km[1];
-            $out[] = $k . ' = "' . str_replace(['\\', '"'], ['\\\\', '\\"'], (string)$kv[$k]) . '"';
+            $out[] = xray_dnstap_toml_kv_line($k, (string)$kv[$k]);
             $seen[$k] = true;
             continue;
         }
@@ -261,7 +283,7 @@ function xray_dnstap_toml_upsert_section(string $text, string $section, array $k
         }
         $out[] = '[' . $section . ']';
         foreach ($kv as $k => $v) {
-            $out[] = $k . ' = "' . str_replace(['\\', '"'], ['\\\\', '\\"'], (string)$v) . '"';
+            $out[] = xray_dnstap_toml_kv_line($k, (string)$v);
         }
     }
     unset($closed);
@@ -313,7 +335,7 @@ function xray_dnstap_toml_upsert_root(string $text, array $kv): string
         }
         if (!$inSection && preg_match('/^([A-Za-z0-9_]+)\s*=/', $trim, $m) && isset($kv[$m[1]])) {
             $k = $m[1];
-            $out[] = $k . ' = "' . str_replace(['\\', '"'], ['\\\\', '\\"'], (string)$kv[$k]) . '"';
+            $out[] = xray_dnstap_toml_kv_line($k, (string)$kv[$k]);
             $seen[$k] = true;
             continue;
         }
@@ -322,7 +344,7 @@ function xray_dnstap_toml_upsert_root(string $text, array $kv): string
     $missing = [];
     foreach ($kv as $k => $v) {
         if (empty($seen[$k])) {
-            $missing[] = $k . ' = "' . str_replace(['\\', '"'], ['\\\\', '\\"'], (string)$v) . '"';
+            $missing[] = xray_dnstap_toml_kv_line($k, (string)$v);
         }
     }
     if ($missing === []) {
