@@ -130,7 +130,7 @@ configctl xray version
 8. Кнопка **Test Connection** — убедись, что туннель работает (показывает HTTP 200)
 9. В таблице инстансов колонка **Status** показывает xray/tun2socks для каждого подключения
 10. Вкладка **Routing** — пиры BGP, фильтры, community. **Apply** пишет includes BIRD и делает `birdc configure` (без `service bird restart`, сессии не рвутся)
-11. Вкладка **DNStap** — таблицы ключ/значение из `dnstap-bgp.conf`, `domains.txt`, `rc.conf.d/dnstap_bgp`. **Apply** пишет файлы и делает restart только если сервис уже running
+11. Вкладка **DNStap** — конфиг, URL и extra для blocked/unblocked (`blocked.txt` / `unblocked.txt`, community). **Apply** пишет файлы и шлёт SIGHUP, если dnstap-bgp уже running
 
 ---
 
@@ -230,9 +230,13 @@ BIRD2 ставит `install.sh`. Рабочий конфиг — `/usr/local/etc
 
 **Enable DNStap BGP** (General) пишет `dnstap_bgp_enable` в rc.conf и стартует/останавливает сервис. Если нет бинаря, rc.d или пакета — Apply пропускает шаг и не падает из‑за отсутствия `service dnstap_bgp`.
 
+При старте плагин пишет `/usr/local/etc/unbound.opnsense.d/dnstap.conf` (`dnstap-enable: yes`), выставляет один и тот же сокет, что в [os-unbound](https://github.com/ha-harbor-ws/os-unbound): Unbound в chroot `/var/unbound` видит `/var/run/dnstap-bgp/dnstap.sock`, dnstap-bgp слушает хостовый `/var/unbound/var/run/dnstap-bgp/dnstap.sock`. Затем `configctl unbound reload` и только после этого старт dnstap-bgp. При выключении — `dnstap-enable: no` и снова reload Unbound.
+
 Установщик **не** запускает dnstap. Старт — только Apply при включённом чекбоксе и установленном пакете.
 
-Вкладка **DNStap** (после Routing) показывает таблицы ключ/значение из живых файлов. Apply пишет эти файлы и делает restart, только если сервис уже running.
+Вкладка **DNStap** (после Routing) соответствует [dnstap-bgp v1.3.0](https://github.com/ha-harbor-ws/dnstap-bgp): `blocked_domains` / `unblocked_domains`, отдельные URL и extra-списки, `bgp.blocked_communities` / `bgp.unblocked_communities`. Если имя есть в обоих списках, побеждает blocked. Apply пишет файлы и шлёт SIGHUP, если сервис уже running (Unbound не перезапускается). Старый `domains.txt` читается как fallback, пока первый Apply не перенесёт его в `blocked.txt`.
+
+Перед стартом dnstap-bgp создаются пустые файлы списков (`blocked.txt`, `unblocked.txt`, extra, URL), если их нет. При включённом **Enable DNStap BGP** cron в **04:15** скачивает списки по URL, пересобирает сводные файлы и делает `service dnstap_bgp reload`.
 
 ---
 

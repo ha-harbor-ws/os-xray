@@ -11,10 +11,32 @@ require_once __DIR__ . '/xray-dnstap-unbound.php';
 
 const XRAY_DNSTAP_STAGED = '/tmp/xray_dnstap_write.json';
 const XRAY_DNSTAP_MAX = 524288;
+const XRAY_DNSTAP_DOMAINS_MAX = 33554432;
+const XRAY_DNSTAP_CONF_HIDDEN = [
+    'domains',
+    'blocked_domains',
+    'unblocked_domains',
+    'cache',
+    'dnstap.listen',
+    'dnstap.perm',
+    'bgp.as',
+    'bgp.routerID',
+    'bgp.nextHop',
+];
 const XRAY_DNSTAP_FILES = [
-    'conf'    => '/usr/local/etc/dnstap-bgp/dnstap-bgp.conf',
+    'conf'            => '/usr/local/etc/dnstap-bgp/dnstap-bgp.conf',
+    'blocked'         => '/usr/local/etc/dnstap-bgp/blocked.txt',
+    'unblocked'       => '/usr/local/etc/dnstap-bgp/unblocked.txt',
+    'blocked_extra'   => '/usr/local/etc/dnstap-bgp/blocked-extra.txt',
+    'unblocked_extra' => '/usr/local/etc/dnstap-bgp/unblocked-extra.txt',
+    'blocked_urls'    => '/usr/local/etc/dnstap-bgp/blocked-urls.txt',
+    'unblocked_urls'  => '/usr/local/etc/dnstap-bgp/unblocked-urls.txt',
+    'rc'              => '/usr/local/etc/rc.conf.d/dnstap_bgp',
+];
+const XRAY_DNSTAP_LEGACY = [
     'domains' => '/usr/local/etc/dnstap-bgp/domains.txt',
-    'rc'      => '/usr/local/etc/rc.conf.d/dnstap_bgp',
+    'extra'   => '/usr/local/etc/dnstap-bgp/domains-extra.txt',
+    'urls'    => '/usr/local/etc/dnstap-bgp/domain-urls.txt',
 ];
 
 function xray_dnstap_running(): bool
@@ -47,6 +69,18 @@ function xray_dnstap_read_file(string $path): string
 function xray_dnstap_rc_is_enabled(string $path): bool
 {
     return (bool)preg_match('/^dnstap_bgp_enable\s*=\s*"?YES"?/mi', xray_dnstap_read_file($path));
+}
+
+function xray_dnstap_reload(): bool
+{
+    if (!xray_dnstap_running()) {
+        return false;
+    }
+    exec('/usr/sbin/service dnstap_bgp reload 2>&1', $out, $rc);
+    if ($rc === 0) {
+        return true;
+    }
+    return xray_dnstap_sighup();
 }
 
 function xray_dnstap_sighup(): bool
@@ -166,7 +200,15 @@ function xray_dnstap_parse_toml(string $text): array
 
 function xray_dnstap_is_array_key(string $key): bool
 {
-    return substr($key, -6) === '.peers' || $key === 'peers';
+    $name = $key;
+    $dot = strrpos($key, '.');
+    if ($dot !== false) {
+        $name = substr($key, $dot + 1);
+    }
+    return $name === 'peers'
+        || $name === 'blocked_communities'
+        || $name === 'unblocked_communities'
+        || substr($name, -12) === '_communities';
 }
 
 function xray_dnstap_toml_scalar(string $key, string $v): string
@@ -181,6 +223,95 @@ function xray_dnstap_toml_scalar(string $key, string $v): string
         }
     }
     return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $v) . '"';
+}
+
+function xray_dnstap_conf_is_hidden(string $key): bool
+{
+    return in_array($key, XRAY_DNSTAP_CONF_HIDDEN, true);
+}
+
+function xray_dnstap_conf_managed_rows(): array
+{
+    $as = function_exists('xray_dnstap_bird_local_as') ? xray_dnstap_bird_local_as() : 65103;
+    $sock = defined('XRAY_DNSTAP_SOCK') ? XRAY_DNSTAP_SOCK : '/var/unbound/var/run/dnstap-bgp/dnstap.sock';
+    $perm = defined('XRAY_DNSTAP_PERM') ? XRAY_DNSTAP_PERM : '0666';
+    return [
+        ['key' => 'domains', 'value' => XRAY_DNSTAP_FILES['blocked']],
+        ['key' => 'blocked_domains', 'value' => XRAY_DNSTAP_FILES['blocked']],
+        ['key' => 'unblocked_domains', 'value' => XRAY_DNSTAP_FILES['unblocked']],
+        ['key' => 'cache', 'value' => '/var/db/dnstap-bgp/cache.db'],
+        ['key' => 'dnstap.listen', 'value' => $sock],
+        ['key' => 'dnstap.perm', 'value' => $perm],
+        ['key' => 'bgp.as', 'value' => (string)$as],
+    ];
+}
+
+function xray_dnstap_default_communities(): array
+{
+    $as = function_exists('xray_dnstap_bird_local_as') ? xray_dnstap_bird_local_as() : 65103;
+    return [
+        'bgp.blocked_communities'   => $as . ':666',
+        'bgp.unblocked_communities' => $as . ':100',
+    ];
+}
+
+function xray_dnstap_ensure_community_rows(array $rows): array
+{
+    $have = [];
+    foreach ($rows as $row) {
+        $have[trim((string)($row['key'] ?? ''))] = true;
+    }
+    foreach (xray_dnstap_default_communities() as $k => $v) {
+        if (empty($have[$k])) {
+            $rows[] = ['key' => $k, 'value' => $v];
+        }
+    }
+    return $rows;
+}
+
+function xray_dnstap_conf_merge_managed(array $guiRows): array
+{
+    $out = [];
+    $source = '';
+    foreach ($guiRows as $row) {
+        $k = trim((string)($row['key'] ?? ''));
+        $v = (string)($row['value'] ?? '');
+        if ($k === '' || xray_dnstap_conf_is_hidden($k)) {
+            continue;
+        }
+        if ($k === 'ipv6') {
+            $on = in_array(strtolower($v), ['1', 'true', 'yes', 'on'], true);
+            $v = $on ? 'true' : 'false';
+        }
+        if ($k === 'bgp.sourceIP') {
+            $source = function_exists('xray_dnstap_strip_cidr')
+                ? xray_dnstap_strip_cidr($v)
+                : trim($v);
+        }
+        $out[] = ['key' => $k, 'value' => $v];
+    }
+    if ($source !== '') {
+        $out[] = ['key' => 'bgp.routerID', 'value' => $source];
+        $out[] = ['key' => 'bgp.nextHop', 'value' => $source];
+    }
+    $out = xray_dnstap_ensure_community_rows($out);
+    foreach (xray_dnstap_conf_managed_rows() as $row) {
+        $out[] = $row;
+    }
+    return $out;
+}
+
+function xray_dnstap_conf_for_ui(array $rows): array
+{
+    $out = [];
+    foreach ($rows as $row) {
+        $k = trim((string)($row['key'] ?? ''));
+        if ($k === '' || xray_dnstap_conf_is_hidden($k)) {
+            continue;
+        }
+        $out[] = $row;
+    }
+    return xray_dnstap_ensure_community_rows($out);
 }
 
 function xray_dnstap_render_toml(array $rows): string
@@ -304,6 +435,244 @@ function xray_dnstap_render_domains(array $rows): string
     return implode("\n", $lines) . "\n";
 }
 
+function xray_dnstap_normalize_domain(string $raw): string
+{
+    $v = strtolower(trim($raw));
+    $v = preg_replace('/#.*$/', '', $v);
+    $v = trim($v);
+    if ($v === '') {
+        return '';
+    }
+    $v = preg_replace('/^https?:\/\//', '', $v);
+    $v = preg_replace('/\/.*$/', '', $v);
+    $v = rtrim($v, '.');
+    if (!preg_match('/^[a-z0-9][a-z0-9._-]*\.[a-z0-9._-]+$/', $v)) {
+        return '';
+    }
+    return $v;
+}
+
+function xray_dnstap_parse_domain_text(string $text): array
+{
+    $out = [];
+    foreach (preg_split("/\r\n|\n|\r/", $text) as $line) {
+        $d = xray_dnstap_normalize_domain($line);
+        if ($d !== '') {
+            $out[$d] = true;
+        }
+    }
+    return $out;
+}
+
+function xray_dnstap_parse_urls(string $text): array
+{
+    $out = [];
+    foreach (preg_split("/\r\n|\n|\r/", $text) as $line) {
+        $trim = trim($line);
+        if ($trim === '' || $trim[0] === '#') {
+            continue;
+        }
+        $out[] = ['key' => 'url', 'value' => $trim];
+    }
+    return $out;
+}
+
+function xray_dnstap_render_urls(array $rows, string $kind = 'blocked'): string
+{
+    $lines = [
+        '# HTTP(S) URLs of ' . $kind . ' domain lists. One URL per line.',
+        '# Generated by os-xray DNStap tab.',
+        '',
+    ];
+    $seen = [];
+    foreach ($rows as $row) {
+        $v = trim((string)($row['value'] ?? ''));
+        if ($v === '' || $v[0] === '#') {
+            continue;
+        }
+        if (!preg_match('#^https?://#i', $v)) {
+            continue;
+        }
+        if (isset($seen[$v])) {
+            continue;
+        }
+        $seen[$v] = true;
+        $lines[] = $v;
+    }
+    return implode("\n", $lines) . "\n";
+}
+
+function xray_dnstap_url_list(array $rows): array
+{
+    $urls = [];
+    $seen = [];
+    foreach ($rows as $row) {
+        $v = trim((string)($row['value'] ?? ''));
+        if ($v === '' || !preg_match('#^https?://#i', $v)) {
+            continue;
+        }
+        if (isset($seen[$v])) {
+            continue;
+        }
+        $seen[$v] = true;
+        $urls[] = $v;
+    }
+    return $urls;
+}
+
+function xray_dnstap_fetch_url(string $url): string
+{
+    $tmp = tempnam('/tmp', 'dnstap_dl_');
+    if ($tmp === false) {
+        return '';
+    }
+    $cmd = '/usr/bin/fetch -q -o ' . escapeshellarg($tmp) . ' -T 45 ' . escapeshellarg($url);
+    exec($cmd . ' 2>&1', $out, $rc);
+    if ($rc !== 0 || !is_readable($tmp)) {
+        @unlink($tmp);
+        $cmd = '/usr/local/bin/curl -fsSL --max-time 45 -o ' . escapeshellarg($tmp) . ' ' . escapeshellarg($url);
+        exec($cmd . ' 2>&1', $out2, $rc2);
+        if ($rc2 !== 0 || !is_readable($tmp)) {
+            @unlink($tmp);
+            return '';
+        }
+    }
+    $size = (int)filesize($tmp);
+    if ($size <= 0 || $size > XRAY_DNSTAP_DOMAINS_MAX) {
+        @unlink($tmp);
+        return '';
+    }
+    $body = (string)file_get_contents($tmp);
+    @unlink($tmp);
+    return $body;
+}
+
+function xray_dnstap_count_domains(string $text): int
+{
+    $n = 0;
+    foreach (preg_split("/\r\n|\n|\r/", $text) as $line) {
+        if (xray_dnstap_normalize_domain($line) !== '') {
+            $n++;
+        }
+    }
+    return $n;
+}
+
+function xray_dnstap_read_first(array $paths): string
+{
+    foreach ($paths as $path) {
+        $text = xray_dnstap_read_file($path);
+        if (trim($text) !== '') {
+            return $text;
+        }
+    }
+    return '';
+}
+
+function xray_dnstap_merge_domains(array $extraRows, array $urlRows, string $kind = 'blocked', array $exclude = []): array
+{
+    $set = [];
+    foreach ($extraRows as $row) {
+        $d = xray_dnstap_normalize_domain((string)($row['value'] ?? ''));
+        if ($d !== '' && !isset($exclude[$d])) {
+            $set[$d] = true;
+        }
+    }
+    $fetched = 0;
+    $failed  = [];
+    foreach (xray_dnstap_url_list($urlRows) as $url) {
+        $body = xray_dnstap_fetch_url($url);
+        if ($body === '') {
+            $failed[] = $url;
+            continue;
+        }
+        $fetched++;
+        foreach (xray_dnstap_parse_domain_text($body) as $d => $_) {
+            if (!isset($exclude[$d])) {
+                $set[$d] = true;
+            }
+        }
+    }
+    $list = array_keys($set);
+    sort($list, SORT_STRING);
+    $lines = [
+        '# Summarized ' . $kind . ' domains (unique). Generated by os-xray.',
+        '',
+    ];
+    foreach ($list as $d) {
+        $lines[] = $d;
+    }
+    return [
+        'body'    => implode("\n", $lines) . "\n",
+        'count'   => count($list),
+        'fetched' => $fetched,
+        'failed'  => $failed,
+    ];
+}
+
+function xray_dnstap_has_urls(array $urlRows): bool
+{
+    return xray_dnstap_url_list($urlRows) !== [];
+}
+
+function xray_dnstap_refresh_from_urls(): array
+{
+    xray_dnstap_ensure_domain_files();
+    $blockedExtra = xray_dnstap_parse_domains(xray_dnstap_read_first([
+        XRAY_DNSTAP_FILES['blocked_extra'],
+        XRAY_DNSTAP_LEGACY['extra'],
+    ]));
+    $blockedUrls = xray_dnstap_parse_urls(xray_dnstap_read_first([
+        XRAY_DNSTAP_FILES['blocked_urls'],
+        XRAY_DNSTAP_LEGACY['urls'],
+    ]));
+    $unblockedExtra = xray_dnstap_parse_domains(xray_dnstap_read_file(XRAY_DNSTAP_FILES['unblocked_extra']));
+    $unblockedUrls = xray_dnstap_parse_urls(xray_dnstap_read_file(XRAY_DNSTAP_FILES['unblocked_urls']));
+
+    $wrote = false;
+    $failed = [];
+    $blockedCount = 0;
+    $unblockedCount = 0;
+    $fetched = 0;
+    $hasUrls = xray_dnstap_has_urls($blockedUrls) || xray_dnstap_has_urls($unblockedUrls);
+
+    if (xray_dnstap_has_urls($blockedUrls)) {
+        $merged = xray_dnstap_merge_domains($blockedExtra, $blockedUrls, 'blocked');
+        if (!xray_dnstap_write_file(XRAY_DNSTAP_FILES['blocked'], $merged['body'])) {
+            echo "ERROR: cannot write " . XRAY_DNSTAP_FILES['blocked'] . "\n";
+        } else {
+            $wrote = true;
+            $blockedCount = $merged['count'];
+            $fetched += $merged['fetched'];
+            $failed = array_merge($failed, $merged['failed']);
+        }
+        $exclude = xray_dnstap_parse_domain_text($merged['body']);
+    } else {
+        $exclude = xray_dnstap_parse_domain_text(xray_dnstap_read_file(XRAY_DNSTAP_FILES['blocked']));
+    }
+
+    if (xray_dnstap_has_urls($unblockedUrls)) {
+        $mergedU = xray_dnstap_merge_domains($unblockedExtra, $unblockedUrls, 'unblocked', $exclude);
+        if (!xray_dnstap_write_file(XRAY_DNSTAP_FILES['unblocked'], $mergedU['body'])) {
+            echo "ERROR: cannot write " . XRAY_DNSTAP_FILES['unblocked'] . "\n";
+        } else {
+            $wrote = true;
+            $unblockedCount = $mergedU['count'];
+            $fetched += $mergedU['fetched'];
+            $failed = array_merge($failed, $mergedU['failed']);
+        }
+    }
+
+    return [
+        'wrote'     => $wrote,
+        'blocked'   => $blockedCount,
+        'unblocked' => $unblockedCount,
+        'fetched'   => $fetched,
+        'failed'    => $failed,
+        'has_urls'  => $hasUrls,
+    ];
+}
+
 function xray_dnstap_rows_from_post($raw): array
 {
     if (is_array($raw)) {
@@ -338,6 +707,29 @@ if ($op === 'stop') {
     exit(0);
 }
 
+if ($op === 'fetch') {
+    $result = xray_dnstap_refresh_from_urls();
+    if (!$result['has_urls'] && !$result['wrote']) {
+        echo "OK no domain list URLs — skip download\n";
+        exit(0);
+    }
+    echo "OK fetched {$result['fetched']} URL(s), {$result['blocked']} blocked + {$result['unblocked']} unblocked\n";
+    if ($result['failed'] !== []) {
+        echo "WARN could not download: " . implode(' ', $result['failed']) . "\n";
+    }
+    if (xray_dnstap_running()) {
+        if (xray_dnstap_reload()) {
+            echo "OK dnstap_bgp reload\n";
+        } else {
+            echo "ERROR: dnstap_bgp reload failed\n";
+            exit(1);
+        }
+    } else {
+        echo "OK files written, dnstap_bgp not running\n";
+    }
+    exit(0);
+}
+
 if ($op === 'write') {
     if (!is_readable(XRAY_DNSTAP_STAGED)) {
         echo "OK\n";
@@ -349,13 +741,26 @@ if ($op === 'write') {
         echo "ERROR: invalid staged JSON\n";
         exit(1);
     }
+    $blockedExtra   = xray_dnstap_rows_from_post($j['blocked'] ?? $j['domains'] ?? []);
+    $blockedUrls    = xray_dnstap_rows_from_post($j['blocked_urls'] ?? $j['urls'] ?? []);
+    $unblockedExtra = xray_dnstap_rows_from_post($j['unblocked'] ?? []);
+    $unblockedUrls  = xray_dnstap_rows_from_post($j['unblocked_urls'] ?? []);
+    $confRows       = xray_dnstap_conf_merge_managed(xray_dnstap_rows_from_post($j['conf'] ?? []));
+    $mergedBlocked  = xray_dnstap_merge_domains($blockedExtra, $blockedUrls, 'blocked');
+    $exclude        = xray_dnstap_parse_domain_text($mergedBlocked['body']);
+    $mergedUnblocked = xray_dnstap_merge_domains($unblockedExtra, $unblockedUrls, 'unblocked', $exclude);
     $map = [
-        'conf'    => xray_dnstap_render_toml(xray_dnstap_rows_from_post($j['conf'] ?? [])),
-        'domains' => xray_dnstap_render_domains(xray_dnstap_rows_from_post($j['domains'] ?? [])),
-        'rc'      => xray_dnstap_render_rc(xray_dnstap_rows_from_post($j['rc'] ?? [])),
+        'conf'            => xray_dnstap_render_toml($confRows),
+        'blocked_extra'   => xray_dnstap_render_domains($blockedExtra),
+        'unblocked_extra' => xray_dnstap_render_domains($unblockedExtra),
+        'blocked_urls'    => xray_dnstap_render_urls($blockedUrls, 'blocked'),
+        'unblocked_urls'  => xray_dnstap_render_urls($unblockedUrls, 'unblocked'),
+        'blocked'         => $mergedBlocked['body'],
+        'unblocked'       => $mergedUnblocked['body'],
     ];
     foreach ($map as $key => $body) {
-        if (strlen($body) > XRAY_DNSTAP_MAX) {
+        $limit = ($key === 'blocked' || $key === 'unblocked') ? XRAY_DNSTAP_DOMAINS_MAX : XRAY_DNSTAP_MAX;
+        if (strlen($body) > $limit) {
             echo "ERROR: {$key} too large\n";
             exit(1);
         }
@@ -363,6 +768,13 @@ if ($op === 'write') {
             echo "ERROR: cannot write " . XRAY_DNSTAP_FILES[$key] . "\n";
             exit(1);
         }
+    }
+    echo "OK merged {$mergedBlocked['count']} blocked + {$mergedUnblocked['count']} unblocked"
+        . " from " . ($mergedBlocked['fetched'] + $mergedUnblocked['fetched']) . " URL(s)\n";
+    xray_dnstap_sync_rc_from_bgp($confRows);
+    $failed = array_merge($mergedBlocked['failed'], $mergedUnblocked['failed']);
+    if ($failed !== []) {
+        echo "WARN could not download: " . implode(' ', $failed) . "\n";
     }
     if (xray_dnstap_rc_is_enabled(XRAY_DNSTAP_FILES['rc'])) {
         if (xray_dnstap_running()) {
@@ -384,11 +796,53 @@ if ($op === 'write') {
     exit(0);
 }
 
+$blockedUrlsText = xray_dnstap_read_first([
+    XRAY_DNSTAP_FILES['blocked_urls'],
+    XRAY_DNSTAP_LEGACY['urls'],
+]);
+$blockedExtraText = xray_dnstap_read_first([
+    XRAY_DNSTAP_FILES['blocked_extra'],
+    XRAY_DNSTAP_LEGACY['extra'],
+]);
+$hasBlockedUrls = trim($blockedUrlsText) !== '' && preg_match('#https?://#i', $blockedUrlsText);
+$blockedSrc = $blockedExtraText;
+if ($blockedExtraText === '' && !$hasBlockedUrls) {
+    $blockedSrc = xray_dnstap_read_first([
+        XRAY_DNSTAP_FILES['blocked'],
+        XRAY_DNSTAP_LEGACY['domains'],
+    ]);
+}
+$unblockedUrlsText = xray_dnstap_read_file(XRAY_DNSTAP_FILES['unblocked_urls']);
+$unblockedExtraText = xray_dnstap_read_file(XRAY_DNSTAP_FILES['unblocked_extra']);
+$hasUnblockedUrls = trim($unblockedUrlsText) !== '' && preg_match('#https?://#i', $unblockedUrlsText);
+$unblockedSrc = $unblockedExtraText;
+if ($unblockedExtraText === '' && !$hasUnblockedUrls) {
+    $unblockedSrc = xray_dnstap_read_file(XRAY_DNSTAP_FILES['unblocked']);
+}
+$blockedRows   = xray_dnstap_parse_domains($blockedSrc);
+$unblockedRows = xray_dnstap_parse_domains($unblockedSrc);
+$blockedUrlRows = xray_dnstap_parse_urls($blockedUrlsText);
+$unblockedUrlRows = xray_dnstap_parse_urls($unblockedUrlsText);
+
 echo json_encode([
-    'result'  => 'ok',
-    'running' => xray_dnstap_running(),
-    'paths'   => XRAY_DNSTAP_FILES,
-    'conf'    => xray_dnstap_parse_toml(xray_dnstap_read_file(XRAY_DNSTAP_FILES['conf'])),
-    'domains' => xray_dnstap_parse_domains(xray_dnstap_read_file(XRAY_DNSTAP_FILES['domains'])),
-    'rc'      => xray_dnstap_parse_rc(xray_dnstap_read_file(XRAY_DNSTAP_FILES['rc'])),
+    'result'           => 'ok',
+    'running'          => xray_dnstap_running(),
+    'paths'            => XRAY_DNSTAP_FILES,
+    'conf'             => xray_dnstap_conf_for_ui(xray_dnstap_parse_toml(xray_dnstap_read_file(XRAY_DNSTAP_FILES['conf']))),
+    'blocked'          => $blockedRows,
+    'unblocked'        => $unblockedRows,
+    'blocked_urls'     => $blockedUrlRows,
+    'unblocked_urls'   => $unblockedUrlRows,
+    'domains'          => $blockedRows,
+    'urls'             => $blockedUrlRows,
+    'blocked_count'    => xray_dnstap_count_domains(xray_dnstap_read_first([
+        XRAY_DNSTAP_FILES['blocked'],
+        XRAY_DNSTAP_LEGACY['domains'],
+    ])),
+    'unblocked_count'  => xray_dnstap_count_domains(xray_dnstap_read_file(XRAY_DNSTAP_FILES['unblocked'])),
+    'domains_count'    => xray_dnstap_count_domains(xray_dnstap_read_first([
+        XRAY_DNSTAP_FILES['blocked'],
+        XRAY_DNSTAP_LEGACY['domains'],
+    ])),
+    'rc'               => xray_dnstap_parse_rc(xray_dnstap_read_file(XRAY_DNSTAP_FILES['rc'])),
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";

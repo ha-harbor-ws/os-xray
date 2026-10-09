@@ -15,6 +15,10 @@ Format: [Semantic Versioning](https://semver.org/).
 - **DNStap без пакета** — Apply не вызывает `service dnstap_bgp`, если бинарь/rc.d/`os-dnstap-bgp` отсутствуют
 
 ### Added
+- **DNStap BGP 1.3.0** — вкладка DNStap пишет `blocked.txt` / `unblocked.txt`, URL и extra для каждого списка, `bgp.blocked_communities` / `bgp.unblocked_communities`; при пересечении имён побеждает blocked; Apply шлёт SIGHUP
+- **DNStap domain files** — перед стартом создаются пустые `blocked.txt` / `unblocked.txt` (и extra/URL), если их нет
+- **DNStap URL cron** — каждый день в 04:15 скачиваются списки по URL и выполняется `service dnstap_bgp reload`
+- **DNStap ↔ Unbound** — при старте: `dnstap-enable: yes`, общий сокет (chroot `/var/run/dnstap-bgp/dnstap.sock` = хост `/var/unbound/var/run/dnstap-bgp/dnstap.sock`), `configctl unbound reload`, затем старт dnstap-bgp; при выключении: `dnstap-enable: no` и reload Unbound
 - **Auto route** — cron раз в минуту; реальный SOCKS-опрос раз в **Auto route interval**; состояние в `/var/run/xray_autoroute_state.json`; выбор TUN по среднему latency; Apply цикл опросов не запускает
 - **Routing tab / BGP** — dropdown: BGP peers, BGP filter, BGP community. Peers write peer_NAME.inc; filters `filter_NAME.inc`; communities `community_NAME.inc`. Имена уникальны (UniqueConstraint)
 - **Per-instance IP stack** — checkboxes `IPv4` / `IPv6` (both allowed) control TUN address assignment and xray DNS/routing strategy
@@ -24,6 +28,7 @@ Format: [Semantic Versioning](https://semver.org/).
 - **DNStap BGP** — `install.sh` ставит `os-dnstap-bgp` с GitHub Releases; General **Enable DNStap BGP**; вкладка DNStap (ключ/значение из живых конфигов)
 
 ### Changed
+- `install.sh`: fallback-пакет os-dnstap-bgp — **v1.3.0**
 - Смена active TUN и Apply Routing — `birdc configure`, не `service bird restart`. Удалены birdstart/birdstop/birdrestart из actions/API
 - `birdsync` синхронизирует только «жив ли tun2socks», без выбора TUN и без SOCKS
 - Условный старт BIRD: один SOCKS-probe на семейство (не серия Auto route polls на Apply)

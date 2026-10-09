@@ -327,23 +327,42 @@ class ServiceController extends ApiMutableServiceControllerBase
             return ['result' => 'failed', 'message' => 'POST required'];
         }
 
-        $conf    = $this->request->getPost('conf');
-        $domains = $this->request->getPost('domains');
-        $rc      = $this->request->getPost('rc');
-        if ($conf === null && $domains === null && $rc === null) {
+        $conf           = $this->request->getPost('conf');
+        $blocked        = $this->request->getPost('blocked');
+        $blockedUrls    = $this->request->getPost('blocked_urls');
+        $unblocked      = $this->request->getPost('unblocked');
+        $unblockedUrls  = $this->request->getPost('unblocked_urls');
+        $domains        = $this->request->getPost('domains');
+        $urls           = $this->request->getPost('urls');
+        $rc             = $this->request->getPost('rc');
+        if ($conf === null && $blocked === null && $blockedUrls === null
+            && $unblocked === null && $unblockedUrls === null
+            && $domains === null && $urls === null && $rc === null) {
             $json = $this->request->getJsonRawBody();
             if (is_object($json)) {
-                $conf    = $json->conf ?? null;
-                $domains = $json->domains ?? null;
-                $rc      = $json->rc ?? null;
+                $conf          = $json->conf ?? null;
+                $blocked       = $json->blocked ?? null;
+                $blockedUrls   = $json->blocked_urls ?? null;
+                $unblocked     = $json->unblocked ?? null;
+                $unblockedUrls = $json->unblocked_urls ?? null;
+                $domains       = $json->domains ?? null;
+                $urls          = $json->urls ?? null;
+                $rc            = $json->rc ?? null;
             } elseif (is_array($json)) {
-                $conf    = $json['conf'] ?? null;
-                $domains = $json['domains'] ?? null;
-                $rc      = $json['rc'] ?? null;
+                $conf          = $json['conf'] ?? null;
+                $blocked       = $json['blocked'] ?? null;
+                $blockedUrls   = $json['blocked_urls'] ?? null;
+                $unblocked     = $json['unblocked'] ?? null;
+                $unblockedUrls = $json['unblocked_urls'] ?? null;
+                $domains       = $json['domains'] ?? null;
+                $urls          = $json['urls'] ?? null;
+                $rc            = $json['rc'] ?? null;
             }
         }
 
-        if ($conf === null && $domains === null && $rc === null) {
+        if ($conf === null && $blocked === null && $blockedUrls === null
+            && $unblocked === null && $unblockedUrls === null
+            && $domains === null && $urls === null && $rc === null) {
             return ['result' => 'ok', 'message' => 'Nothing to write'];
         }
 
@@ -360,9 +379,12 @@ class ServiceController extends ApiMutableServiceControllerBase
 
         $staged = '/tmp/xray_dnstap_write.json';
         $payload = json_encode([
-            'conf'    => $decodeRows($conf),
-            'domains' => $decodeRows($domains),
-            'rc'      => $decodeRows($rc),
+            'conf'           => $decodeRows($conf),
+            'blocked'        => $decodeRows($blocked !== null ? $blocked : $domains),
+            'blocked_urls'   => $decodeRows($blockedUrls !== null ? $blockedUrls : $urls),
+            'unblocked'      => $decodeRows($unblocked),
+            'unblocked_urls' => $decodeRows($unblockedUrls),
+            'rc'             => $decodeRows($rc),
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($payload === false || file_put_contents($staged, $payload) === false) {
             return ['result' => 'failed', 'message' => 'Cannot stage dnstap files'];

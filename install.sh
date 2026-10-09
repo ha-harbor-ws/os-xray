@@ -775,7 +775,7 @@ fi
 
 # os-dnstap-bgp — OPNsense pkg с GitHub (не из репозитория pkg)
 DTAP_GH_REPO="ha-harbor-ws/dnstap-bgp"
-DTAP_PKG_FALLBACK="https://github.com/${DTAP_GH_REPO}/releases/download/v1.2.1/os-dnstap-bgp-1.2.1-opnsense26.7-freebsd15-amd64.pkg"
+DTAP_PKG_FALLBACK="https://github.com/${DTAP_GH_REPO}/releases/download/v1.3.0/os-dnstap-bgp-1.3.0-opnsense26.7-freebsd15-amd64.pkg"
 
 echo "==> Installing os-dnstap-bgp from https://github.com/${DTAP_GH_REPO} ..."
 DTAP_FRESH_INSTALL=0

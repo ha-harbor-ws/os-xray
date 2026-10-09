@@ -242,6 +242,17 @@
         });
 
         $('#grid-bgppeers').on('loaded.rs.jquery.bootgrid', function () {
+            var $tbody = $(this).find('tbody');
+            $tbody.find('tr').each(function () {
+                var $tr = $(this);
+                var isDnstap = $tr.children('td').filter(function () {
+                    return $.trim($(this).text()) === 'dnstap';
+                }).length > 0;
+                if (isDnstap) {
+                    $tbody.prepend($tr);
+                    return false;
+                }
+            });
             applyPeerStatusToGrid();
         });
 
@@ -325,7 +336,37 @@
                 .text('dnstap_bgp: ' + (running ? 'running' : 'stopped'));
         }
 
-        function dnstapKvRow(key, value, removable) {
+        function dnstapConfLabel(key) {
+            var map = {
+                ipv6: '{{ lang._("Enable IPv6") }}',
+                'bgp.peers': '{{ lang._("Bird IP") }}',
+                'bgp.sourceIP': '{{ lang._("DNStap IP") }}',
+                'bgp.blocked_communities': '{{ lang._("Blocked communities") }}',
+                'bgp.unblocked_communities': '{{ lang._("Unblocked communities") }}'
+            };
+            return map[key] || key;
+        }
+
+        function dnstapConfRow(key, value) {
+            var $tr = $('<tr/>');
+            $tr.append($('<td class="dnstap-k"/>').text(dnstapConfLabel(key)));
+            if (key === 'ipv6') {
+                var on = value === true || value === 1 || String(value).toLowerCase() === 'true'
+                    || String(value) === '1';
+                var $cb = $('<input type="checkbox"/>')
+                    .attr('data-key', key)
+                    .prop('checked', on);
+                $tr.append($('<td/>').append($cb));
+            } else {
+                var $inp = $('<input type="text" class="form-control"/>')
+                    .attr('data-key', key)
+                    .val(value == null ? '' : String(value));
+                $tr.append($('<td/>').append($inp));
+            }
+            return $tr;
+        }
+
+        function dnstapKvRow(key, value, removable, delClass) {
             var $tr = $('<tr/>');
             $tr.append($('<td class="dnstap-k"/>').text(key));
             var $inp = $('<input type="text" class="form-control"/>')
@@ -333,29 +374,47 @@
                 .val(value == null ? '' : String(value));
             $tr.append($('<td/>').append($inp));
             if (removable) {
-                var $del = $('<button type="button" class="btn btn-xs btn-default dnstap-domain-del"/>')
-                    .html('<span class="fa fa-fw fa-trash-o"></span>');
+                var $del = $('<button type="button" class="btn btn-xs btn-default ' + (delClass || 'dnstap-domain-del') + '"/>')
+                    .html('<span class="fa fa-fw fa-minus"></span>');
                 $tr.append($('<td/>').append($del));
             }
             return $tr;
         }
 
-        function dnstapFillKv($tbody, rows, removable) {
+        function dnstapFillKv($tbody, rows, removable, delClass) {
             $tbody.empty();
             (rows || []).forEach(function (row) {
-                $tbody.append(dnstapKvRow(row.key || '', row.value || '', !!removable));
+                $tbody.append(dnstapKvRow(row.key || '', row.value || '', !!removable, delClass));
             });
         }
 
         function dnstapCollectKv($tbody) {
             var rows = [];
             $tbody.find('input').each(function () {
+                var $el = $(this);
                 rows.push({
-                    key: String($(this).attr('data-key') || ''),
-                    value: $(this).val() || ''
+                    key: String($el.attr('data-key') || ''),
+                    value: $el.is(':checkbox') ? ($el.prop('checked') ? 'true' : 'false') : ($el.val() || '')
                 });
             });
             return rows;
+        }
+
+        function dnstapFillOrEmpty($tbody, rows, key, delClass) {
+            dnstapFillKv($tbody, rows || [], true, delClass);
+            if ($tbody.find('tr').length === 0) {
+                $tbody.append(dnstapKvRow(key, '', true, delClass));
+            }
+        }
+
+        function dnstapSetCount($el, n) {
+            n = parseInt(n, 10);
+            if (n > 0) {
+                $el.text('{{ lang._("Summarized file:") }} ' + n
+                    + ' {{ lang._("unique domains.") }}');
+            } else {
+                $el.text('');
+            }
         }
 
         function loadDnstapConf() {
@@ -367,14 +426,23 @@
                 updateDnstapBadge(!!data.running);
                 var paths = data.paths || {};
                 $('#dnstapConfPath').text(paths.conf || '');
-                $('#dnstapDomainsPath').text(paths.domains || '');
-                $('#dnstapRcPath').text(paths.rc || '');
-                dnstapFillKv($('#dnstapConfKv'), data.conf || [], false);
-                dnstapFillKv($('#dnstapDomainsKv'), data.domains || [], true);
-                if ($('#dnstapDomainsKv tr').length === 0) {
-                    $('#dnstapDomainsKv').append(dnstapKvRow('domain', '', true));
-                }
-                dnstapFillKv($('#dnstapRcKv'), data.rc || [], false);
+                $('#dnstapBlockedUrlsPath').text(paths.blocked_urls || '');
+                $('#dnstapBlockedPath').text(paths.blocked_extra || paths.blocked || '');
+                $('#dnstapUnblockedUrlsPath').text(paths.unblocked_urls || '');
+                $('#dnstapUnblockedPath').text(paths.unblocked_extra || paths.unblocked || '');
+                dnstapSetCount($('#dnstapBlockedCount'), data.blocked_count || data.domains_count);
+                dnstapSetCount($('#dnstapUnblockedCount'), data.unblocked_count);
+                (function () {
+                    var $tbody = $('#dnstapConfKv');
+                    $tbody.empty();
+                    (data.conf || []).forEach(function (row) {
+                        $tbody.append(dnstapConfRow(row.key || '', row.value));
+                    });
+                })();
+                dnstapFillOrEmpty($('#dnstapBlockedUrlsKv'), data.blocked_urls || data.urls, 'url', 'dnstap-blocked-url-del');
+                dnstapFillOrEmpty($('#dnstapBlockedKv'), data.blocked || data.domains, 'domain', 'dnstap-blocked-del');
+                dnstapFillOrEmpty($('#dnstapUnblockedUrlsKv'), data.unblocked_urls, 'url', 'dnstap-unblocked-url-del');
+                dnstapFillOrEmpty($('#dnstapUnblockedKv'), data.unblocked, 'domain', 'dnstap-unblocked-del');
             });
         }
 
@@ -408,15 +476,21 @@
             loadDnstapConf();
         });
 
-        $(document).on('click', '#dnstapDomainAdd', function () {
-            $('#dnstapDomainsKv').append(dnstapKvRow('domain', '', true));
-        });
-        $(document).on('click', '.dnstap-domain-del', function () {
-            $(this).closest('tr').remove();
-            if ($('#dnstapDomainsKv tr').length === 0) {
-                $('#dnstapDomainsKv').append(dnstapKvRow('domain', '', true));
-            }
-        });
+        function dnstapBindList(addId, tbodyId, key, delClass) {
+            $(document).on('click', addId, function () {
+                $(tbodyId).append(dnstapKvRow(key, '', true, delClass));
+            });
+            $(document).on('click', '.' + delClass, function () {
+                $(this).closest('tr').remove();
+                if ($(tbodyId + ' tr').length === 0) {
+                    $(tbodyId).append(dnstapKvRow(key, '', true, delClass));
+                }
+            });
+        }
+        dnstapBindList('#dnstapBlockedUrlAdd', '#dnstapBlockedUrlsKv', 'url', 'dnstap-blocked-url-del');
+        dnstapBindList('#dnstapBlockedAdd', '#dnstapBlockedKv', 'domain', 'dnstap-blocked-del');
+        dnstapBindList('#dnstapUnblockedUrlAdd', '#dnstapUnblockedUrlsKv', 'url', 'dnstap-unblocked-url-del');
+        dnstapBindList('#dnstapUnblockedAdd', '#dnstapUnblockedKv', 'domain', 'dnstap-unblocked-del');
         $(document).on('click', '#dnstapStart', function () {
             var $btn = $(this).prop('disabled', true);
             ajaxCall('/api/xray/service/dnstapstart', {}, function (data) {
@@ -460,8 +534,10 @@
                         dataType: 'json',
                         data: {
                             conf: JSON.stringify(dnstapCollectKv($('#dnstapConfKv'))),
-                            domains: JSON.stringify(dnstapCollectKv($('#dnstapDomainsKv'))),
-                            rc: JSON.stringify(dnstapCollectKv($('#dnstapRcKv')))
+                            blocked: JSON.stringify(dnstapCollectKv($('#dnstapBlockedKv'))),
+                            blocked_urls: JSON.stringify(dnstapCollectKv($('#dnstapBlockedUrlsKv'))),
+                            unblocked: JSON.stringify(dnstapCollectKv($('#dnstapUnblockedKv'))),
+                            unblocked_urls: JSON.stringify(dnstapCollectKv($('#dnstapUnblockedUrlsKv')))
                         },
                         success: function (data) {
                             if (data && data.result === 'failed') {

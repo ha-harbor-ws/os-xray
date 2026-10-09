@@ -43,6 +43,59 @@ class BgppeerController extends ApiMutableModelControllerBase
             }
             unset($row);
         }
+        return $this->dnstapPeerFirst($response);
+    }
+
+    private function dnstapPeerFirst(array $response): array
+    {
+        $rows = $response['rows'] ?? [];
+        if (!is_array($rows)) {
+            $rows = [];
+        }
+        $dnstap = [];
+        $other  = [];
+        foreach ($rows as $row) {
+            if (strcasecmp((string)($row['name'] ?? ''), 'dnstap') === 0) {
+                $dnstap[] = $row;
+            } else {
+                $other[] = $row;
+            }
+        }
+        if ($dnstap === []) {
+            $mdl = new \OPNsense\Xray\BgpPeer();
+            if (method_exists($mdl->peer, 'iterateItems')) {
+                foreach ($mdl->peer->iterateItems() as $uuid => $item) {
+                    if (strcasecmp(trim((string)$item->name), 'dnstap') !== 0) {
+                        continue;
+                    }
+                    $dnstap[] = [
+                        'uuid'        => (string)$uuid,
+                        'enabled'     => (string)$item->enabled,
+                        'name'        => (string)$item->name,
+                        'neighbor'    => (string)$item->neighbor,
+                        'neighbor_as' => (string)$item->neighbor_as,
+                        'local_as'    => (string)$item->local_as,
+                        'ipv4'        => (string)$item->ipv4,
+                        'ipv6'        => (string)$item->ipv6,
+                    ];
+                    $tun4 = '';
+                    $tun6 = '';
+                    $script = '/usr/local/opnsense/scripts/Xray/xray-bird-peers.php';
+                    if (is_readable($script)) {
+                        require_once $script;
+                        if (function_exists('xray_bird_active_tun_if')) {
+                            $tun4 = xray_bird_active_tun_if('ipv4');
+                            $tun6 = xray_bird_active_tun_if('ipv6');
+                        }
+                    }
+                    $byTun = $this->instanceNamesByTun();
+                    $dnstap[0]['ipv4_route_int'] = $this->formatRouteInt($tun4, $byTun);
+                    $dnstap[0]['ipv6_route_int'] = $this->formatRouteInt($tun6, $byTun);
+                    break;
+                }
+            }
+        }
+        $response['rows'] = array_merge($dnstap, $other);
         return $response;
     }
 

@@ -21,7 +21,7 @@
         <id>general.dnstap_bgp_enabled</id>
         <label>Enable DNStap BGP</label>
         <type>checkbox</type>
-        <help>Enable dnstap-bgp (sysrc dnstap_bgp_enable, Unbound dnstap.conf, then start dnstap-bgp). Copies unbound.opnsense.d/dnstap.conf.sample, sets listen socket under /var/unbound/var/run/dnstap-bgp, runs configctl unbound restart, then starts dnstap-bgp. Disable reverses that.</help>
+        <help>Enable dnstap-bgp: write Unbound dnstap.conf (dnstap-enable yes, socket /var/run/dnstap-bgp/dnstap.sock inside chroot), set dnstap-bgp listen to the matching host path /var/unbound/var/run/dnstap-bgp/dnstap.sock, reload Unbound, then start dnstap-bgp. Disable sets dnstap-enable no and reloads Unbound.</help>
     </field>
     <field>
         <id>general.bgp_auto_route</id>

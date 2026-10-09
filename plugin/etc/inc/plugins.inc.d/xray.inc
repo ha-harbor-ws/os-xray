@@ -187,6 +187,7 @@ function xray_cron(): array
     return [
         ['xray_cron_watchdog', '/', '*', '*', '*', '*'],
         ['xray_cron_autoroute', '/', '*', '*', '*', '*'],
+        ['xray_cron_dnstap_fetch', '/', '15', '4', '*', '*'],
     ];
 }
 
@@ -209,6 +210,16 @@ function xray_cron_autoroute(): void
         return;
     }
     (new OPNsense\Core\Backend())->configdRun('xray birdautoroute');
+}
+
+function xray_cron_dnstap_fetch(): void
+{
+    $cfg = OPNsense\Core\Config::getInstance()->object();
+    $g   = $cfg->OPNsense->xray->general ?? null;
+    if ((string)($g->dnstap_bgp_enabled ?? '0') !== '1') {
+        return;
+    }
+    (new OPNsense\Core\Backend())->configdRun('xray dnstapfetch');
 }
 
 function xray_xmlrpc_sync()
