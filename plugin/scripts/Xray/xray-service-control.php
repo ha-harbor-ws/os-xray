@@ -882,7 +882,8 @@ function xray_dnstap_bgp_enabled(): bool
 function xray_sysrc_dnstap_bgp_enable(bool $enable): void
 {
     $v = $enable ? 'YES' : 'NO';
-    xray_sysrc_set('dnstap_bgp_enable', $v);
+    // Broken leftover in /etc/rc.conf wins over rc.conf.d and breaks checkyesno.
+    xray_rc_conf_delete_var('/etc/rc.conf', 'dnstap_bgp_enable');
     xray_sysrc_set('dnstap_bgp_enable', $v, '/usr/local/etc/rc.conf.d/dnstap_bgp');
 }
 

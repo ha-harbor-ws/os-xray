@@ -15,25 +15,46 @@ const XRAY_DNSTAP_PERM           = '0666';
 const XRAY_DNSTAP_RC             = '/usr/local/etc/rc.conf.d/dnstap_bgp';
 
 /**
- * sysrc quotes the value itself. Passing name="YES" becomes name=""YES""
- * and later Apply appends more YES/NO. Always pass name=YES and drop a
- * corrupted line with -x before rewrite.
+ * Rewrite an rc.conf-style assignment in place. Do not use sysrc: a
+ * corrupted line like name=""YES""NO"" is invisible to sysrc -x, so the
+ * next set appends another token. Strip every name=... line then append
+ * a single name="VALUE".
  */
+function xray_rc_conf_delete_var(string $path, string $name): void
+{
+    if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name) || !is_readable($path)) {
+        return;
+    }
+    $text = (string)file_get_contents($path);
+    $new = preg_replace('/^[ \t]*' . preg_quote($name, '/') . '[ \t]*=[^\n]*\r?\n?/m', '', $text);
+    if ($new === null || $new === $text) {
+        return;
+    }
+    if (file_put_contents($path, $new) === false) {
+        echo "dnstap: cannot rewrite {$path}\n";
+    }
+}
+
 function xray_sysrc_set(string $name, string $value, ?string $file = null): void
 {
     if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name)) {
         return;
     }
-    $cmd = '/usr/sbin/sysrc';
-    if ($file !== null && $file !== '') {
-        $dir = dirname($file);
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
-        }
-        $cmd .= ' -f ' . escapeshellarg($file);
+    $path = ($file !== null && $file !== '') ? $file : '/etc/rc.conf';
+    $dir = dirname($path);
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
     }
-    exec($cmd . ' -x ' . escapeshellarg($name) . ' >/dev/null 2>&1');
-    exec($cmd . ' ' . escapeshellarg($name . '=' . $value) . ' 2>&1');
+    xray_rc_conf_delete_var($path, $name);
+    $line = $name . '="' . str_replace(['\\', '"'], ['\\\\', '\\"'], $value) . "\"\n";
+    $body = is_readable($path) ? (string)file_get_contents($path) : '';
+    $body = rtrim($body);
+    $body = ($body === '') ? $line : ($body . "\n" . $line);
+    if (file_put_contents($path, $body) === false) {
+        echo "dnstap: cannot write {$path}\n";
+        return;
+    }
+    @chmod($path, 0644);
 }
 
 function xray_dnstap_strip_cidr(string $s): string
