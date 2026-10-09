@@ -778,8 +778,7 @@ function xray_any_tun2socks_running(): bool
 
 function xray_sysrc_bird_enable(bool $enable): void
 {
-    $arg = $enable ? 'bird_enable="YES"' : 'bird_enable="NO"';
-    exec('/usr/sbin/sysrc ' . escapeshellarg($arg) . ' 2>&1');
+    xray_sysrc_set('bird_enable', $enable ? 'YES' : 'NO');
 }
 
 function xray_bird_service(string $verb): void
@@ -882,12 +881,9 @@ function xray_dnstap_bgp_enabled(): bool
 
 function xray_sysrc_dnstap_bgp_enable(bool $enable): void
 {
-    $arg = $enable ? 'dnstap_bgp_enable="YES"' : 'dnstap_bgp_enable="NO"';
-    exec('/usr/sbin/sysrc ' . escapeshellarg($arg) . ' 2>&1');
-    $local = '/usr/local/etc/rc.conf.d/dnstap_bgp';
-    if (is_file($local)) {
-        exec('/usr/sbin/sysrc -f ' . escapeshellarg($local) . ' ' . escapeshellarg($arg) . ' 2>&1');
-    }
+    $v = $enable ? 'YES' : 'NO';
+    xray_sysrc_set('dnstap_bgp_enable', $v);
+    xray_sysrc_set('dnstap_bgp_enable', $v, '/usr/local/etc/rc.conf.d/dnstap_bgp');
 }
 
 function xray_dnstap_bgp_service(string $verb): void

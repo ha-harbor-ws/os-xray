@@ -14,6 +14,28 @@ const XRAY_DNSTAP_BGP_SAMPLE     = '/usr/local/etc/dnstap-bgp/dnstap-bgp.conf.sa
 const XRAY_DNSTAP_PERM           = '0666';
 const XRAY_DNSTAP_RC             = '/usr/local/etc/rc.conf.d/dnstap_bgp';
 
+/**
+ * sysrc quotes the value itself. Passing name="YES" becomes name=""YES""
+ * and later Apply appends more YES/NO. Always pass name=YES and drop a
+ * corrupted line with -x before rewrite.
+ */
+function xray_sysrc_set(string $name, string $value, ?string $file = null): void
+{
+    if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name)) {
+        return;
+    }
+    $cmd = '/usr/sbin/sysrc';
+    if ($file !== null && $file !== '') {
+        $dir = dirname($file);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+        $cmd .= ' -f ' . escapeshellarg($file);
+    }
+    exec($cmd . ' -x ' . escapeshellarg($name) . ' >/dev/null 2>&1');
+    exec($cmd . ' ' . escapeshellarg($name . '=' . $value) . ' 2>&1');
+}
+
 function xray_dnstap_strip_cidr(string $s): string
 {
     $s = trim($s, " \t\"'");
@@ -110,13 +132,11 @@ function xray_dnstap_sync_rc_from_bgp(?array $rows = null): void
         @mkdir($dir, 0755, true);
     }
     if ($hostCidr !== '') {
-        exec('/usr/sbin/sysrc -f ' . escapeshellarg(XRAY_DNSTAP_RC) . ' '
-            . escapeshellarg('dnstap_bgp_host_ip="' . $hostCidr . '"') . ' 2>&1');
+        xray_sysrc_set('dnstap_bgp_host_ip', $hostCidr, XRAY_DNSTAP_RC);
         echo "dnstap: rc dnstap_bgp_host_ip={$hostCidr} (from bgp.peers)\n";
     }
     if ($jailCidr !== '') {
-        exec('/usr/sbin/sysrc -f ' . escapeshellarg(XRAY_DNSTAP_RC) . ' '
-            . escapeshellarg('dnstap_bgp_jail_ip="' . $jailCidr . '"') . ' 2>&1');
+        xray_sysrc_set('dnstap_bgp_jail_ip', $jailCidr, XRAY_DNSTAP_RC);
         echo "dnstap: rc dnstap_bgp_jail_ip={$jailCidr} (from bgp.sourceIP)\n";
     }
 }
