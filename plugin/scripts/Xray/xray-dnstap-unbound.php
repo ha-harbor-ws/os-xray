@@ -181,8 +181,8 @@ function xray_dnstap_bird_neighbor_params(): array
         if ($peer !== '') {
             $host = $peer;
         }
-        if (preg_match('/^ipv6\s*=\s*(true|false)/mi', $raw, $m)) {
-            $ipv6 = strtolower($m[1]) === 'true';
+        if (preg_match('/^ipv6\s*=\s*"?(true|false|1|0|yes|no)"?/mi', $raw, $m)) {
+            $ipv6 = in_array(strtolower($m[1]), ['true', '1', 'yes'], true);
         }
     }
     return [

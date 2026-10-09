@@ -255,6 +255,17 @@ function xray_dnstap_default_communities(): array
     ];
 }
 
+function xray_dnstap_ensure_ipv6_row(array $rows): array
+{
+    foreach ($rows as $row) {
+        if (trim((string)($row['key'] ?? '')) === 'ipv6') {
+            return $rows;
+        }
+    }
+    $rows[] = ['key' => 'ipv6', 'value' => 'false'];
+    return $rows;
+}
+
 function xray_dnstap_ensure_community_rows(array $rows): array
 {
     $have = [];
@@ -294,6 +305,7 @@ function xray_dnstap_conf_merge_managed(array $guiRows): array
         $out[] = ['key' => 'bgp.routerID', 'value' => $source];
         $out[] = ['key' => 'bgp.nextHop', 'value' => $source];
     }
+    $out = xray_dnstap_ensure_ipv6_row($out);
     $out = xray_dnstap_ensure_community_rows($out);
     foreach (xray_dnstap_conf_managed_rows() as $row) {
         $out[] = $row;
@@ -311,7 +323,7 @@ function xray_dnstap_conf_for_ui(array $rows): array
         }
         $out[] = $row;
     }
-    return xray_dnstap_ensure_community_rows($out);
+    return xray_dnstap_ensure_community_rows(xray_dnstap_ensure_ipv6_row($out));
 }
 
 function xray_dnstap_render_toml(array $rows): string
@@ -776,7 +788,10 @@ if ($op === 'write') {
     if ($failed !== []) {
         echo "WARN could not download: " . implode(' ', $failed) . "\n";
     }
-    if (xray_dnstap_rc_is_enabled(XRAY_DNSTAP_FILES['rc'])) {
+    $dnstapOn = xray_dnstap_rc_is_enabled(XRAY_DNSTAP_FILES['rc']);
+    if ($dnstapOn) {
+        xray_dnstap_sync_bird(true);
+        echo "OK BIRD dnstap peer synced (IPv6 from dnstap-bgp.conf), birdc configure\n";
         if (xray_dnstap_running()) {
             if (xray_dnstap_sighup()) {
                 echo "OK dnstap_bgp running — sent SIGHUP (Unbound not restarted)\n";
@@ -791,6 +806,7 @@ if ($op === 'write') {
         xray_dnstap_unbound_deactivate();
         echo "OK dnstap_bgp stopped, Unbound DNSTap include removed\n";
     } else {
+        xray_dnstap_sync_bird(false);
         echo "OK files written, dnstap_bgp not running\n";
     }
     exit(0);

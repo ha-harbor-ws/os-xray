@@ -9,6 +9,7 @@ Format: [Semantic Versioning](https://semver.org/).
 ### Fixed
 - **sysrc quoting** — `bird_enable` / `dnstap_bgp_enable` писались как `""YES""` и на каждом Apply дописывались; строки в rc.conf переписываются целиком, `dnstap_bgp_enable` только в `rc.conf.d` (битая строка из `/etc/rc.conf` удаляется)
 - **dnstap-bgp `bgp.as`** — в TOML писался как строка `"65103"`, демон ждёт integer; теперь `as = 65103` без кавычек
+- **DNStap IPv6 → BIRD** — чекбокс Enable IPv6 включает `ipv6 {}` у peer dnstap и исключает его при выключении; Apply/Start делают `birdc configure`
 - **BIRD `log syslog` default** — при установке в `bird.conf` принудительно `log syslog { warning };` (пакет bird2 оставляет `all`)
 - **tun2socks "interface already exists"** — перед стартом удаляется stale TUN, если процесс не запущен; boot hook делегирует start в `xray-service-control.php`
 - **TUN cleanup on instance delete** — при удалении instance через GUI вызывается `xray delete`: stop, destroy TUN, удаление per-instance конфигов/PID/логов
