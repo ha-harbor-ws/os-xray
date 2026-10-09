@@ -424,12 +424,6 @@
                     return;
                 }
                 updateDnstapBadge(!!data.running);
-                var paths = data.paths || {};
-                $('#dnstapConfPath').text(paths.conf || '');
-                $('#dnstapBlockedUrlsPath').text(paths.blocked_urls || '');
-                $('#dnstapBlockedPath').text(paths.blocked_extra || paths.blocked || '');
-                $('#dnstapUnblockedUrlsPath').text(paths.unblocked_urls || '');
-                $('#dnstapUnblockedPath').text(paths.unblocked_extra || paths.unblocked || '');
                 dnstapSetCount($('#dnstapBlockedCount'), data.blocked_count || data.domains_count);
                 dnstapSetCount($('#dnstapUnblockedCount'), data.unblocked_count);
                 (function () {
