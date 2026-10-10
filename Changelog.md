@@ -7,7 +7,7 @@ Format: [Semantic Versioning](https://semver.org/).
 
 ## [3.1.0] - TBD
 ### Fixed
-- BIRD filter dnstap — `echo` net и `bgp_community` входящего маршрута в лог
+- BIRD filter dnstap — `print` net и `bgp_community` входящего маршрута в лог (bird2: `echo` — syntax error)
 - full help на всех вкладках справа, как на General
 - DNStap / Domains — фон ячеек из темы OPNsense (жёсткий `#f9f9f9`/`#333` давал белый нечитаемый фон)
 - Падение GUI после установки — `ensureDnstapPeerFilters` вызывал ValidationException (кэш ModelRelationField ещё без новых фильтров); seed/ensure пишут config без валидации и больше не роняют `/ui/xray/`

@@ -724,14 +724,14 @@ function xray_bird_render_filter(array $f): string
     $body[] = '       ifname = ' . $tun . ';';
     $body[] = '       accept;';
 
-    $echo = '';
+    $trace = '';
     if ($isDnstap) {
-        $echo = "    # Выводим в лог комьюнити входящего маршрута для анализа\n"
-            . '    echo "Processing net ", net, " with community: ", bgp_community;' . "\n";
+        $trace = "    # Выводим в лог комьюнити входящего маршрута для анализа\n"
+            . '    print "Processing net ", net, " with community: ", bgp_community;' . "\n";
     }
 
     if ($comm !== '') {
-        return 'filter ' . $name . " {\n" . $echo
+        return 'filter ' . $name . " {\n" . $trace
             . '    if bgp_community ~ ' . $comm . " then { \n"
             . implode("\n", $body) . "\n    }\n    reject; \n}\n";
     }
@@ -739,7 +739,7 @@ function xray_bird_render_filter(array $f): string
     foreach ($body as $line) {
         $plain[] = preg_replace('/^       /', '    ', $line);
     }
-    return 'filter ' . $name . " {\n" . $echo . implode("\n", $plain) . "\n}\n";
+    return 'filter ' . $name . " {\n" . $trace . implode("\n", $plain) . "\n}\n";
 }
 
 function xray_bird_write_gui_communities(string $dir, array &$written, array &$commFiles): void
