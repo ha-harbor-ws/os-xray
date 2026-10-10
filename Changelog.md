@@ -27,11 +27,19 @@ Format: [Semantic Versioning](https://semver.org/).
 - **Routing tab / BGP** — dropdown: BGP peers, BGP filter, BGP community. Peers write peer_NAME.inc; filters `filter_NAME.inc`; communities `community_NAME.inc`. Имена уникальны (UniqueConstraint)
 - **Per-instance IP stack** — checkboxes `IPv4` / `IPv6` (both allowed) control TUN address assignment and xray DNS/routing strategy
 - **Per-instance DNS servers** — field `dns_servers` (comma-separated) written into generated xray config for each instance
-- **BGP peer status** — колонки IPv4/IPv6: imported prefixes по каналам `birdc`; Status: state/info. Apply на Routing: `birdc configure` (сессии не сбрасываются)
+- **BGP peer status** — колонки IPv4/IPv6: imported prefixes по каналам `birdc` и `show route table master4/master6 protocol … count` (dnstap IPv6 больше не обнуляется при Test/обновлении); Status: state/info. Apply на Routing: `birdc configure` (сессии не сбрасываются)
 - **Inbound sniffing** — SOCKS inbound sniffing for single-stack instances (`destOverride`: http, tls, quic; `metadataOnly`: false); dual-stack (IPv4+IPv6) → sniffing disabled
 - **DNStap BGP** — `install.sh` ставит `os-dnstap-bgp` с GitHub Releases; General **Enable DNStap BGP**; вкладка DNStap (ключ/значение из живых конфигов)
 
 ### Changed
+- Вкладка DNStap — табличная вёрстка как BGP peers (ячейки с рамками), Add/Remove справа от поля, TTL → Routing prefix TTL, описания в Help
+- DNStap blocked URL — по умолчанию Re-filter `domains_all.lst` и `https://community.antifilter.download/list/domains.lst`
+- DNStap start — если URL списков заполнены, домены скачиваются до старта демона, в нижний регистр, без дублей, в summarized `blocked.txt` / `unblocked.txt`
+- DNStap communities — blocked `AS:777`, unblocked `AS:555`, в GUI только просмотр
+- Вкладка Log — **DNStap Log** (`/var/log/dnstap-bgp/dnstap-bgp.log`, syslog-ng + newsyslog), как Bird Log
+- DNStap IPv6 по умолчанию включён (`ipv6 = true`, BIRD peer ipv4+ipv6)
+- DNStap BIRD — community `community_DNSTAP_BLOCKED` (`AS:777`), фильтры `filter_dnstap_v4` / `filter_dnstap_v6` редистрибьют в ACTIVE_TUN4_IF / ACTIVE_TUN6_IF
+- Вкладка **Domains** — extra blocked/unblocked: одно поле, Add/Remove, лупа со списком; extra убраны с DNStap
 - `install.sh`: fallback-пакет os-dnstap-bgp — **v1.3.0**
 - Смена active TUN и Apply Routing — `birdc configure`, не `service bird restart`. Удалены birdstart/birdstop/birdrestart из actions/API
 - `birdsync` синхронизирует только «жив ли tun2socks», без выбора TUN и без SOCKS

@@ -26,12 +26,12 @@
                         <th data-column-id="local_as"
                             data-type="string"
                             data-width="7em">{{ lang._('Local AS') }}</th>
-                        <th data-column-id="ipv4"
+                        <th data-column-id="prefixes4"
                             data-width="6em"
                             data-type="string"
                             data-formatter="peerPrefixes4"
                             data-sortable="false">{{ lang._('IPv4') }}</th>
-                        <th data-column-id="ipv6"
+                        <th data-column-id="prefixes6"
                             data-width="6em"
                             data-type="string"
                             data-formatter="peerPrefixes6"

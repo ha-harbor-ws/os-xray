@@ -14,6 +14,7 @@
     </li>
     <li><a data-toggle="tab" href="#dnstap">{{ lang._('DNStap') }}</a></li>
     <li><a data-toggle="tab" href="#general">{{ lang._('General') }}</a></li>
+    <li><a data-toggle="tab" href="#domains">{{ lang._('Domains') }}</a></li>
     <li><a data-toggle="tab" href="#logs">{{ lang._('Log') }}</a></li>
 </ul>
 
@@ -26,6 +27,7 @@
         {{ partial("layout_partials/base_form", {'fields': generalForm, 'id': 'frm_general_settings'}) }}
     </div>
 
+    {{ partial('OPNsense/Xray/partials/tab_domains') }}
     {{ partial('OPNsense/Xray/partials/tab_diagnostics') }}
     {{ partial('OPNsense/Xray/partials/tab_logs') }}
 </div>

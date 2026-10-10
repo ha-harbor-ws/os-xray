@@ -146,15 +146,19 @@
         }
 
         function peerPrefixBadge(info, family, familyOn) {
-            if (!familyOn) {
+            var n = 0;
+            if (info) {
+                n = family === 'ipv6' ? info.imported6 : info.imported4;
+                if (n == null) {
+                    n = 0;
+                }
+            }
+            var liveOn = !!(info && (family === 'ipv6' ? info.ipv6 : info.ipv4));
+            if (!familyOn && !liveOn && !(Number(n) > 0)) {
                 return '<span style="font-size:11px;color:#999;">—</span>';
             }
             if (!info) {
                 return '<span class="label label-default" style="font-size:11px;">--</span>';
-            }
-            var n = family === 'ipv6' ? info.imported6 : info.imported4;
-            if (n == null) {
-                n = 0;
             }
             return '<span class="label label-info" style="font-size:11px;" title="{{ lang._("Imported prefixes") }}">'
                 + escAttr(String(n)) + '</span>';
@@ -162,17 +166,17 @@
 
         function applyPeerStatusToGrid() {
             $('#grid-bgppeers .xray-peer-status-cell').each(function () {
-                var uuid = $(this).data('uuid');
+                var uuid = $(this).attr('data-uuid');
                 $(this).html(peerStatusBadge(peerStatusCache[uuid]));
             });
             $('#grid-bgppeers .xray-peer-v4-cell').each(function () {
-                var uuid = $(this).data('uuid');
-                var on = String($(this).data('family-on')) !== '0';
+                var uuid = $(this).attr('data-uuid');
+                var on = String($(this).attr('data-family-on')) !== '0';
                 $(this).html(peerPrefixBadge(peerStatusCache[uuid], 'ipv4', on));
             });
             $('#grid-bgppeers .xray-peer-v6-cell').each(function () {
-                var uuid = $(this).data('uuid');
-                var on = String($(this).data('family-on')) !== '0';
+                var uuid = $(this).attr('data-uuid');
+                var on = String($(this).attr('data-family-on')) !== '0';
                 $(this).html(peerPrefixBadge(peerStatusCache[uuid], 'ipv6', on));
             });
         }
@@ -329,6 +333,68 @@
             return $('#dnstap').filter('.active').length > 0;
         }
 
+        function isDomainsTab() {
+            return $('#domains').filter('.active').length > 0;
+        }
+
+        var dnstapExtraBlocked = [];
+        var dnstapExtraUnblocked = [];
+        var dnstapExtrasDirty = false;
+        var dnstapConfCache = [];
+        var dnstapBlockedUrlsCache = [];
+        var dnstapUnblockedUrlsCache = [];
+        var domainsListKind = 'blocked';
+
+        function dnstapNormalizeDomain(raw) {
+            var v = String(raw || '').replace(/^\uFEFF/, '').split('#')[0].trim().toLowerCase();
+            v = v.replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/\.+$/, '');
+            if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(v)) {
+                return '';
+            }
+            return v;
+        }
+
+        function dnstapRowsToDomains(rows) {
+            var out = [];
+            var seen = {};
+            (rows || []).forEach(function (row) {
+                var d = dnstapNormalizeDomain(row && row.value != null ? row.value : row);
+                if (d && !seen[d]) {
+                    seen[d] = true;
+                    out.push(d);
+                }
+            });
+            return out;
+        }
+
+        function dnstapDomainsToRows(list) {
+            return (list || []).map(function (d) {
+                return { key: 'domain', value: d };
+            });
+        }
+
+        function dnstapWritePayload() {
+            var conf = dnstapCollectKv($('#dnstapConfKv'));
+            if (!conf.length && dnstapConfCache.length) {
+                conf = dnstapConfCache;
+            }
+            var blockedUrls = dnstapCollectKv($('#dnstapBlockedUrlsKv'));
+            if (!$('#dnstapBlockedUrlsKv input').length && dnstapBlockedUrlsCache.length) {
+                blockedUrls = dnstapBlockedUrlsCache;
+            }
+            var unblockedUrls = dnstapCollectKv($('#dnstapUnblockedUrlsKv'));
+            if (!$('#dnstapUnblockedUrlsKv input').length && dnstapUnblockedUrlsCache.length) {
+                unblockedUrls = dnstapUnblockedUrlsCache;
+            }
+            return {
+                conf: JSON.stringify(conf),
+                blocked: JSON.stringify(dnstapDomainsToRows(dnstapExtraBlocked)),
+                blocked_urls: JSON.stringify(blockedUrls),
+                unblocked: JSON.stringify(dnstapDomainsToRows(dnstapExtraUnblocked)),
+                unblocked_urls: JSON.stringify(unblockedUrls)
+            };
+        }
+
         function updateDnstapBadge(running) {
             $('.xray-badge-dnstap')
                 .removeClass('label-success label-danger label-default')
@@ -338,6 +404,7 @@
 
         function dnstapConfLabel(key) {
             var map = {
+                ttl: '{{ lang._("Routing prefix TTL") }}',
                 ipv6: '{{ lang._("Enable IPv6") }}',
                 'bgp.peers': '{{ lang._("Bird IP") }}',
                 'bgp.sourceIP': '{{ lang._("DNStap IP") }}',
@@ -345,6 +412,18 @@
                 'bgp.unblocked_communities': '{{ lang._("Unblocked communities") }}'
             };
             return map[key] || key;
+        }
+
+        function dnstapConfHelp(key) {
+            var map = {
+                ttl: '{{ lang._("How long advertised BGP prefixes stay in the dnstap-bgp cache (Go duration, e.g. 24h).") }}',
+                ipv6: '{{ lang._("Enable IPv6 AFI in dnstap-bgp and the ipv6 channel on the BIRD dnstap peer.") }}',
+                'bgp.peers': '{{ lang._("BIRD neighbor address (host side of the dnstap iBGP session).") }}',
+                'bgp.sourceIP': '{{ lang._("dnstap-bgp source address (jail / DNStap side of the iBGP session).") }}',
+                'bgp.blocked_communities': '{{ lang._("Fixed BGP community on blocked prefixes (local AS:777). Not editable.") }}',
+                'bgp.unblocked_communities': '{{ lang._("Fixed BGP community on unblocked prefixes (local AS:555). Not editable.") }}'
+            };
+            return map[key] || '';
         }
 
         function dnstapConfRow(key, value) {
@@ -361,23 +440,31 @@
                 var $inp = $('<input type="text" class="form-control"/>')
                     .attr('data-key', key)
                     .val(value == null ? '' : String(value));
+                if (key === 'bgp.blocked_communities' || key === 'bgp.unblocked_communities') {
+                    $inp.prop('readonly', true).attr('tabindex', '-1')
+                        .css({'background-color': '#eee', 'cursor': 'default'});
+                }
                 $tr.append($('<td/>').append($inp));
             }
+            $tr.append($('<td class="dnstap-help-col"/>').text(dnstapConfHelp(key)));
             return $tr;
         }
 
         function dnstapKvRow(key, value, removable, delClass) {
             var $tr = $('<tr/>');
-            $tr.append($('<td class="dnstap-k"/>').text(key));
             var $inp = $('<input type="text" class="form-control"/>')
                 .attr('data-key', key)
                 .val(value == null ? '' : String(value));
-            $tr.append($('<td/>').append($inp));
+            var $edit = $('<div class="dnstap-row-edit"/>').append($inp);
+            var $add = $('<button type="button" class="btn btn-xs btn-primary dnstap-list-add"/>')
+                .html('<span class="fa fa-fw fa-plus"></span> {{ lang._("Add") }}');
+            $edit.append($add);
             if (removable) {
                 var $del = $('<button type="button" class="btn btn-xs btn-default ' + (delClass || 'dnstap-domain-del') + '"/>')
-                    .html('<span class="fa fa-fw fa-minus"></span>');
-                $tr.append($('<td/>').append($del));
+                    .html('<span class="fa fa-fw fa-minus"></span> {{ lang._("Remove") }}');
+                $edit.append($del);
             }
+            $tr.append($('<td/>').append($edit));
             return $tr;
         }
 
@@ -410,10 +497,9 @@
         function dnstapSetCount($el, n) {
             n = parseInt(n, 10);
             if (n > 0) {
-                $el.text('{{ lang._("Summarized file:") }} ' + n
-                    + ' {{ lang._("unique domains.") }}');
+                $el.text(String(n)).attr('title', '{{ lang._("Unique domains in the summarized file") }}').show();
             } else {
-                $el.text('');
+                $el.text('').hide();
             }
         }
 
@@ -434,9 +520,14 @@
                     });
                 })();
                 dnstapFillOrEmpty($('#dnstapBlockedUrlsKv'), data.blocked_urls || data.urls, 'url', 'dnstap-blocked-url-del');
-                dnstapFillOrEmpty($('#dnstapBlockedKv'), data.blocked || data.domains, 'domain', 'dnstap-blocked-del');
                 dnstapFillOrEmpty($('#dnstapUnblockedUrlsKv'), data.unblocked_urls, 'url', 'dnstap-unblocked-url-del');
-                dnstapFillOrEmpty($('#dnstapUnblockedKv'), data.unblocked, 'domain', 'dnstap-unblocked-del');
+                dnstapConfCache = dnstapCollectKv($('#dnstapConfKv'));
+                dnstapBlockedUrlsCache = dnstapCollectKv($('#dnstapBlockedUrlsKv'));
+                dnstapUnblockedUrlsCache = dnstapCollectKv($('#dnstapUnblockedUrlsKv'));
+                if (!dnstapExtrasDirty) {
+                    dnstapExtraBlocked = dnstapRowsToDomains(data.blocked_extra || data.blocked || data.domains);
+                    dnstapExtraUnblocked = dnstapRowsToDomains(data.unblocked_extra || data.unblocked);
+                }
             });
         }
 
@@ -444,7 +535,7 @@
             var endpoint = '/api/xray/service/reconfigure';
             if (isBgpRoutingTab()) {
                 endpoint = '/api/xray/service/bgpwrite';
-            } else if (isDnstapTab()) {
+            } else if (isDnstapTab() || isDomainsTab()) {
                 endpoint = '/api/xray/service/dnstapwrite';
             }
             $('#reconfigureAct').data('endpoint', endpoint).attr('data-endpoint', endpoint);
@@ -469,22 +560,29 @@
         $('a[data-toggle="tab"][href="#dnstap"]').on('shown.bs.tab', function () {
             loadDnstapConf();
         });
+        $('a[data-toggle="tab"][href="#domains"]').on('shown.bs.tab', function () {
+            loadDnstapConf();
+        });
 
-        function dnstapBindList(addId, tbodyId, key, delClass) {
-            $(document).on('click', addId, function () {
-                $(tbodyId).append(dnstapKvRow(key, '', true, delClass));
-            });
-            $(document).on('click', '.' + delClass, function () {
-                $(this).closest('tr').remove();
-                if ($(tbodyId + ' tr').length === 0) {
-                    $(tbodyId).append(dnstapKvRow(key, '', true, delClass));
-                }
-            });
-        }
-        dnstapBindList('#dnstapBlockedUrlAdd', '#dnstapBlockedUrlsKv', 'url', 'dnstap-blocked-url-del');
-        dnstapBindList('#dnstapBlockedAdd', '#dnstapBlockedKv', 'domain', 'dnstap-blocked-del');
-        dnstapBindList('#dnstapUnblockedUrlAdd', '#dnstapUnblockedUrlsKv', 'url', 'dnstap-unblocked-url-del');
-        dnstapBindList('#dnstapUnblockedAdd', '#dnstapUnblockedKv', 'domain', 'dnstap-unblocked-del');
+        $(document).on('click', '#dnstapHelpToggle', function () {
+            var on = $('#dnstap').toggleClass('dnstap-help-on').hasClass('dnstap-help-on');
+            $(this).toggleClass('active', on);
+        });
+        $(document).on('click', '.dnstap-list-add', function () {
+            var $tbody = $(this).closest('tbody');
+            var key = String($tbody.attr('data-row-key') || 'url');
+            var delClass = String($tbody.attr('data-del-class') || 'dnstap-domain-del');
+            $(this).closest('tr').after(dnstapKvRow(key, '', true, delClass));
+        });
+        $(document).on('click', '#dnstap .dnstap-blocked-url-del, #dnstap .dnstap-blocked-del, #dnstap .dnstap-unblocked-url-del, #dnstap .dnstap-unblocked-del', function () {
+            var $tbody = $(this).closest('tbody');
+            var key = String($tbody.attr('data-row-key') || 'url');
+            var delClass = String($tbody.attr('data-del-class') || 'dnstap-domain-del');
+            $(this).closest('tr').remove();
+            if ($tbody.find('tr').length === 0) {
+                $tbody.append(dnstapKvRow(key, '', true, delClass));
+            }
+        });
         $(document).on('click', '#dnstapStart', function () {
             var $btn = $(this).prop('disabled', true);
             ajaxCall('/api/xray/service/dnstapstart', {}, function (data) {
@@ -495,6 +593,87 @@
                 }
             });
         });
+        function dnstapExtraAdd(kind) {
+            var $inp = kind === 'unblocked' ? $('#domainsUnblockedInput') : $('#domainsBlockedInput');
+            var d = dnstapNormalizeDomain($inp.val());
+            if (d === '') {
+                alert('{{ lang._("Enter a valid domain name.") }}');
+                return;
+            }
+            var list = kind === 'unblocked' ? dnstapExtraUnblocked : dnstapExtraBlocked;
+            if (list.indexOf(d) === -1) {
+                list.push(d);
+            }
+            dnstapExtrasDirty = true;
+            $inp.val(d);
+        }
+
+        function dnstapExtraRemove(kind) {
+            var $inp = kind === 'unblocked' ? $('#domainsUnblockedInput') : $('#domainsBlockedInput');
+            var d = dnstapNormalizeDomain($inp.val());
+            if (kind === 'unblocked') {
+                dnstapExtraUnblocked = dnstapExtraUnblocked.filter(function (x) { return x !== d; });
+            } else {
+                dnstapExtraBlocked = dnstapExtraBlocked.filter(function (x) { return x !== d; });
+            }
+            dnstapExtrasDirty = true;
+            $inp.val('');
+        }
+
+        function dnstapRenderDomainList(filter) {
+            var list = domainsListKind === 'unblocked' ? dnstapExtraUnblocked : dnstapExtraBlocked;
+            var q = String(filter || '').toLowerCase();
+            var shown = 0;
+            var $tb = $('#domainsListRows').empty();
+            list.slice().sort().forEach(function (d) {
+                if (q && d.indexOf(q) === -1) {
+                    return;
+                }
+                shown++;
+                var $tr = $('<tr/>').css('cursor', 'pointer');
+                $tr.append($('<td/>').text(d));
+                $tr.on('click', function () {
+                    var $inp = domainsListKind === 'unblocked' ? $('#domainsUnblockedInput') : $('#domainsBlockedInput');
+                    $inp.val(d);
+                    $('#domainsListModal').modal('hide');
+                });
+                $tb.append($tr);
+            });
+            $('#domainsListCount').text(shown + ' / ' + list.length);
+        }
+
+        function dnstapOpenDomainList(kind) {
+            domainsListKind = kind;
+            $('#domainsListModalTitle').text(kind === 'unblocked'
+                ? '{{ lang._("Unblocked domains") }}'
+                : '{{ lang._("Blocked domains") }}');
+            $('#domainsListFilter').val('');
+            dnstapRenderDomainList('');
+            $('#domainsListModal').modal('show');
+        }
+
+        $(document).on('click', '#domainsBlockedAdd', function () { dnstapExtraAdd('blocked'); });
+        $(document).on('click', '#domainsUnblockedAdd', function () { dnstapExtraAdd('unblocked'); });
+        $(document).on('click', '#domainsBlockedRemove', function () { dnstapExtraRemove('blocked'); });
+        $(document).on('click', '#domainsUnblockedRemove', function () { dnstapExtraRemove('unblocked'); });
+        $(document).on('click', '#domainsBlockedSearch', function () { dnstapOpenDomainList('blocked'); });
+        $(document).on('click', '#domainsUnblockedSearch', function () { dnstapOpenDomainList('unblocked'); });
+        $(document).on('input', '#domainsListFilter', function () {
+            dnstapRenderDomainList($(this).val());
+        });
+        $('#domainsBlockedInput').on('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                dnstapExtraAdd('blocked');
+            }
+        });
+        $('#domainsUnblockedInput').on('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                dnstapExtraAdd('unblocked');
+            }
+        });
+
         $(document).on('click', '#dnstapStop', function () {
             var $btn = $(this).prop('disabled', true);
             ajaxCall('/api/xray/service/dnstapstop', {}, function (data) {
@@ -521,18 +700,12 @@
                     dfObj.resolve();
                     return dfObj;
                 }
-                if (isDnstapTab()) {
+                if (isDnstapTab() || isDomainsTab()) {
                     $.ajax({
                         url: '/api/xray/service/dnstapwrite',
                         type: 'POST',
                         dataType: 'json',
-                        data: {
-                            conf: JSON.stringify(dnstapCollectKv($('#dnstapConfKv'))),
-                            blocked: JSON.stringify(dnstapCollectKv($('#dnstapBlockedKv'))),
-                            blocked_urls: JSON.stringify(dnstapCollectKv($('#dnstapBlockedUrlsKv'))),
-                            unblocked: JSON.stringify(dnstapCollectKv($('#dnstapUnblockedKv'))),
-                            unblocked_urls: JSON.stringify(dnstapCollectKv($('#dnstapUnblockedUrlsKv')))
-                        },
+                        data: dnstapWritePayload(),
                         success: function (data) {
                             if (data && data.result === 'failed') {
                                 alert('{{ lang._("Failed to write dnstap-bgp config:") }} '
@@ -540,6 +713,7 @@
                                 dfObj.reject();
                                 return;
                             }
+                            dnstapExtrasDirty = false;
                             loadDnstapConf();
                             dfObj.resolve();
                         },
@@ -558,6 +732,9 @@
             onAction: function () {
                 if (isBgpRoutingTab()) {
                     openRoutingPeersStatus();
+                }
+                if (isDnstapTab() || isDomainsTab()) {
+                    loadDnstapConf();
                 }
             }
         });
@@ -595,6 +772,7 @@
         }
         refreshInstancesStatus();
         setInterval(refreshInstancesStatus, 5000);
+        loadDnstapConf();
 
         // ── Start / Stop / Restart ──────────────────────────────────
         function serviceAction(action, confirmMsg, callback) {
@@ -927,6 +1105,8 @@
             } else if (href === '#logBird') {
                 loadBirdLogLevel();
                 loadLog("/api/xray/service/birdlog", 'logBirdContent', 'logBirdRefreshBtn', false);
+            } else if (href === '#logDnstap') {
+                loadLog("/api/xray/service/dnstaplog", 'logDnstapContent', 'logDnstapRefreshBtn', false);
             }
         });
 
@@ -939,6 +1119,8 @@
             } else if (href === '#logBird') {
                 loadBirdLogLevel();
                 loadLog("/api/xray/service/birdlog", 'logBirdContent', 'logBirdRefreshBtn', false);
+            } else if (href === '#logDnstap') {
+                loadLog("/api/xray/service/dnstaplog", 'logDnstapContent', 'logDnstapRefreshBtn', false);
             }
         });
 
@@ -950,6 +1132,9 @@
         });
         $("#logBirdRefreshBtn").click(function () {
             loadLog("/api/xray/service/birdlog", 'logBirdContent', 'logBirdRefreshBtn', false);
+        });
+        $("#logDnstapRefreshBtn").click(function () {
+            loadLog("/api/xray/service/dnstaplog", 'logDnstapContent', 'logDnstapRefreshBtn', false);
         });
 
         function loadBirdLogLevel() {

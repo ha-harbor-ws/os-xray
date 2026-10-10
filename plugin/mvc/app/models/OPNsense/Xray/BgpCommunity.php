@@ -21,7 +21,39 @@ class BgpCommunity extends BaseModel
                 'name'         => 'community_ANTIFILTER_NETWORK',
                 'communities'  => $networkComm,
             ],
+            [
+                'enabled'      => '1',
+                'name'         => 'community_DNSTAP_BLOCKED',
+                'communities'  => '65103:777',
+            ],
         ];
+    }
+
+    public function ensureDnstapBlockedCommunity(): string
+    {
+        $name = 'community_DNSTAP_BLOCKED';
+        if (method_exists($this->community, 'iterateItems')) {
+            foreach ($this->community->iterateItems() as $uuid => $item) {
+                if (strcasecmp(trim((string)$item->name), $name) === 0) {
+                    return (string)$uuid;
+                }
+            }
+        }
+        if (!method_exists($this->community, 'add')) {
+            return '';
+        }
+        $uuid = $this->community->add();
+        $node = $this->community->{$uuid};
+        if ($node !== null && method_exists($node, 'setNodes')) {
+            $node->setNodes([
+                'enabled'     => '1',
+                'name'        => $name,
+                'communities' => '65103:777',
+            ]);
+        }
+        $this->serializeToConfig();
+        Config::getInstance()->save();
+        return (string)$uuid;
     }
 
     public function seedDefaultCommunitiesIfEmpty(): void

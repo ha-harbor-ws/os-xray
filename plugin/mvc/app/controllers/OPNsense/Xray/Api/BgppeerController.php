@@ -12,8 +12,10 @@ class BgppeerController extends ApiMutableModelControllerBase
 
     public function searchItemAction()
     {
+        (new \OPNsense\Xray\BgpCommunity())->ensureDnstapBlockedCommunity();
         (new \OPNsense\Xray\BgpFilter())->seedDefaultFiltersIfEmpty();
         (new \OPNsense\Xray\BgpFilter())->migrateAcceptFilterNames();
+        (new \OPNsense\Xray\BgpFilter())->ensureDnstapFilters();
         (new \OPNsense\Xray\BgpPeer())->seedDefaultPeersIfEmpty();
         (new \OPNsense\Xray\BgpPeer())->migrateAcceptImportNames();
         $response = $this->searchBase('peer', [
@@ -40,6 +42,8 @@ class BgppeerController extends ApiMutableModelControllerBase
             foreach ($response['rows'] as &$row) {
                 $row['ipv4_route_int'] = $this->formatRouteInt($tun4, $byTun);
                 $row['ipv6_route_int'] = $this->formatRouteInt($tun6, $byTun);
+                $row['prefixes4'] = '';
+                $row['prefixes6'] = '';
             }
             unset($row);
         }
@@ -91,6 +95,8 @@ class BgppeerController extends ApiMutableModelControllerBase
                     $byTun = $this->instanceNamesByTun();
                     $dnstap[0]['ipv4_route_int'] = $this->formatRouteInt($tun4, $byTun);
                     $dnstap[0]['ipv6_route_int'] = $this->formatRouteInt($tun6, $byTun);
+                    $dnstap[0]['prefixes4'] = '';
+                    $dnstap[0]['prefixes6'] = '';
                     break;
                 }
             }

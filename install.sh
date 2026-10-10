@@ -71,6 +71,40 @@ xray_copy_dnstap_bgp_samples() {
     fi
 }
 
+xray_seed_dnstap_ipv6_default() {
+    _conf="/usr/local/etc/dnstap-bgp/dnstap-bgp.conf"
+    if [ ! -f "$_conf" ]; then
+        echo "[INFO] $_conf missing — skip ipv6 default"
+        return
+    fi
+    if grep -qE '^ipv6[[:space:]]*=' "$_conf"; then
+        sed -i '' -e 's/^ipv6[[:space:]]*=.*/ipv6 = true/' "$_conf"
+    else
+        printf '\nipv6 = true\n' >> "$_conf"
+    fi
+    echo "[OK]  $_conf ipv6 = true"
+}
+
+xray_seed_dnstap_blocked_url() {
+    _urls="/usr/local/etc/dnstap-bgp/blocked-urls.txt"
+    mkdir -p /usr/local/etc/dnstap-bgp
+    if [ ! -f "$_urls" ]; then
+        printf '%s\n' "# HTTP(S) URLs of domain lists. One URL per line." > "$_urls"
+        chmod 0644 "$_urls"
+    fi
+    for _default in \
+        "https://github.com/1andrevich/Re-filter-lists/releases/download/01082026/domains_all.lst" \
+        "https://community.antifilter.download/list/domains.lst"
+    do
+        if grep -Fqx "$_default" "$_urls"; then
+            echo "[OK]  $_urls already has $_default"
+            continue
+        fi
+        printf '%s\n' "$_default" >> "$_urls"
+        echo "[OK]  $_urls += $_default"
+    done
+}
+
 xray_detect_wan_if() {
     /sbin/route -n get -inet default 2>/dev/null | awk '/interface:/{print $2; exit}'
 }
@@ -145,9 +179,55 @@ EOF
     chmod 0644 /usr/local/etc/newsyslog.conf.d/bird.conf
 }
 
+xray_write_dnstap_log_configs() {
+    install -d -m 0755 /var/log/dnstap-bgp
+    install -d -m 0755 /usr/local/etc/syslog-ng.conf.d
+    install -d -m 0755 /usr/local/etc/newsyslog.conf.d
+    if [ ! -f /var/log/dnstap-bgp/dnstap-bgp.log ]; then
+        : > /var/log/dnstap-bgp/dnstap-bgp.log
+        chmod 0640 /var/log/dnstap-bgp/dnstap-bgp.log
+    fi
+
+    cat > /usr/local/etc/syslog-ng.conf.d/dnstap-bgp.conf << 'EOF'
+# dnstap-bgp logs (os-xray): rc.d daemon -S -T dnstap_bgp
+destination d_dnstap_bgp {
+    file("/var/log/dnstap-bgp/dnstap-bgp.log"
+         owner("root")
+         group("wheel")
+         perm(0640)
+         create-dirs(yes)
+    );
+};
+
+filter f_dnstap_bgp {
+    program("^dnstap_bgp") or program("^dnstap-bgp");
+};
+
+log {
+    source(s_all);
+    filter(f_dnstap_bgp);
+    destination(d_dnstap_bgp);
+    flags(final);
+};
+EOF
+    chmod 0644 /usr/local/etc/syslog-ng.conf.d/dnstap-bgp.conf
+
+    cat > /usr/local/etc/newsyslog.conf.d/dnstap-bgp.conf << 'EOF'
+# newsyslog rotation for dnstap-bgp (os-xray)
+# count=7  size=1000KB  when=- (size only)  JC (bzip2 + create)
+/var/log/dnstap-bgp/dnstap-bgp.log	root:wheel	640	7	1000	-	JC	/var/run/syslog-ng.pid
+EOF
+    chmod 0644 /usr/local/etc/newsyslog.conf.d/dnstap-bgp.conf
+}
+
 xray_remove_bird_log_configs() {
     rm -f /usr/local/etc/syslog-ng.conf.d/bird.conf
     rm -f /usr/local/etc/newsyslog.conf.d/bird.conf
+}
+
+xray_remove_dnstap_log_configs() {
+    rm -f /usr/local/etc/syslog-ng.conf.d/dnstap-bgp.conf
+    rm -f /usr/local/etc/newsyslog.conf.d/dnstap-bgp.conf
 }
 
 xray_restart_bird_log_services() {
@@ -196,6 +276,7 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/opnsense/scripts/Xray/xray-log.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-log.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-loglevel.php
+    rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-log.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-conf.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-unbound.php
     rmdir  /usr/local/opnsense/scripts/Xray 2>/dev/null || true
@@ -244,8 +325,9 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/etc/bird/.xray-bgp-generated
     rm -f  /usr/local/etc/bird/direct_ifs.inc
 
-    echo "==> Removing BIRD syslog-ng / newsyslog configs..."
+    echo "==> Removing BIRD / dnstap-bgp syslog-ng / newsyslog configs..."
     xray_remove_bird_log_configs
+    xray_remove_dnstap_log_configs
     xray_restart_bird_log_services
 
     echo "==> Restarting configd..."
@@ -820,10 +902,18 @@ if [ "$DTAP_FRESH_INSTALL" = "1" ]; then
     echo "==> Copying dnstap-bgp sample configs (first install only)..."
     xray_copy_dnstap_bgp_samples
 fi
+echo "==> Seeding DNStap blocked list URL..."
+xray_seed_dnstap_blocked_url
+echo "==> Enabling DNStap IPv6 by default..."
+xray_seed_dnstap_ipv6_default
 
 echo "==> Creating BIRD log directory and syslog-ng / newsyslog configs..."
 xray_write_bird_log_configs
 echo "[OK]  /var/log/bird  /usr/local/etc/syslog-ng.conf.d/bird.conf  /usr/local/etc/newsyslog.conf.d/bird.conf"
+
+echo "==> Creating dnstap-bgp log directory and syslog-ng / newsyslog configs..."
+xray_write_dnstap_log_configs
+echo "[OK]  /var/log/dnstap-bgp  /usr/local/etc/syslog-ng.conf.d/dnstap-bgp.conf  /usr/local/etc/newsyslog.conf.d/dnstap-bgp.conf"
 
 echo "==> Installing bird.conf from git (${REPO_BRANCH})..."
 if [ -f "$BIRD_CONF_SRC" ]; then
@@ -1445,11 +1535,23 @@ $changed = xray_seed_array_if_empty($xray->bgpfilters, 'filter', [
     ['enabled' => '1', 'name' => 'filter_antifilter_download', 'community' => 'community_ANTIFILTER_DOWNLOAD', 'family' => 'ipv4', 'tun_if' => 'ACTIVE_TUN4_IF'],
     ['enabled' => '1', 'name' => 'filter_antifilter_network_v4', 'community' => 'community_ANTIFILTER_NETWORK', 'family' => 'ipv4', 'tun_if' => 'ACTIVE_TUN4_IF'],
     ['enabled' => '1', 'name' => 'filter_antifilter_network_v6', 'community' => 'community_ANTIFILTER_NETWORK', 'family' => 'ipv6', 'tun_if' => 'ACTIVE_TUN6_IF'],
+    ['enabled' => '1', 'name' => 'filter_dnstap_v4', 'community' => 'community_DNSTAP_BLOCKED', 'family' => 'ipv4', 'tun_if' => 'ACTIVE_TUN4_IF'],
+    ['enabled' => '1', 'name' => 'filter_dnstap_v6', 'community' => 'community_DNSTAP_BLOCKED', 'family' => 'ipv6', 'tun_if' => 'ACTIVE_TUN6_IF'],
 ]) || $changed;
 $changed = xray_seed_array_if_empty($xray->bgpcommunities, 'community', [
     ['enabled' => '1', 'name' => 'community_ANTIFILTER_DOWNLOAD', 'communities' => '65432:500'],
     ['enabled' => '1', 'name' => 'community_ANTIFILTER_NETWORK', 'communities' => $networkComm],
+    ['enabled' => '1', 'name' => 'community_DNSTAP_BLOCKED', 'communities' => '65103:777'],
 ]) || $changed;
+
+$script = '/usr/local/opnsense/scripts/Xray/xray-bird-peers.php';
+if (is_readable($script)) {
+    require_once $script;
+    if (function_exists('xray_dnstap_ensure_bird_policy')) {
+        xray_dnstap_ensure_bird_policy($xray, 65103);
+        $changed = true;
+    }
+}
 
 $byName = [];
 if (isset($xray->bgpfilters->filter)) {

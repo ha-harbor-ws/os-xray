@@ -188,6 +188,15 @@ class ServiceController extends ApiMutableServiceControllerBase
         return ['log' => $output];
     }
 
+    public function dnstaplogAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+        $output = (new Backend())->configdRun('xray dnstaplog');
+        return ['log' => $output];
+    }
+
     public function birdloglevelAction()
     {
         $backend = new Backend();

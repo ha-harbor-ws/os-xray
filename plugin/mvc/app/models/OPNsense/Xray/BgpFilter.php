@@ -38,7 +38,61 @@ class BgpFilter extends BaseModel
                 'family'         => 'ipv6',
                 'tun_if'         => 'ACTIVE_TUN6_IF',
             ],
+            [
+                'enabled'        => '1',
+                'name'           => 'filter_dnstap_v4',
+                'community'      => 'community_DNSTAP_BLOCKED',
+                'family'         => 'ipv4',
+                'tun_if'         => 'ACTIVE_TUN4_IF',
+            ],
+            [
+                'enabled'        => '1',
+                'name'           => 'filter_dnstap_v6',
+                'community'      => 'community_DNSTAP_BLOCKED',
+                'family'         => 'ipv6',
+                'tun_if'         => 'ACTIVE_TUN6_IF',
+            ],
         ];
+    }
+
+    public function ensureDnstapFilters(): void
+    {
+        $commUuid = (new BgpCommunity())->ensureDnstapBlockedCommunity();
+        $want = [
+            'filter_dnstap_v4' => ['family' => 'ipv4', 'tun_if' => 'ACTIVE_TUN4_IF'],
+            'filter_dnstap_v6' => ['family' => 'ipv6', 'tun_if' => 'ACTIVE_TUN6_IF'],
+        ];
+        $have = [];
+        if (method_exists($this->filter, 'iterateItems')) {
+            foreach ($this->filter->iterateItems() as $item) {
+                $have[trim((string)$item->name)] = true;
+            }
+        }
+        $added = false;
+        foreach ($want as $name => $meta) {
+            if (!empty($have[$name])) {
+                continue;
+            }
+            if (!method_exists($this->filter, 'add')) {
+                return;
+            }
+            $uuid = $this->filter->add();
+            $node = $this->filter->{$uuid};
+            if ($node !== null && method_exists($node, 'setNodes')) {
+                $node->setNodes([
+                    'enabled'   => '1',
+                    'name'      => $name,
+                    'community' => $commUuid !== '' ? $commUuid : 'community_DNSTAP_BLOCKED',
+                    'family'    => $meta['family'],
+                    'tun_if'    => $meta['tun_if'],
+                ]);
+                $added = true;
+            }
+        }
+        if ($added) {
+            $this->serializeToConfig();
+            Config::getInstance()->save();
+        }
     }
 
     public function seedDefaultFiltersIfEmpty(): void

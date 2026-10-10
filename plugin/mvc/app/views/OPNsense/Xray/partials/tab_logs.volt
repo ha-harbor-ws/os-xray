@@ -24,6 +24,11 @@
                             <i class="fa fa-sitemap fa-fw"></i> {{ lang._('Bird Log') }}
                         </a>
                     </li>
+                    <li>
+                        <a data-toggle="tab" href="#logDnstap">
+                            <i class="fa fa-exchange fa-fw"></i> {{ lang._('DNStap Log') }}
+                        </a>
+                    </li>
                 </ul>
 
             </div>
@@ -105,6 +110,22 @@
                                 background: #1e1e1e; color: #d4d4d4; font-family: monospace;
                                 font-size: 12px; padding: 12px; border-radius: 4px;
                                 border: 1px solid #444;">{{ lang._('Click "Bird Log" to load.') }}</pre>
+                </div>
+
+                <div id="logDnstap" class="tab-pane fade in" style="padding-top: 10px;">
+                    <div style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+                        <button id="logDnstapRefreshBtn" class="btn btn-sm btn-default">
+                            <i class="fa fa-refresh fa-fw"></i> {{ lang._('Refresh') }}
+                        </button>
+                        <span class="text-muted" style="font-size: 12px;">
+                            {{ lang._('/var/log/dnstap-bgp/dnstap-bgp.log — last 200 lines') }}
+                        </span>
+                    </div>
+                    <pre id="logDnstapContent"
+                         style="min-height: 300px; max-height: 550px; overflow-y: auto;
+                                background: #1e1e1e; color: #d4d4d4; font-family: monospace;
+                                font-size: 12px; padding: 12px; border-radius: 4px;
+                                border: 1px solid #444;">{{ lang._('Click "DNStap Log" to load.') }}</pre>
                 </div>
 
             </div>

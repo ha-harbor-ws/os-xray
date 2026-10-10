@@ -11,6 +11,10 @@ const XRAY_DNSTAP_SOCK           = '/var/unbound/var/run/dnstap-bgp/dnstap.sock'
 const XRAY_DNSTAP_SOCK_CHROOT    = '/var/run/dnstap-bgp/dnstap.sock';
 const XRAY_DNSTAP_BGP_CONF       = '/usr/local/etc/dnstap-bgp/dnstap-bgp.conf';
 const XRAY_DNSTAP_BGP_SAMPLE     = '/usr/local/etc/dnstap-bgp/dnstap-bgp.conf.sample';
+const XRAY_DNSTAP_DEFAULT_BLOCKED_URLS = [
+    'https://github.com/1andrevich/Re-filter-lists/releases/download/01082026/domains_all.lst',
+    'https://community.antifilter.download/list/domains.lst',
+];
 const XRAY_DNSTAP_PERM           = '0666';
 const XRAY_DNSTAP_RC             = '/usr/local/etc/rc.conf.d/dnstap_bgp';
 
@@ -166,7 +170,7 @@ function xray_dnstap_bird_neighbor_params(): array
 {
     $host = '192.168.113.1';
     $jail = '192.168.113.2';
-    $ipv6 = false;
+    $ipv6 = true;
     $localAs = xray_dnstap_bird_local_as();
     if (is_readable(XRAY_DNSTAP_BGP_CONF)) {
         $raw = (string)file_get_contents(XRAY_DNSTAP_BGP_CONF);
@@ -455,12 +459,13 @@ function xray_dnstap_ensure_domain_files(): void
     }
     $emptyDomains = "# One lowercase FQDN per line. IDN/punycode is not supported.\n";
     $emptyUrls = "# HTTP(S) URLs of domain lists. One URL per line.\n";
+    $blockedUrls = $emptyUrls . implode("\n", XRAY_DNSTAP_DEFAULT_BLOCKED_URLS) . "\n";
     $files = [
         $blocked                      => $emptyDomains,
         $unblocked                    => $emptyDomains,
         $dir . '/blocked-extra.txt'   => $emptyDomains,
         $dir . '/unblocked-extra.txt' => $emptyDomains,
-        $dir . '/blocked-urls.txt'    => $emptyUrls,
+        $dir . '/blocked-urls.txt'    => $blockedUrls,
         $dir . '/unblocked-urls.txt'  => $emptyUrls,
     ];
     foreach ($files as $path => $body) {
@@ -473,6 +478,81 @@ function xray_dnstap_ensure_domain_files(): void
         }
         @chmod($path, 0644);
         echo "dnstap: created empty {$path}\n";
+    }
+    xray_dnstap_seed_default_blocked_urls($dir . '/blocked-urls.txt');
+}
+
+function xray_dnstap_seed_default_blocked_urls(string $path): void
+{
+    $raw = is_readable($path) ? (string)file_get_contents($path) : '';
+    $have = [];
+    foreach (preg_split("/\r\n|\n|\r/", $raw) as $line) {
+        $trim = trim($line);
+        if ($trim !== '') {
+            $have[strtolower($trim)] = true;
+        }
+    }
+    $add = [];
+    foreach (XRAY_DNSTAP_DEFAULT_BLOCKED_URLS as $url) {
+        if (!isset($have[strtolower($url)])) {
+            $add[] = $url;
+        }
+    }
+    if ($add === []) {
+        return;
+    }
+    $body = $raw === ''
+        ? "# HTTP(S) URLs of domain lists. One URL per line.\n" . implode("\n", $add) . "\n"
+        : rtrim($raw) . "\n" . implode("\n", $add) . "\n";
+    if (@file_put_contents($path, $body) !== false) {
+        @chmod($path, 0644);
+        echo "dnstap: seeded default blocked URL(s) in {$path}\n";
+    }
+}
+
+function xray_dnstap_with_default_blocked_urls(array $rows): array
+{
+    $have = [];
+    foreach ($rows as $row) {
+        $v = strtolower(trim((string)($row['value'] ?? '')));
+        if ($v !== '') {
+            $have[$v] = true;
+        }
+    }
+    foreach (XRAY_DNSTAP_DEFAULT_BLOCKED_URLS as $url) {
+        if (!isset($have[strtolower($url)])) {
+            $rows[] = ['key' => 'url', 'value' => $url];
+        }
+    }
+    return $rows;
+}
+
+function xray_dnstap_fetch_lists_on_start(): void
+{
+    if (function_exists('xray_dnstap_refresh_from_urls')) {
+        $result = xray_dnstap_refresh_from_urls();
+        if (empty($result['has_urls']) && empty($result['wrote'])) {
+            echo "dnstap: no domain list URLs — skip download\n";
+            return;
+        }
+        echo "dnstap: fetched " . (int)($result['fetched'] ?? 0) . " URL(s), "
+            . (int)($result['blocked'] ?? 0) . " blocked + "
+            . (int)($result['unblocked'] ?? 0) . " unblocked (lowercase, unique)\n";
+        $failed = $result['failed'] ?? [];
+        if (is_array($failed) && $failed !== []) {
+            echo "dnstap: could not download: " . implode(' ', $failed) . "\n";
+        }
+        return;
+    }
+    $script = __DIR__ . '/xray-dnstap-conf.php';
+    if (!is_readable($script)) {
+        echo "dnstap: skip URL fetch — xray-dnstap-conf.php missing\n";
+        return;
+    }
+    $php = is_executable('/usr/local/bin/php') ? '/usr/local/bin/php' : 'php';
+    exec($php . ' ' . escapeshellarg($script) . ' fetch 2>&1', $out);
+    foreach ($out as $line) {
+        echo $line . "\n";
     }
 }
 
@@ -490,6 +570,7 @@ function xray_dnstap_unbound_activate(): void
     xray_dnstap_write_unbound_dnstap(true);
     xray_dnstap_write_bgp_listen();
     xray_dnstap_ensure_domain_files();
+    xray_dnstap_fetch_lists_on_start();
     $blockedList   = '/usr/local/etc/dnstap-bgp/blocked.txt';
     $unblockedList = '/usr/local/etc/dnstap-bgp/unblocked.txt';
     $as = xray_dnstap_bird_local_as();

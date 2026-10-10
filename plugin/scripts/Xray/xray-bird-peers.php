@@ -852,17 +852,13 @@ function xray_bird_render_peer(array $p, string $protoName): string
     }
     if (($p['ipv4'] ?? '0') === '1') {
         $lines[] = '    ipv4 {';
-        $lines[] = $dnstap
-            ? '        import all;'
-            : xray_bird_impexp_line('import', (string)($p['ipv4_import'] ?? 'none'));
+        $lines[] = xray_bird_impexp_line('import', (string)($p['ipv4_import'] ?? 'none'));
         $lines[] = '        export none;';
         $lines[] = '    };';
     }
     if (($p['ipv6'] ?? '0') === '1') {
         $lines[] = '    ipv6 {';
-        $lines[] = $dnstap
-            ? '        import all;'
-            : xray_bird_impexp_line('import', (string)($p['ipv6_import'] ?? 'none'));
+        $lines[] = xray_bird_impexp_line('import', (string)($p['ipv6_import'] ?? 'none'));
         $lines[] = '        export none;';
         $lines[] = '    };';
     }
@@ -1048,6 +1044,27 @@ function xray_birdc_query(string $query): string
     return implode("\n", $out);
 }
 
+function xray_parse_birdc_route_count(string $text): ?int
+{
+    if (preg_match('/(\d+)\s+of\s+\d+\s+routes/i', $text, $m)) {
+        return (int)$m[1];
+    }
+    return null;
+}
+
+function xray_birdc_protocol_table_count(string $proto, string $table): ?int
+{
+    if ($proto === '' || !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $proto)) {
+        return null;
+    }
+    if ($table !== 'master4' && $table !== 'master6') {
+        return null;
+    }
+    return xray_parse_birdc_route_count(
+        xray_birdc_query('show route table ' . $table . ' protocol ' . $proto . ' count')
+    );
+}
+
 function xray_parse_birdc_protocols_all(string $text): array
 {
     $result  = [];
@@ -1062,13 +1079,19 @@ function xray_parse_birdc_protocols_all(string $text): array
             }
             $cur     = $m[1];
             $channel = null;
+            $rest    = trim($m[4]);
             $result[$cur] = [
                 'state'     => $m[2],
-                'info'      => trim($m[4]),
+                'info'      => $rest,
                 'imported'  => 0,
                 'imported4' => 0,
                 'imported6' => 0,
             ];
+            if (preg_match('/Channel\s+ipv6/i', $rest)) {
+                $channel = 'ipv6';
+            } elseif (preg_match('/Channel\s+ipv4/i', $rest)) {
+                $channel = 'ipv4';
+            }
             continue;
         }
         if ($cur === null) {
@@ -1083,15 +1106,18 @@ function xray_parse_birdc_protocols_all(string $text): array
             $result[$cur]['info'] = trim($sm[1]);
             continue;
         }
-        if (preg_match('/^\s+Channel\s+ipv4\b/i', $line)) {
-            $channel = 'ipv4';
-            continue;
-        }
-        if (preg_match('/^\s+Channel\s+ipv6\b/i', $line)) {
+        if (preg_match('/Channel\s+ipv6(?:\s+unicast)?\b/i', $line)) {
             $channel = 'ipv6';
             continue;
         }
-        if (preg_match('/^\s+Routes:\s+(\d+)\s+imported/', $line, $rm)) {
+        if (preg_match('/Channel\s+ipv4(?:\s+unicast)?\b/i', $line)) {
+            $channel = 'ipv4';
+            continue;
+        }
+        if (preg_match('/Routes:\s+(\d+)\s+imported/', $line, $rm)) {
+            if ($channel === null) {
+                continue;
+            }
             $n = (int)$rm[1];
             $result[$cur]['imported'] += $n;
             if ($channel === 'ipv6') {
@@ -1153,6 +1179,15 @@ function xray_bgp_peers_runtime_status(): array
             $row['imported']  = $live[$proto]['imported'];
             $row['imported4'] = $live[$proto]['imported4'] ?? 0;
             $row['imported6'] = $live[$proto]['imported6'] ?? 0;
+            $n4 = xray_birdc_protocol_table_count($proto, 'master4');
+            $n6 = xray_birdc_protocol_table_count($proto, 'master6');
+            if ($n4 !== null) {
+                $row['imported4'] = $n4;
+            }
+            if ($n6 !== null) {
+                $row['imported6'] = $n6;
+            }
+            $row['imported'] = $row['imported4'] + $row['imported6'];
         } else {
             $row['state'] = 'down';
             $row['info']  = 'not in BIRD';
@@ -1174,6 +1209,75 @@ function xray_xml_set_child(\SimpleXMLElement $node, string $name, string $value
     $node->{$name} = $value;
 }
 
+function xray_xml_new_uuid(): string
+{
+    $b = random_bytes(16);
+    $b[6] = chr((ord($b[6]) & 0x0f) | 0x40);
+    $b[8] = chr((ord($b[8]) & 0x3f) | 0x80);
+    $h = bin2hex($b);
+    return substr($h, 0, 8) . '-' . substr($h, 8, 4) . '-' . substr($h, 12, 4)
+        . '-' . substr($h, 16, 4) . '-' . substr($h, 20, 12);
+}
+
+function xray_xml_find_named($parent, string $child, string $name)
+{
+    if ($parent === null || !isset($parent->{$child})) {
+        return null;
+    }
+    foreach ($parent->{$child} as $item) {
+        if (strcasecmp(trim((string)($item->name ?? '')), $name) === 0) {
+            return $item;
+        }
+    }
+    return null;
+}
+
+function xray_dnstap_ensure_bird_policy(\SimpleXMLElement $xray, int $localAs): array
+{
+    if ($localAs <= 0) {
+        $localAs = 65103;
+    }
+    if (!isset($xray->bgpcommunities)) {
+        $xray->addChild('bgpcommunities');
+    }
+    if (!isset($xray->bgpfilters)) {
+        $xray->addChild('bgpfilters');
+    }
+    $commName = 'community_DNSTAP_BLOCKED';
+    $commVal  = $localAs . ':777';
+    $comm     = xray_xml_find_named($xray->bgpcommunities, 'community', $commName);
+    if ($comm === null) {
+        $comm = $xray->bgpcommunities->addChild('community');
+        $comm->addAttribute('uuid', xray_xml_new_uuid());
+        $comm->addChild('enabled', '1');
+        $comm->addChild('name', $commName);
+        $comm->addChild('communities', $commVal);
+    } else {
+        xray_xml_set_child($comm, 'enabled', '1');
+        xray_xml_set_child($comm, 'communities', $commVal);
+    }
+    $commUuid = (string)$comm['uuid'];
+    $uuids    = ['community' => $commUuid];
+    foreach ([
+        'filter_dnstap_v4' => ['family' => 'ipv4', 'tun_if' => 'ACTIVE_TUN4_IF'],
+        'filter_dnstap_v6' => ['family' => 'ipv6', 'tun_if' => 'ACTIVE_TUN6_IF'],
+    ] as $fname => $meta) {
+        $f = xray_xml_find_named($xray->bgpfilters, 'filter', $fname);
+        if ($f === null) {
+            $f = $xray->bgpfilters->addChild('filter');
+            $f->addAttribute('uuid', xray_xml_new_uuid());
+            $f->addChild('name', $fname);
+        }
+        xray_xml_set_child($f, 'enabled', '1');
+        xray_xml_set_child($f, 'name', $fname);
+        xray_xml_set_child($f, 'community', $commUuid !== '' ? $commUuid : $commName);
+        xray_xml_set_child($f, 'family', $meta['family']);
+        xray_xml_set_child($f, 'tun_if', $meta['tun_if']);
+        $uuids[$fname] = (string)$f['uuid'];
+    }
+    return $uuids;
+}
+
 /**
  * Create or update the dnstap BGP peer in config.xml, rewrite BIRD includes, birdc configure.
  */
@@ -1182,7 +1286,7 @@ function xray_dnstap_sync_bird_peer(bool $enable, array $params): void
     $neighbor = trim((string)($params['jail'] ?? ''));
     $source   = trim((string)($params['host'] ?? ''));
     $localAs  = (int)($params['local_as'] ?? 65103);
-    $useV6    = !empty($params['ipv6']);
+    $useV6    = array_key_exists('ipv6', $params) ? !empty($params['ipv6']) : true;
     if ($neighbor === '') {
         echo "dnstap: skip BIRD peer — empty neighbor\n";
         return;
@@ -1229,6 +1333,8 @@ function xray_dnstap_sync_bird_peer(bool $enable, array $params): void
                 }
             }
         }
+        $policy = xray_dnstap_ensure_bird_policy($xray, $localAs);
+
         if ($found === null) {
             $found = $bgp->addChild('peer');
             $b = random_bytes(16);
@@ -1249,8 +1355,12 @@ function xray_dnstap_sync_bird_peer(bool $enable, array $params): void
         xray_xml_set_child($found, 'source_address', $source);
         xray_xml_set_child($found, 'ipv4', '1');
         xray_xml_set_child($found, 'ipv6', $useV6 ? '1' : '0');
-        xray_xml_set_child($found, 'ipv4_import', '');
-        xray_xml_set_child($found, 'ipv6_import', '');
+        xray_xml_set_child($found, 'ipv4_import', (string)($policy['filter_dnstap_v4'] ?? 'filter_dnstap_v4'));
+        xray_xml_set_child($found, 'ipv6_import', (string)($policy['filter_dnstap_v6'] ?? 'filter_dnstap_v6'));
+        xray_xml_set_child($found, 'ipv4_community_name', 'community_DNSTAP_BLOCKED');
+        xray_xml_set_child($found, 'ipv6_community_name', 'community_DNSTAP_BLOCKED');
+        xray_xml_set_child($found, 'ipv4_community', $localAs . ':777');
+        xray_xml_set_child($found, 'ipv6_community', $localAs . ':777');
         xray_xml_set_child($found, 'ipv4_export', 'none');
         xray_xml_set_child($found, 'ipv6_export', 'none');
         xray_xml_set_child($found, 'multihop', '0');
