@@ -29,6 +29,58 @@ class BgpCommunity extends BaseModel
         ];
     }
 
+    public static function liveNames(): array
+    {
+        $out = [];
+        $mdl = new self();
+        if (!method_exists($mdl->community, 'iterateItems')) {
+            return $out;
+        }
+        foreach ($mdl->community->iterateItems() as $uuid => $item) {
+            $out[(string)$uuid] = (string)$item->name;
+        }
+        natcasesort($out);
+        return $out;
+    }
+
+    public static function overlayDropdownFromNames(array $names, $current): array
+    {
+        $selected = '';
+        if (is_array($current)) {
+            foreach ($current as $k => $v) {
+                if (is_array($v) && !empty($v['selected'])) {
+                    $selected = (string)$k;
+                    break;
+                }
+            }
+        } elseif (is_string($current) && $current !== '') {
+            $selected = $current;
+        }
+        if ($selected !== '' && !isset($names[$selected])) {
+            foreach ($names as $uuid => $name) {
+                if (strcasecmp((string)$name, $selected) === 0) {
+                    $selected = (string)$uuid;
+                    break;
+                }
+            }
+        }
+        $out = [
+            '' => ['value' => 'none', 'selected' => $selected === '' ? 1 : 0],
+        ];
+        foreach ($names as $uuid => $name) {
+            $out[(string)$uuid] = [
+                'value'    => (string)$name,
+                'selected' => ((string)$uuid === $selected) ? 1 : 0,
+            ];
+        }
+        return $out;
+    }
+
+    public static function overlayDropdown($current): array
+    {
+        return self::overlayDropdownFromNames(self::liveNames(), $current);
+    }
+
     public function ensureDnstapBlockedCommunity(): string
     {
         $name = 'community_DNSTAP_BLOCKED';

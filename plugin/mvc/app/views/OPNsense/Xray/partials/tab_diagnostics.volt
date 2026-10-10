@@ -25,6 +25,12 @@
                     <i class="fa fa-clipboard fa-fw"></i> {{ lang._('Copy Debug Info') }}
                 </button>
                 <span id="copyDebugResult" style="font-size: 12px;"></span>
+                <div style="width: 1px; height: 22px; background: #ddd;"></div>
+                <a href="#" class="xray-showhelp" id="help_for_diagnostics"><i class="fa fa-info-circle"></i></a>
+                {{ partial('OPNsense/Xray/partials/help_toggle') }}
+                <div class="hidden" data-for="help_for_diagnostics" style="flex-basis: 100%;">
+                    <small class="text-muted">{{ lang._('Live TUN counters for the selected instance. Copy Debug Info gathers a text snapshot for support.') }}</small>
+                </div>
             </div>
         </section>
     </div>

@@ -17,7 +17,10 @@
                             data-type="string"
                             data-formatter="rowtoggle">{{ lang._('Enabled') }}</th>
                         <th data-column-id="name"
-                            data-type="string">{{ lang._('Name') }}</th>
+                            data-type="string">
+                            <a href="#" class="xray-showhelp" id="help_for_bgp_peers"><i class="fa fa-info-circle"></i></a>
+                            {{ lang._('Name') }}
+                        </th>
                         <th data-column-id="neighbor"
                             data-type="string">{{ lang._('Neighbor') }}</th>
                         <th data-column-id="neighbor_as"
@@ -68,7 +71,10 @@
                 </tfoot>
             </table>
             <div id="BgpPeerChangeMessage" class="alert alert-info" style="display: none;" role="alert">
-                {{ lang._('Each enabled peer is written to /usr/local/etc/bird and included from bgp.conf.') }}
+                {{ lang._('After saving your changes, please click Apply to activate them.') }}
+            </div>
+            <div class="hidden" data-for="help_for_bgp_peers" style="padding: 8px 0 0;">
+                <small class="text-muted">{{ lang._('Each enabled peer is written to /usr/local/etc/bird and included from bgp.conf. Assign an import filter per address family in the peer dialog.') }}</small>
             </div>
         </section>
     </div>
@@ -93,7 +99,10 @@
                             data-type="string"
                             data-formatter="rowtoggle">{{ lang._('Enabled') }}</th>
                         <th data-column-id="name"
-                            data-type="string">{{ lang._('Name') }}</th>
+                            data-type="string">
+                            <a href="#" class="xray-showhelp" id="help_for_bgp_filters"><i class="fa fa-info-circle"></i></a>
+                            {{ lang._('Name') }}
+                        </th>
                         <th data-column-id="community"
                             data-type="string">{{ lang._('Community') }}</th>
                         <th data-column-id="family"
@@ -121,7 +130,10 @@
                 </tfoot>
             </table>
             <div id="BgpFilterChangeMessage" class="alert alert-info" style="display: none;" role="alert">
-                {{ lang._('Each enabled filter is written to /usr/local/etc/bird/filter_NAME.inc and included from filters.inc. Use the filter name in a peer Import field.') }}
+                {{ lang._('After saving your changes, please click Apply to activate them.') }}
+            </div>
+            <div class="hidden" data-for="help_for_bgp_filters" style="padding: 8px 0 0;">
+                <small class="text-muted">{{ lang._('Each enabled filter is written to /usr/local/etc/bird/filter_NAME.inc and included from filters.inc. Assign a community in the filter dialog, then select the filter on a peer.') }}</small>
             </div>
         </section>
     </div>
@@ -146,7 +158,10 @@
                             data-type="string"
                             data-formatter="rowtoggle">{{ lang._('Enabled') }}</th>
                         <th data-column-id="name"
-                            data-type="string">{{ lang._('Name') }}</th>
+                            data-type="string">
+                            <a href="#" class="xray-showhelp" id="help_for_bgp_communities"><i class="fa fa-info-circle"></i></a>
+                            {{ lang._('Name') }}
+                        </th>
                         <th data-column-id="communities"
                             data-type="string">{{ lang._('Communities') }}</th>
                         <th data-column-id="commands"
@@ -171,7 +186,10 @@
                 </tfoot>
             </table>
             <div id="BgpCommunityChangeMessage" class="alert alert-info" style="display: none;" role="alert">
-                {{ lang._('Each enabled community is written as /usr/local/etc/bird/NAME.inc (BIRD define NAME). The GUI name must match the file name without .inc.') }}
+                {{ lang._('After saving your changes, please click Apply to activate them.') }}
+            </div>
+            <div class="hidden" data-for="help_for_bgp_communities" style="padding: 8px 0 0;">
+                <small class="text-muted">{{ lang._('Each enabled community is written as /usr/local/etc/bird/NAME.inc (BIRD define NAME). Select it on a BGP filter.') }}</small>
             </div>
         </section>
     </div>

@@ -55,6 +55,39 @@ class BgpFilter extends BaseModel
         ];
     }
 
+    public static function liveNames(): array
+    {
+        $out = [];
+        $mdl = new self();
+        if (!method_exists($mdl->filter, 'iterateItems')) {
+            return $out;
+        }
+        foreach ($mdl->filter->iterateItems() as $uuid => $item) {
+            $out[(string)$uuid] = (string)$item->name;
+        }
+        natcasesort($out);
+        return $out;
+    }
+
+    public static function overlayDropdown($current): array
+    {
+        return BgpCommunity::overlayDropdownFromNames(self::liveNames(), $current);
+    }
+
+    public function filterUuidByName(string $name): string
+    {
+        $name = trim($name);
+        if ($name === '' || !method_exists($this->filter, 'iterateItems')) {
+            return '';
+        }
+        foreach ($this->filter->iterateItems() as $uuid => $item) {
+            if (strcasecmp(trim((string)$item->name), $name) === 0) {
+                return (string)$uuid;
+            }
+        }
+        return '';
+    }
+
     public function ensureDnstapFilters(): void
     {
         $commUuid = (new BgpCommunity())->ensureDnstapBlockedCommunity();
@@ -63,12 +96,32 @@ class BgpFilter extends BaseModel
             'filter_dnstap_v6' => ['family' => 'ipv6', 'tun_if' => 'ACTIVE_TUN6_IF'],
         ];
         $have = [];
+        $changed = false;
         if (method_exists($this->filter, 'iterateItems')) {
             foreach ($this->filter->iterateItems() as $item) {
-                $have[trim((string)$item->name)] = true;
+                $n = trim((string)$item->name);
+                $have[$n] = true;
+                if (!isset($want[$n])) {
+                    continue;
+                }
+                if ((string)$item->enabled !== '1') {
+                    $item->enabled = '1';
+                    $changed = true;
+                }
+                if ($commUuid !== '' && (string)$item->community !== $commUuid) {
+                    $item->community = $commUuid;
+                    $changed = true;
+                }
+                if ((string)$item->family !== $want[$n]['family']) {
+                    $item->family = $want[$n]['family'];
+                    $changed = true;
+                }
+                if ((string)$item->tun_if !== $want[$n]['tun_if']) {
+                    $item->tun_if = $want[$n]['tun_if'];
+                    $changed = true;
+                }
             }
         }
-        $added = false;
         foreach ($want as $name => $meta) {
             if (!empty($have[$name])) {
                 continue;
@@ -86,12 +139,15 @@ class BgpFilter extends BaseModel
                     'family'    => $meta['family'],
                     'tun_if'    => $meta['tun_if'],
                 ]);
-                $added = true;
+                $changed = true;
             }
         }
-        if ($added) {
+        if ($changed) {
             $this->serializeToConfig();
             Config::getInstance()->save();
+            if (method_exists(self::class, 'flushCacheData')) {
+                self::flushCacheData();
+            }
         }
     }
 

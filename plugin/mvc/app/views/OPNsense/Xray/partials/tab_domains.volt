@@ -3,17 +3,27 @@
         #domains table.table {
             border: 1px solid #ddd;
             margin-bottom: 0;
+            background-color: #f9f9f9;
         }
         #domains table.table > thead > tr > th,
         #domains table.table > tbody > tr > th,
         #domains table.table > tbody > tr > td {
             border: 1px solid #ddd;
             vertical-align: middle;
+            background-color: #f9f9f9;
         }
         #domains table.table > thead > tr > th {
-            background: #f5f5f5;
+            background-color: #f5f5f5;
             font-weight: 600;
             color: #333;
+        }
+        #domains table.table-striped > tbody > tr:nth-of-type(even) > td,
+        #domains table.table-striped > tbody > tr:nth-of-type(even) > th {
+            background-color: #f3f3f3;
+        }
+        #domains table.table-hover > tbody > tr:hover > td,
+        #domains table.table-hover > tbody > tr:hover > th {
+            background-color: #ececec;
         }
         #domains .dnstap-row-edit {
             display: flex;
@@ -39,11 +49,27 @@
     </style>
     <div class="row">
         <section class="col-xs-12">
+            <div style="padding: 8px 15px; border-bottom: 1px solid #ddd;
+                        display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
+                {{ partial('OPNsense/Xray/partials/help_toggle') }}
+            </div>
+        </section>
+    </div>
+    <div class="row">
+        <section class="col-xs-12">
             <div class="dnstap-section-wrap">
                 <table class="table table-condensed table-hover table-striped">
                     <thead>
                         <tr>
-                            <th>{{ lang._('Extra blocked domains') }}</th>
+                            <th>
+                                <a href="#" class="xray-showhelp" id="help_for_domains_blocked">
+                                    <i class="fa fa-info-circle"></i>
+                                </a>
+                                {{ lang._('Extra blocked domains') }}
+                                <div class="hidden" data-for="help_for_domains_blocked">
+                                    <small>{{ lang._('Add a domain to the extra blocked list. Remove deletes the domain in the field. The magnifying glass shows all extra blocked names.') }}</small>
+                                </div>
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
@@ -72,7 +98,15 @@
                 <table class="table table-condensed table-hover table-striped">
                     <thead>
                         <tr>
-                            <th>{{ lang._('Extra unblocked domains') }}</th>
+                            <th>
+                                <a href="#" class="xray-showhelp" id="help_for_domains_unblocked">
+                                    <i class="fa fa-info-circle"></i>
+                                </a>
+                                {{ lang._('Extra unblocked domains') }}
+                                <div class="hidden" data-for="help_for_domains_unblocked">
+                                    <small>{{ lang._('Add a domain to the extra unblocked list. Names also present in blocked are dropped on Apply.') }}</small>
+                                </div>
+                            </th>
                         </tr>
                     </thead>
                     <tbody>

@@ -96,6 +96,52 @@ class BgpPeer extends BaseModel
         Config::getInstance()->save();
     }
 
+    public function ensureDnstapPeerFilters(): void
+    {
+        $filters = new BgpFilter();
+        $filters->ensureDnstapFilters();
+        $v4 = $filters->filterUuidByName('filter_dnstap_v4');
+        $v6 = $filters->filterUuidByName('filter_dnstap_v6');
+        if ($v4 === '' && $v6 === '') {
+            return;
+        }
+        if (!method_exists($this->peer, 'iterateItems')) {
+            return;
+        }
+        $changed = false;
+        foreach ($this->peer->iterateItems() as $item) {
+            if (strcasecmp(trim((string)$item->name), 'dnstap') !== 0) {
+                continue;
+            }
+            $imp4 = trim((string)$item->ipv4_import);
+            $imp6 = trim((string)$item->ipv6_import);
+            if ($v4 !== '' && ($imp4 === '' || $imp4 === 'none' || strcasecmp($imp4, 'filter_dnstap_v4') === 0)) {
+                $item->ipv4_import = $v4;
+                $changed = true;
+            }
+            if ($v6 !== '' && ($imp6 === '' || $imp6 === 'none' || strcasecmp($imp6, 'filter_dnstap_v6') === 0)) {
+                $item->ipv6_import = $v6;
+                $changed = true;
+            }
+            if (trim((string)$item->ipv4_community_name) === '') {
+                $item->ipv4_community_name = 'community_DNSTAP_BLOCKED';
+                $changed = true;
+            }
+            if (trim((string)$item->ipv6_community_name) === '') {
+                $item->ipv6_community_name = 'community_DNSTAP_BLOCKED';
+                $changed = true;
+            }
+            break;
+        }
+        if ($changed) {
+            $this->serializeToConfig();
+            Config::getInstance()->save();
+            if (method_exists(self::class, 'flushCacheData')) {
+                self::flushCacheData();
+            }
+        }
+    }
+
     public function migrateAcceptImportNames(): void
     {
         if (!method_exists($this->peer, 'iterateItems')) {

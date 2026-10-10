@@ -18,6 +18,7 @@ class BgppeerController extends ApiMutableModelControllerBase
         (new \OPNsense\Xray\BgpFilter())->ensureDnstapFilters();
         (new \OPNsense\Xray\BgpPeer())->seedDefaultPeersIfEmpty();
         (new \OPNsense\Xray\BgpPeer())->migrateAcceptImportNames();
+        (new \OPNsense\Xray\BgpPeer())->ensureDnstapPeerFilters();
         $response = $this->searchBase('peer', [
             'enabled',
             'name',
@@ -168,7 +169,20 @@ class BgppeerController extends ApiMutableModelControllerBase
 
     public function getItemAction($uuid = null)
     {
-        return $this->getBase('peer', 'peer', $uuid);
+        (new \OPNsense\Xray\BgpFilter())->ensureDnstapFilters();
+        (new \OPNsense\Xray\BgpPeer())->migrateAcceptImportNames();
+        (new \OPNsense\Xray\BgpPeer())->ensureDnstapPeerFilters();
+        $result = $this->getBase('peer', 'peer', $uuid);
+        if (isset($result['peer']) && is_array($result['peer'])) {
+            foreach (['ipv4_import', 'ipv6_import'] as $field) {
+                if (array_key_exists($field, $result['peer'])) {
+                    $result['peer'][$field] = \OPNsense\Xray\BgpFilter::overlayDropdown(
+                        $result['peer'][$field]
+                    );
+                }
+            }
+        }
+        return $result;
     }
 
     public function addItemAction()

@@ -1370,6 +1370,15 @@ function xray_dnstap_sync_bird_peer(bool $enable, array $params): void
         if (method_exists($cnf, 'forceReload')) {
             $cnf->forceReload();
         }
+        foreach ([
+            \OPNsense\Xray\BgpFilter::class,
+            \OPNsense\Xray\BgpCommunity::class,
+            \OPNsense\Xray\BgpPeer::class,
+        ] as $cls) {
+            if (class_exists($cls) && method_exists($cls, 'flushCacheData')) {
+                $cls::flushCacheData();
+            }
+        }
         echo "dnstap: BIRD peer dnstap neighbor {$neighbor} as {$localAs} (iBGP) enabled=" . ($enable ? '1' : '0') . " ipv6=" . ($useV6 ? '1' : '0') . "\n";
     } catch (\Throwable $e) {
         echo "dnstap: config.xml peer update failed: " . $e->getMessage() . "\n";

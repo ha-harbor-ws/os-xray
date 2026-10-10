@@ -7,6 +7,41 @@
             });
         }
 
+        function xrayHelpIsOn() {
+            return !!(window.sessionStorage && sessionStorage.getItem('all_help_preset') === '1');
+        }
+
+        function xrayHelpClasses() {
+            return xrayHelpIsOn() ? 'show' : 'hidden';
+        }
+
+        function xraySyncHelp() {
+            var on = xrayHelpIsOn();
+            $('[data-for*="help_for"]').toggleClass('show', on).toggleClass('hidden', !on);
+            $('.xray-full-help-toggle')
+                .toggleClass('fa-toggle-on', on).toggleClass('fa-toggle-off', !on)
+                .toggleClass('text-success', on).toggleClass('text-danger', !on);
+            $('[id*="show_all_help"]')
+                .toggleClass('fa-toggle-on', on).toggleClass('fa-toggle-off', !on)
+                .toggleClass('text-success', on).toggleClass('text-danger', !on);
+        }
+
+        $(document).on('click', '.xray-full-help', function (e) {
+            e.preventDefault();
+            if (window.sessionStorage) {
+                sessionStorage.setItem('all_help_preset', xrayHelpIsOn() ? '0' : '1');
+            }
+            xraySyncHelp();
+        });
+        $(document).on('click', 'a.xray-showhelp', function (e) {
+            e.preventDefault();
+            $("*[data-for='" + $(this).attr('id') + "']").toggleClass('hidden show');
+        });
+        $(document).on('click', '[id*="show_all_help"]', function () {
+            setTimeout(xraySyncHelp, 0);
+        });
+        setTimeout(xraySyncHelp, 0);
+
         // ── Per-instance status overlay ───────────────────────────
         var instanceStatusCache = {};
         var instanceTestCache   = {};
@@ -426,16 +461,38 @@
             return map[key] || '';
         }
 
+        function dnstapHelpId(key) {
+            return 'help_for_dnstap_' + String(key).replace(/[^A-Za-z0-9_]/g, '_');
+        }
+
+        function dnstapHelpBlock(hid, text) {
+            if (!text) {
+                return $();
+            }
+            return $('<div/>').addClass(xrayHelpClasses()).attr('data-for', hid)
+                .append($('<small/>').text(text));
+        }
+
         function dnstapConfRow(key, value) {
+            var hid = dnstapHelpId(key);
+            var help = dnstapConfHelp(key);
             var $tr = $('<tr/>');
-            $tr.append($('<td class="dnstap-k"/>').text(dnstapConfLabel(key)));
+            var $lab = $('<td class="dnstap-k"/>');
+            if (help) {
+                $lab.append($('<a href="#" class="xray-showhelp"/>').attr('id', hid)
+                    .append($('<i class="fa fa-info-circle"/>')));
+                $lab.append(document.createTextNode(' '));
+            }
+            $lab.append(document.createTextNode(dnstapConfLabel(key)));
+            $tr.append($lab);
+            var $val = $('<td/>');
             if (key === 'ipv6') {
                 var on = value === true || value === 1 || String(value).toLowerCase() === 'true'
                     || String(value) === '1';
                 var $cb = $('<input type="checkbox"/>')
                     .attr('data-key', key)
                     .prop('checked', on);
-                $tr.append($('<td/>').append($cb));
+                $val.append($cb);
             } else {
                 var $inp = $('<input type="text" class="form-control"/>')
                     .attr('data-key', key)
@@ -444,9 +501,10 @@
                     $inp.prop('readonly', true).attr('tabindex', '-1')
                         .css({'background-color': '#eee', 'cursor': 'default'});
                 }
-                $tr.append($('<td/>').append($inp));
+                $val.append($inp);
             }
-            $tr.append($('<td class="dnstap-help-col"/>').text(dnstapConfHelp(key)));
+            $val.append(dnstapHelpBlock(hid, help));
+            $tr.append($val);
             return $tr;
         }
 
@@ -564,10 +622,6 @@
             loadDnstapConf();
         });
 
-        $(document).on('click', '#dnstapHelpToggle', function () {
-            var on = $('#dnstap').toggleClass('dnstap-help-on').hasClass('dnstap-help-on');
-            $(this).toggleClass('active', on);
-        });
         $(document).on('click', '.dnstap-list-add', function () {
             var $tbody = $(this).closest('tbody');
             var key = String($tbody.attr('data-row-key') || 'url');

@@ -25,16 +25,13 @@
                 <BlankDesc>none</BlankDesc>
                 <DisableCache>Y</DisableCache>
                 <Model>
-                    <communities>
+                    <bgpcommunity>
                         <source>OPNsense.Xray.BgpCommunity</source>
                         <items>community</items>
                         <display>name</display>
-                        <filters>
-                            <enabled>/^(?!0).*$/</enabled>
-                        </filters>
-                    </communities>
+                    </bgpcommunity>
                 </Model>
-                <ValidationMessage>Select an enabled BGP community, or none.</ValidationMessage>
+                <ValidationMessage>Select an existing BGP community, or none.</ValidationMessage>
             </community>
             <family type="OptionField">
                 <Required>Y</Required>

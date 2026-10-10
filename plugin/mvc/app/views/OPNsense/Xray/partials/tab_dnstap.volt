@@ -3,21 +3,31 @@
         #dnstap table.table {
             border: 1px solid #ddd;
             margin-bottom: 0;
+            background-color: #f9f9f9;
         }
         #dnstap table.table > thead > tr > th,
         #dnstap table.table > tbody > tr > th,
         #dnstap table.table > tbody > tr > td {
             border: 1px solid #ddd;
             vertical-align: middle;
+            background-color: #f9f9f9;
         }
         #dnstap table.table > thead > tr > th {
-            background: #f5f5f5;
+            background-color: #f5f5f5;
             font-weight: 600;
             color: #333;
         }
+        #dnstap table.table-striped > tbody > tr:nth-of-type(even) > td,
+        #dnstap table.table-striped > tbody > tr:nth-of-type(even) > th {
+            background-color: #f3f3f3;
+        }
+        #dnstap table.table-hover > tbody > tr:hover > td,
+        #dnstap table.table-hover > tbody > tr:hover > th {
+            background-color: #ececec;
+        }
         #dnstap td.dnstap-k {
             width: 22%;
-            background: #f9f9f9;
+            background-color: #f5f5f5;
             font-weight: 600;
             color: #333;
             white-space: nowrap;
@@ -42,24 +52,6 @@
         #dnstap .dnstap-row-edit .btn {
             flex-shrink: 0;
         }
-        #dnstap tr.dnstap-help-col,
-        #dnstap th.dnstap-help-col,
-        #dnstap td.dnstap-help-col {
-            display: none;
-        }
-        #dnstap.dnstap-help-on tr.dnstap-help-col {
-            display: table-row;
-        }
-        #dnstap.dnstap-help-on th.dnstap-help-col,
-        #dnstap.dnstap-help-on td.dnstap-help-col {
-            display: table-cell;
-        }
-        #dnstap td.dnstap-help-col,
-        #dnstap th.dnstap-help-text {
-            font-weight: normal;
-            color: #737373;
-            font-size: 12px;
-        }
         #dnstap .dnstap-section-wrap {
             margin-top: 16px;
         }
@@ -82,10 +74,7 @@
                     <i class="fa fa-stop fa-fw"></i> {{ lang._('Stop') }}
                 </button>
                 <div style="width: 1px; height: 22px; background: #ddd;"></div>
-                <button type="button" class="btn btn-xs btn-default" id="dnstapHelpToggle"
-                        title="{{ lang._('Show or hide field help') }}">
-                    <i class="fa fa-question-circle fa-fw"></i> {{ lang._('Help') }}
-                </button>
+                {{ partial('OPNsense/Xray/partials/help_toggle') }}
             </div>
         </section>
     </div>
@@ -95,13 +84,17 @@
                 <table class="table table-condensed table-hover table-striped">
                     <thead>
                         <tr>
-                            <th>{{ lang._('Config') }}</th>
-                            <th>{{ lang._('Value') }}</th>
-                            <th class="dnstap-help-col">{{ lang._('Help') }}</th>
-                        </tr>
-                        <tr class="dnstap-help-col">
-                            <th colspan="3" class="dnstap-help-text">
-                                {{ lang._('If a name is in both lists, blocked wins. Communities are applied on SIGHUP.') }}
+                            <th>
+                                <a href="#" class="xray-showhelp" id="help_for_dnstap_config">
+                                    <i class="fa fa-info-circle"></i>
+                                </a>
+                                {{ lang._('Config') }}
+                            </th>
+                            <th>
+                                {{ lang._('Value') }}
+                                <div class="hidden" data-for="help_for_dnstap_config">
+                                    <small>{{ lang._('If a name is in both lists, blocked wins. Communities are applied on SIGHUP.') }}</small>
+                                </div>
                             </th>
                         </tr>
                     </thead>
@@ -113,13 +106,14 @@
                     <thead>
                         <tr>
                             <th>
+                                <a href="#" class="xray-showhelp" id="help_for_dnstap_blocked_urls">
+                                    <i class="fa fa-info-circle"></i>
+                                </a>
                                 {{ lang._('Blocked domain list URLs') }}
                                 <span id="dnstapBlockedCount" class="label label-info" style="font-size:11px; margin-left:8px; display:none;"></span>
-                            </th>
-                        </tr>
-                        <tr class="dnstap-help-col">
-                            <th class="dnstap-help-text">
-                                {{ lang._('HTTP(S) links to blocked domain lists. Apply downloads them and writes a unique summarized file.') }}
+                                <div class="hidden" data-for="help_for_dnstap_blocked_urls">
+                                    <small>{{ lang._('HTTP(S) links to blocked domain lists. Apply downloads them and writes a unique summarized file.') }}</small>
+                                </div>
                             </th>
                         </tr>
                     </thead>
@@ -131,13 +125,14 @@
                     <thead>
                         <tr>
                             <th>
+                                <a href="#" class="xray-showhelp" id="help_for_dnstap_unblocked_urls">
+                                    <i class="fa fa-info-circle"></i>
+                                </a>
                                 {{ lang._('Unblocked domain list URLs') }}
                                 <span id="dnstapUnblockedCount" class="label label-info" style="font-size:11px; margin-left:8px; display:none;"></span>
-                            </th>
-                        </tr>
-                        <tr class="dnstap-help-col">
-                            <th class="dnstap-help-text">
-                                {{ lang._('HTTP(S) links to unblocked domain lists. Names also present in blocked are dropped.') }}
+                                <div class="hidden" data-for="help_for_dnstap_unblocked_urls">
+                                    <small>{{ lang._('HTTP(S) links to unblocked domain lists. Names also present in blocked are dropped.') }}</small>
+                                </div>
                             </th>
                         </tr>
                     </thead>

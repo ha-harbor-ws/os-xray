@@ -16,7 +16,7 @@
         <id>filter.community</id>
         <label>Community</label>
         <type>dropdown</type>
-        <help>Select one enabled BGP community define. Leave as none for a filter without community match.</help>
+        <help>Select one configured BGP community define. Leave as none for a filter without community match.</help>
     </field>
     <field>
         <id>filter.family</id>

@@ -51,8 +51,15 @@ class BgpfilterController extends ApiMutableModelControllerBase
     public function getItemAction($uuid = null)
     {
         (new \OPNsense\Xray\BgpCommunity())->seedDefaultCommunitiesIfEmpty();
+        (new \OPNsense\Xray\BgpCommunity())->ensureDnstapBlockedCommunity();
         (new \OPNsense\Xray\BgpFilter())->migrateAcceptFilterNames();
-        return $this->getBase('filter', 'filter', $uuid);
+        $result = $this->getBase('filter', 'filter', $uuid);
+        if (isset($result['filter']) && is_array($result['filter']) && array_key_exists('community', $result['filter'])) {
+            $result['filter']['community'] = \OPNsense\Xray\BgpCommunity::overlayDropdown(
+                $result['filter']['community']
+            );
+        }
+        return $result;
     }
 
     public function addItemAction()

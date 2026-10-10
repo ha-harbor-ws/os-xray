@@ -38,6 +38,8 @@
                     <i class="fa fa-plug fa-fw"></i> {{ lang._('Test All') }}
                 </button>
                 <span id="testConnectResult" style="font-size: 12px;"></span>
+                <div style="width: 1px; height: 22px; background: #ddd;"></div>
+                {{ partial('OPNsense/Xray/partials/help_toggle') }}
 
             </div>
         </section>
@@ -63,7 +65,10 @@
                             data-formatter="rowtoggle">{{ lang._('Enabled') }}</th>
 
                         <th data-column-id="name"
-                            data-type="string">{{ lang._('Name') }}</th>
+                            data-type="string">
+                            <a href="#" class="xray-showhelp" id="help_for_instances"><i class="fa fa-info-circle"></i></a>
+                            {{ lang._('Name') }}
+                        </th>
 
                         <th data-column-id="server_address"
                             data-type="string">{{ lang._('Server') }}</th>
@@ -106,6 +111,9 @@
 
             <div id="InstanceChangeMessage" class="alert alert-info" style="display: none;" role="alert">
                 {{ lang._('After saving your changes, please click Apply to activate them.') }}
+            </div>
+            <div class="hidden" data-for="help_for_instances" style="padding: 8px 0 0;">
+                <small class="text-muted">{{ lang._('Each instance runs xray-core and tun2socks. Enable it, then click Apply. Field help is also on the edit dialog (full help).') }}</small>
             </div>
         </section>
     </div>

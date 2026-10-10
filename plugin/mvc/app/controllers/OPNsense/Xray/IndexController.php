@@ -24,6 +24,7 @@ class IndexController extends \OPNsense\Base\IndexController
         (new BgpFilter())->ensureDnstapFilters();
         (new BgpPeer())->seedDefaultPeersIfEmpty();
         (new BgpPeer())->migrateAcceptImportNames();
+        (new BgpPeer())->ensureDnstapPeerFilters();
         $this->view->pick('OPNsense/Xray/general');
     }
 }

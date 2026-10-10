@@ -48,11 +48,11 @@
                 <BlankDesc>none</BlankDesc>
                 <DisableCache>Y</DisableCache>
                 <Model>
-                    <filters>
+                    <bgpfilter>
                         <source>OPNsense.Xray.BgpFilter</source>
                         <items>filter</items>
                         <display>name</display>
-                    </filters>
+                    </bgpfilter>
                 </Model>
                 <ValidationMessage>Select an existing BGP filter, or none.</ValidationMessage>
             </ipv4_import>
@@ -75,11 +75,11 @@
                 <BlankDesc>none</BlankDesc>
                 <DisableCache>Y</DisableCache>
                 <Model>
-                    <filters>
+                    <bgpfilter>
                         <source>OPNsense.Xray.BgpFilter</source>
                         <items>filter</items>
                         <display>name</display>
-                    </filters>
+                    </bgpfilter>
                 </Model>
                 <ValidationMessage>Select an existing BGP filter, or none.</ValidationMessage>
             </ipv6_import>

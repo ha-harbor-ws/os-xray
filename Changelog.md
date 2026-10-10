@@ -7,6 +7,9 @@ Format: [Semantic Versioning](https://semver.org/).
 
 ## [3.1.0] - TBD
 ### Fixed
+- Help на всех вкладках как на General: переключатель full help, иконка у поля, текст под полем; кнопка Help на DNStap заменена
+- Routing — dropdown фильтров у пира и community у фильтра берёт все записи из config (кэш ModelRelationField обрезал список); пиру dnstap по умолчанию назначаются `filter_dnstap_v4`/`v6` и `community_DNSTAP_BLOCKED`
+- DNStap / Domains — фон ячеек таблиц серый, как у BGP peers (тема красила `td` в белый)
 - **sysrc quoting** — `bird_enable` / `dnstap_bgp_enable` писались как `""YES""` и на каждом Apply дописывались; строки в rc.conf переписываются целиком, `dnstap_bgp_enable` только в `rc.conf.d` (битая строка из `/etc/rc.conf` удаляется)
 - **dnstap-bgp `bgp.as`** — в TOML писался как строка `"65103"`, демон ждёт integer; теперь `as = 65103` без кавычек
 - **DNStap IPv6 → BIRD** — чекбокс Enable IPv6 включает `ipv6 {}` у peer dnstap и исключает его при выключении; Apply/Start делают `birdc configure`
