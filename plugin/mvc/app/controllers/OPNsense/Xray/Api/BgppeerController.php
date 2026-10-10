@@ -12,13 +12,17 @@ class BgppeerController extends ApiMutableModelControllerBase
 
     public function searchItemAction()
     {
-        (new \OPNsense\Xray\BgpCommunity())->ensureDnstapBlockedCommunity();
-        (new \OPNsense\Xray\BgpFilter())->seedDefaultFiltersIfEmpty();
-        (new \OPNsense\Xray\BgpFilter())->migrateAcceptFilterNames();
-        (new \OPNsense\Xray\BgpFilter())->ensureDnstapFilters();
-        (new \OPNsense\Xray\BgpPeer())->seedDefaultPeersIfEmpty();
-        (new \OPNsense\Xray\BgpPeer())->migrateAcceptImportNames();
-        (new \OPNsense\Xray\BgpPeer())->ensureDnstapPeerFilters();
+        try {
+            (new \OPNsense\Xray\BgpCommunity())->ensureDnstapBlockedCommunity();
+            (new \OPNsense\Xray\BgpFilter())->seedDefaultFiltersIfEmpty();
+            (new \OPNsense\Xray\BgpFilter())->migrateAcceptFilterNames();
+            (new \OPNsense\Xray\BgpFilter())->ensureDnstapFilters();
+            (new \OPNsense\Xray\BgpPeer())->seedDefaultPeersIfEmpty();
+            (new \OPNsense\Xray\BgpPeer())->migrateAcceptImportNames();
+            (new \OPNsense\Xray\BgpPeer())->ensureDnstapPeerFilters();
+        } catch (\Throwable $e) {
+            syslog(LOG_ERR, 'os-xray BGP seed: ' . $e->getMessage());
+        }
         $response = $this->searchBase('peer', [
             'enabled',
             'name',
@@ -169,9 +173,13 @@ class BgppeerController extends ApiMutableModelControllerBase
 
     public function getItemAction($uuid = null)
     {
-        (new \OPNsense\Xray\BgpFilter())->ensureDnstapFilters();
-        (new \OPNsense\Xray\BgpPeer())->migrateAcceptImportNames();
-        (new \OPNsense\Xray\BgpPeer())->ensureDnstapPeerFilters();
+        try {
+            (new \OPNsense\Xray\BgpFilter())->ensureDnstapFilters();
+            (new \OPNsense\Xray\BgpPeer())->migrateAcceptImportNames();
+            (new \OPNsense\Xray\BgpPeer())->ensureDnstapPeerFilters();
+        } catch (\Throwable $e) {
+            syslog(LOG_ERR, 'os-xray BGP seed: ' . $e->getMessage());
+        }
         $result = $this->getBase('peer', 'peer', $uuid);
         if (isset($result['peer']) && is_array($result['peer'])) {
             foreach (['ipv4_import', 'ipv6_import'] as $field) {

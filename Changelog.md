@@ -7,6 +7,7 @@ Format: [Semantic Versioning](https://semver.org/).
 
 ## [3.1.0] - TBD
 ### Fixed
+- Падение GUI после установки — `ensureDnstapPeerFilters` вызывал ValidationException (кэш ModelRelationField ещё без новых фильтров); seed/ensure пишут config без валидации и больше не роняют `/ui/xray/`
 - Help на всех вкладках как на General: переключатель full help, иконка у поля, текст под полем; кнопка Help на DNStap заменена
 - Routing — dropdown фильтров у пира и community у фильтра берёт все записи из config (кэш ModelRelationField обрезал список); пиру dnstap по умолчанию назначаются `filter_dnstap_v4`/`v6` и `community_DNSTAP_BLOCKED`
 - DNStap / Domains — фон ячеек таблиц серый, как у BGP peers (тема красила `td` в белый)

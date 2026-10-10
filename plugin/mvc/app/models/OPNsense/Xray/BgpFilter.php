@@ -143,11 +143,7 @@ class BgpFilter extends BaseModel
             }
         }
         if ($changed) {
-            $this->serializeToConfig();
-            Config::getInstance()->save();
-            if (method_exists(self::class, 'flushCacheData')) {
-                self::flushCacheData();
-            }
+            $this->persistConfig();
         }
     }
 
@@ -168,8 +164,7 @@ class BgpFilter extends BaseModel
                 $node->setNodes($data);
             }
         }
-        $this->serializeToConfig();
-        Config::getInstance()->save();
+        $this->persistConfig();
     }
 
     public function migrateAcceptFilterNames(): void
@@ -241,8 +236,19 @@ class BgpFilter extends BaseModel
             }
         }
         if ($changed) {
-            $this->serializeToConfig();
-            Config::getInstance()->save();
+            $this->persistConfig();
+        }
+    }
+
+    private function persistConfig(): void
+    {
+        $this->serializeToConfig(false, true);
+        Config::getInstance()->save();
+        if (method_exists(self::class, 'flushCacheData')) {
+            self::flushCacheData();
+        }
+        if (method_exists(BgpCommunity::class, 'flushCacheData')) {
+            BgpCommunity::flushCacheData();
         }
     }
 }

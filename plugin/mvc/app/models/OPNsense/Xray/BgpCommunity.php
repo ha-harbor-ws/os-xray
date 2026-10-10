@@ -103,8 +103,7 @@ class BgpCommunity extends BaseModel
                 'communities' => '65103:777',
             ]);
         }
-        $this->serializeToConfig();
-        Config::getInstance()->save();
+        $this->persistConfig();
         return (string)$uuid;
     }
 
@@ -125,8 +124,7 @@ class BgpCommunity extends BaseModel
                 $node->setNodes($data);
             }
         }
-        $this->serializeToConfig();
-        Config::getInstance()->save();
+        $this->persistConfig();
     }
 
     public function migrateCommunityFileNames(): void
@@ -165,8 +163,16 @@ class BgpCommunity extends BaseModel
             }
         }
         if ($changed) {
-            $this->serializeToConfig();
-            Config::getInstance()->save();
+            $this->persistConfig();
+        }
+    }
+
+    private function persistConfig(): void
+    {
+        $this->serializeToConfig(false, true);
+        Config::getInstance()->save();
+        if (method_exists(self::class, 'flushCacheData')) {
+            self::flushCacheData();
         }
     }
 }

@@ -11,20 +11,24 @@ class IndexController extends \OPNsense\Base\IndexController
 {
     public function indexAction()
     {
+        try {
+            (new BgpCommunity())->seedDefaultCommunitiesIfEmpty();
+            (new BgpCommunity())->migrateCommunityFileNames();
+            (new BgpCommunity())->ensureDnstapBlockedCommunity();
+            (new BgpFilter())->seedDefaultFiltersIfEmpty();
+            (new BgpFilter())->migrateAcceptFilterNames();
+            (new BgpFilter())->ensureDnstapFilters();
+            (new BgpPeer())->seedDefaultPeersIfEmpty();
+            (new BgpPeer())->migrateAcceptImportNames();
+            (new BgpPeer())->ensureDnstapPeerFilters();
+        } catch (\Throwable $e) {
+            syslog(LOG_ERR, 'os-xray BGP seed: ' . $e->getMessage());
+        }
         $this->view->generalForm  = $this->getForm('general');
         $this->view->instanceForm = $this->getForm('instance');
         $this->view->bgppeerForm      = $this->getForm('bgppeer');
         $this->view->bgpfilterForm    = $this->getForm('bgpfilter');
         $this->view->bgpcommunityForm = $this->getForm('bgpcommunity');
-        (new BgpCommunity())->seedDefaultCommunitiesIfEmpty();
-        (new BgpCommunity())->migrateCommunityFileNames();
-        (new BgpCommunity())->ensureDnstapBlockedCommunity();
-        (new BgpFilter())->seedDefaultFiltersIfEmpty();
-        (new BgpFilter())->migrateAcceptFilterNames();
-        (new BgpFilter())->ensureDnstapFilters();
-        (new BgpPeer())->seedDefaultPeersIfEmpty();
-        (new BgpPeer())->migrateAcceptImportNames();
-        (new BgpPeer())->ensureDnstapPeerFilters();
         $this->view->pick('OPNsense/Xray/general');
     }
 }
