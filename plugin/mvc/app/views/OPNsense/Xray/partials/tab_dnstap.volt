@@ -1,35 +1,24 @@
 <div id="dnstap" class="tab-pane fade">
     <style>
         #dnstap table.table {
-            border: 1px solid #ddd;
+            border: 1px solid;
             margin-bottom: 0;
-            background-color: #f9f9f9;
+            background-color: transparent;
         }
         #dnstap table.table > thead > tr > th,
         #dnstap table.table > tbody > tr > th,
         #dnstap table.table > tbody > tr > td {
-            border: 1px solid #ddd;
+            border: 1px solid;
             vertical-align: middle;
-            background-color: #f9f9f9;
+            background-color: inherit;
+            color: inherit;
         }
         #dnstap table.table > thead > tr > th {
-            background-color: #f5f5f5;
             font-weight: 600;
-            color: #333;
-        }
-        #dnstap table.table-striped > tbody > tr:nth-of-type(even) > td,
-        #dnstap table.table-striped > tbody > tr:nth-of-type(even) > th {
-            background-color: #f3f3f3;
-        }
-        #dnstap table.table-hover > tbody > tr:hover > td,
-        #dnstap table.table-hover > tbody > tr:hover > th {
-            background-color: #ececec;
         }
         #dnstap td.dnstap-k {
             width: 22%;
-            background-color: #f5f5f5;
             font-weight: 600;
-            color: #333;
             white-space: nowrap;
         }
         #dnstap .dnstap-row-edit {

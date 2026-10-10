@@ -1,29 +1,20 @@
 <div id="domains" class="tab-pane fade">
     <style>
         #domains table.table {
-            border: 1px solid #ddd;
+            border: 1px solid;
             margin-bottom: 0;
-            background-color: #f9f9f9;
+            background-color: transparent;
         }
         #domains table.table > thead > tr > th,
         #domains table.table > tbody > tr > th,
         #domains table.table > tbody > tr > td {
-            border: 1px solid #ddd;
+            border: 1px solid;
             vertical-align: middle;
-            background-color: #f9f9f9;
+            background-color: inherit;
+            color: inherit;
         }
         #domains table.table > thead > tr > th {
-            background-color: #f5f5f5;
             font-weight: 600;
-            color: #333;
-        }
-        #domains table.table-striped > tbody > tr:nth-of-type(even) > td,
-        #domains table.table-striped > tbody > tr:nth-of-type(even) > th {
-            background-color: #f3f3f3;
-        }
-        #domains table.table-hover > tbody > tr:hover > td,
-        #domains table.table-hover > tbody > tr:hover > th {
-            background-color: #ececec;
         }
         #domains .dnstap-row-edit {
             display: flex;

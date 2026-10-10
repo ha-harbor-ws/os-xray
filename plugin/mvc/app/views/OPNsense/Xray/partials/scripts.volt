@@ -499,7 +499,7 @@
                     .val(value == null ? '' : String(value));
                 if (key === 'bgp.blocked_communities' || key === 'bgp.unblocked_communities') {
                     $inp.prop('readonly', true).attr('tabindex', '-1')
-                        .css({'background-color': '#eee', 'cursor': 'default'});
+                        .css({'cursor': 'default'});
                 }
                 $val.append($inp);
             }
