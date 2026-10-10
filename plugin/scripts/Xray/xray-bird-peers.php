@@ -717,21 +717,29 @@ function xray_bird_render_filter(array $f): string
         $tun = ($fam === 'ipv6') ? 'ACTIVE_TUN6_IF' : 'ACTIVE_TUN4_IF';
     }
     $comm = xray_resolve_community_define((string)($f['community'] ?? ''));
+    $isDnstap = (bool)preg_match('/(^|_)dnstap(_|$)/i', $name);
 
     $body = [];
     $body[] = '       if net = ' . $defNet . ' then reject;';
     $body[] = '       ifname = ' . $tun . ';';
     $body[] = '       accept;';
 
+    $echo = '';
+    if ($isDnstap) {
+        $echo = "    # Выводим в лог комьюнити входящего маршрута для анализа\n"
+            . '    echo "Processing net ", net, " with community: ", bgp_community;' . "\n";
+    }
+
     if ($comm !== '') {
-        return 'filter ' . $name . " {\n    if bgp_community ~ " . $comm . " then { \n"
+        return 'filter ' . $name . " {\n" . $echo
+            . '    if bgp_community ~ ' . $comm . " then { \n"
             . implode("\n", $body) . "\n    }\n    reject; \n}\n";
     }
     $plain = [];
     foreach ($body as $line) {
         $plain[] = preg_replace('/^       /', '    ', $line);
     }
-    return 'filter ' . $name . " {\n" . implode("\n", $plain) . "\n}\n";
+    return 'filter ' . $name . " {\n" . $echo . implode("\n", $plain) . "\n}\n";
 }
 
 function xray_bird_write_gui_communities(string $dir, array &$written, array &$commFiles): void

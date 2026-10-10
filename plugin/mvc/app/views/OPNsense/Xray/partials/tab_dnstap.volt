@@ -62,7 +62,6 @@
                 <button type="button" class="btn btn-xs btn-default" id="dnstapStop">
                     <i class="fa fa-stop fa-fw"></i> {{ lang._('Stop') }}
                 </button>
-                <div style="width: 1px; height: 22px; background: #ddd;"></div>
                 {{ partial('OPNsense/Xray/partials/help_toggle') }}
             </div>
         </section>

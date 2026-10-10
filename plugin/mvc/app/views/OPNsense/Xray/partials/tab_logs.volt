@@ -30,7 +30,6 @@
                         </a>
                     </li>
                 </ul>
-                <div style="width: 1px; height: 22px; background: #ddd;"></div>
                 <a href="#" class="xray-showhelp" id="help_for_logs"><i class="fa fa-info-circle"></i></a>
                 {{ partial('OPNsense/Xray/partials/help_toggle') }}
                 <div class="hidden" data-for="help_for_logs" style="flex-basis: 100%;">

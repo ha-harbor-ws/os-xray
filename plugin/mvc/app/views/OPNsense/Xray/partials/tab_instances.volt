@@ -38,7 +38,6 @@
                     <i class="fa fa-plug fa-fw"></i> {{ lang._('Test All') }}
                 </button>
                 <span id="testConnectResult" style="font-size: 12px;"></span>
-                <div style="width: 1px; height: 22px; background: #ddd;"></div>
                 {{ partial('OPNsense/Xray/partials/help_toggle') }}
 
             </div>
