@@ -234,7 +234,7 @@ On start the plugin writes `/usr/local/etc/unbound.opnsense.d/dnstap.conf` (`dns
 
 The installer does **not** start dnstap. Start happens on Apply when the checkbox is on and the package is present.
 
-The **DNStap** tab (after Routing) matches [dnstap-bgp v1.3.0](https://github.com/ha-harbor-ws/dnstap-bgp): `proxy_domains` / `direct_domains`, separate URL and extra lists, and `bgp.proxy_communities` / `bgp.direct_communities`. If a name is in both lists, PROXY wins. Apply writes the files and sends SIGHUP when the service is already running (Unbound is not restarted). The old `domains.txt` / `blocked.txt` is used as a fallback until the first Apply migrates it to `proxy.txt`.
+The **DNStap** tab (after Routing) matches [dnstap-bgp v1.4.0](https://github.com/ha-harbor-ws/dnstap-bgp): `proxy_domains` / `direct_domains`, separate URL and extra lists, and `bgp.proxy_communities` / `bgp.direct_communities`. If a name is in both lists, PROXY wins. Apply writes the files and sends SIGHUP when the service is already running (Unbound is not restarted). The old `domains.txt` / `blocked.txt` is used as a fallback until the first Apply migrates it to `proxy.txt`.
 
 Missing domain list files (`proxy.txt`, `direct.txt`, extras, URL lists) are created empty before dnstap-bgp starts. Default Geodat URL is hydraponique `geosite.dat`; Category assignments are stored per file under `geodat-categories/`. With **Enable DNStap BGP** on, cron at **04:15** downloads the URL lists, rewrites the summarized files, and runs `service dnstap_bgp reload`.
 

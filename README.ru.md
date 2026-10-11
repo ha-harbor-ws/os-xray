@@ -234,7 +234,7 @@ BIRD2 ставит `install.sh`. Рабочий конфиг — `/usr/local/etc
 
 Установщик **не** запускает dnstap. Старт — только Apply при включённом чекбоксе и установленном пакете.
 
-Вкладка **DNStap** (после Routing) соответствует [dnstap-bgp v1.3.0](https://github.com/ha-harbor-ws/dnstap-bgp): `proxy_domains` / `direct_domains`, отдельные URL и extra-списки, `bgp.proxy_communities` / `bgp.direct_communities`. Если имя есть в обоих списках, побеждает PROXY. Apply пишет файлы и шлёт SIGHUP, если сервис уже running (Unbound не перезапускается). Старый `domains.txt` / `blocked.txt` читается как fallback, пока первый Apply не перенесёт его в `proxy.txt`.
+Вкладка **DNStap** (после Routing) соответствует [dnstap-bgp v1.4.0](https://github.com/ha-harbor-ws/dnstap-bgp): `proxy_domains` / `direct_domains`, отдельные URL и extra-списки, `bgp.proxy_communities` / `bgp.direct_communities`. Если имя есть в обоих списках, побеждает PROXY. Apply пишет файлы и шлёт SIGHUP, если сервис уже running (Unbound не перезапускается). Старый `domains.txt` / `blocked.txt` читается как fallback, пока первый Apply не перенесёт его в `proxy.txt`.
 
 Перед стартом dnstap-bgp создаются пустые файлы списков (`proxy.txt`, `direct.txt`, extra, URL), если их нет. URL geosite.dat hydraponique в конфигурации по умолчанию; назначения Category хранятся отдельно на каждый файл в `geodat-categories/`. При включённом **Enable DNStap BGP** cron в **04:15** скачивает списки по URL, пересобирает сводные файлы и делает `service dnstap_bgp reload`.
 

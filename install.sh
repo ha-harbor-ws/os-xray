@@ -30,7 +30,7 @@ VERSION_FILE="/usr/local/opnsense/mvc/app/models/OPNsense/Xray/version.txt"
 XRAY_PKG_BASELINE="/var/db/os-xray/pkg-baseline"
 UNBOUND_DNSTAP_PKG_URL="https://github.com/ha-harbor-ws/os-unbound/releases/latest/download/unbound-latest.pkg"
 DTAP_GH_REPO="ha-harbor-ws/dnstap-bgp"
-DTAP_PKG_FALLBACK="https://github.com/${DTAP_GH_REPO}/releases/download/v1.3.0/os-dnstap-bgp-1.3.0-opnsense26.7-freebsd15-amd64.pkg"
+DTAP_PKG_FALLBACK="https://github.com/${DTAP_GH_REPO}/releases/download/v1.4.0/os-dnstap-bgp-1.4.0-opnsense26.7-freebsd15-amd64.pkg"
 T2S_BIN="/usr/local/tun2socks/tun2socks"
 T2S_DIR="/usr/local/tun2socks"
 T2S_GH_REPO="xjasonlyu/tun2socks"
@@ -110,12 +110,45 @@ xray_seed_dnstap_ipv6_default() {
     echo "[OK]  $_conf ipv6 = true"
 }
 
-xray_seed_dnstap_blocked_url() {
+xray_dnstap_mv_if_missing() {
+    _old="$1"
+    _new="$2"
+    if [ -f "$_old" ] && [ ! -f "$_new" ]; then
+        mv "$_old" "$_new"
+        echo "[OK]  migrated $_old → $_new"
+    fi
+}
+
+# Align live files/keys with dnstap-bgp 1.4.0 (blocked→PROXY, unblocked→DIRECT).
+xray_migrate_dnstap_1_4() {
+    _dir="/usr/local/etc/dnstap-bgp"
+    [ -d "$_dir" ] || mkdir -p "$_dir"
+    xray_dnstap_mv_if_missing "$_dir/blocked.txt" "$_dir/proxy.txt"
+    xray_dnstap_mv_if_missing "$_dir/unblocked.txt" "$_dir/direct.txt"
+    xray_dnstap_mv_if_missing "$_dir/blocked-extra.txt" "$_dir/proxy-extra.txt"
+    xray_dnstap_mv_if_missing "$_dir/unblocked-extra.txt" "$_dir/direct-extra.txt"
+    xray_dnstap_mv_if_missing "$_dir/blocked-urls.txt" "$_dir/proxy-urls.txt"
+    xray_dnstap_mv_if_missing "$_dir/unblocked-urls.txt" "$_dir/direct-urls.txt"
+    _conf="$_dir/dnstap-bgp.conf"
+    if [ -f "$_conf" ]; then
+        sed -i '' \
+            -e 's/blocked_domains/proxy_domains/g' \
+            -e 's/unblocked_domains/direct_domains/g' \
+            -e 's/blocked_communities/proxy_communities/g' \
+            -e 's/unblocked_communities/direct_communities/g' \
+            -e 's|/blocked.txt|/proxy.txt|g' \
+            -e 's|/unblocked.txt|/direct.txt|g' \
+            "$_conf"
+        echo "[OK]  $_conf keys for dnstap-bgp 1.4.0"
+    fi
+}
+
+xray_seed_dnstap_proxy_url() {
     if xray_keep_config; then
-        echo "[SKIP] dnstap blocked-urls.txt (reinstall — keep configuration)"
+        echo "[SKIP] dnstap proxy-urls.txt (reinstall — keep configuration)"
         return 0
     fi
-    _urls="/usr/local/etc/dnstap-bgp/blocked-urls.txt"
+    _urls="/usr/local/etc/dnstap-bgp/proxy-urls.txt"
     mkdir -p /usr/local/etc/dnstap-bgp
     if [ ! -f "$_urls" ]; then
         printf '%s\n' "# HTTP(S) URLs of domain lists. One URL per line." > "$_urls"
@@ -1338,8 +1371,10 @@ if [ "$DTAP_FRESH_INSTALL" = "1" ]; then
     echo "==> Copying dnstap-bgp sample configs (first install only)..."
     xray_copy_dnstap_bgp_samples
 fi
-echo "==> Seeding DNStap blocked list URL..."
-xray_seed_dnstap_blocked_url
+echo "==> Migrating DNStap files to PROXY/DIRECT (dnstap-bgp 1.4.0)..."
+xray_migrate_dnstap_1_4
+echo "==> Seeding DNStap PROXY list URL..."
+xray_seed_dnstap_proxy_url
 echo "==> Enabling DNStap IPv6 by default..."
 xray_seed_dnstap_ipv6_default
 
