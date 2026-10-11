@@ -641,7 +641,8 @@ function do_start(array $c): bool
         }
         if (!proc_is_running(t2s_pid_path($inst_uuid))) {
             t2s_prepare_start($c['tun_iface'] ?? 'proxytun2socks0', $inst_uuid);
-            proc_start(T2S_BIN, '-config ' . escapeshellarg(t2s_conf_path($inst_uuid)), t2s_pid_path($inst_uuid), $instLog);
+            // tun2socks v2 (pflag): --config, not -config (-c + "onfig" → open onfig)
+            proc_start(T2S_BIN, '--config ' . escapeshellarg(t2s_conf_path($inst_uuid)), t2s_pid_path($inst_uuid), $instLog);
             usleep(800000);
             if (!proc_is_running(t2s_pid_path($inst_uuid))) {
                 echo "ERROR: tun2socks failed to start for instance {$inst_uuid}\n";

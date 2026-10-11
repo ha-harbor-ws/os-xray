@@ -7,6 +7,7 @@ Format: [Semantic Versioning](https://semver.org/).
 
 ## [3.1.0] - TBD
 ### Fixed
+- tun2socks v2 — старт с `--config` (pflag: `-config` читается как `-c onfig` и падает `open onfig`)
 - BIRD filter dnstap — `print` net и `bgp_community` входящего маршрута в лог (bird2: `echo` — syntax error)
 - full help на всех вкладках справа, как на General
 - DNStap / Domains — фон ячеек из темы OPNsense (жёсткий `#f9f9f9`/`#333` давал белый нечитаемый фон)

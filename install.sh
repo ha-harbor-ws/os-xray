@@ -351,8 +351,8 @@ xray_github_release_tag() {
 
 xray_t2s_local_version() {
     [ -x "$T2S_BIN" ] || return 1
-    _out=$("$T2S_BIN" -version 2>&1 || true)
-    [ -n "$_out" ] || _out=$("$T2S_BIN" --version 2>&1 || true)
+    _out=$("$T2S_BIN" --version 2>&1 || true)
+    [ -n "$_out" ] || _out=$("$T2S_BIN" -v 2>&1 || true)
     [ -n "$_out" ] || _out=$("$T2S_BIN" version 2>&1 || true)
     echo "$_out" | grep -oE 'v?[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1
 }
