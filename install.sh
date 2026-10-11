@@ -27,6 +27,14 @@ REPO_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
 ARCHIVE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/archive/refs/heads/${REPO_BRANCH}.tar.gz"
 PLUGIN_DIR="$(dirname "$0")/plugin"
 VERSION_FILE="/usr/local/opnsense/mvc/app/models/OPNsense/Xray/version.txt"
+XRAY_PKG_BASELINE="/var/db/os-xray/pkg-baseline"
+UNBOUND_DNSTAP_PKG_URL="https://github.com/ha-harbor-ws/os-unbound/releases/latest/download/unbound-latest.pkg"
+DTAP_GH_REPO="ha-harbor-ws/dnstap-bgp"
+DTAP_PKG_FALLBACK="https://github.com/${DTAP_GH_REPO}/releases/download/v1.3.0/os-dnstap-bgp-1.3.0-opnsense26.7-freebsd15-amd64.pkg"
+T2S_BIN="/usr/local/tun2socks/tun2socks"
+T2S_DIR="/usr/local/tun2socks"
+T2S_GH_REPO="xjasonlyu/tun2socks"
+T2S_ZIP_URL="https://github.com/${T2S_GH_REPO}/releases/latest/download/tun2socks-freebsd-amd64.zip"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS
@@ -230,6 +238,403 @@ xray_remove_dnstap_log_configs() {
     rm -f /usr/local/etc/newsyslog.conf.d/dnstap-bgp.conf
 }
 
+xray_pkg_file_version() {
+    pkg query -F "$1" '%v' 2>/dev/null \
+        || pkg info -F "$1" 2>/dev/null | awk '/^Version/{print $3; exit}'
+}
+
+# Record which of bird2 / unbound / os-dnstap-bgp were already on the system
+# before the first os-xray install. Never overwrite an existing baseline.
+# If the plugin is already on the system without a baseline, do not guess —
+# uninstall will keep packages.
+xray_pkg_baseline_init() {
+    if [ -f "$XRAY_PKG_BASELINE" ]; then
+        echo "[OK]  package baseline: $XRAY_PKG_BASELINE"
+        return 0
+    fi
+    if [ "${CURRENT_VERSION:-not installed}" != "not installed" ]; then
+        echo "[INFO] no package baseline (plugin already installed) — uninstall will not delete bird2/unbound/os-dnstap-bgp/tun2socks"
+        return 0
+    fi
+    mkdir -p "$(dirname "$XRAY_PKG_BASELINE")"
+    {
+        echo "# os-xray: 1 = already present before first plugin install"
+        for _p in bird2 unbound os-dnstap-bgp; do
+            if pkg info -e "$_p" >/dev/null 2>&1; then
+                echo "$_p=1"
+            else
+                echo "$_p=0"
+            fi
+        done
+        if [ -x "$T2S_BIN" ]; then
+            echo "tun2socks=1"
+        else
+            echo "tun2socks=0"
+        fi
+    } > "$XRAY_PKG_BASELINE"
+    echo "[OK]  wrote package baseline $XRAY_PKG_BASELINE"
+}
+
+# True if the package was present before first os-xray install (or unknown).
+xray_pkg_was_preinstalled() {
+    if [ ! -f "$XRAY_PKG_BASELINE" ]; then
+        return 0
+    fi
+    grep -q "^${1}=1$" "$XRAY_PKG_BASELINE"
+}
+
+xray_pkg_is_older() {
+    _a="${1:-}"
+    _b="${2:-}"
+    [ -n "$_a" ] && [ -n "$_b" ] || return 1
+    _a="${_a#v}"
+    _b="${_b#v}"
+    [ "$(pkg version -t "$_a" "$_b" 2>/dev/null || true)" = "<" ]
+}
+
+xray_github_release_tag() {
+    _json="/tmp/os-xray-gh-${2:-rel}.json"
+    _tag=""
+    if fetch -o "$_json" "https://api.github.com/repos/${1}/releases/latest" 2>/dev/null; then
+        _tag=$(php -r '$j=json_decode((string)file_get_contents($argv[1]), true); echo is_array($j) ? (string)($j["tag_name"] ?? "") : "";' "$_json" 2>/dev/null || true)
+    fi
+    rm -f "$_json"
+    echo "$_tag"
+}
+
+xray_t2s_local_version() {
+    [ -x "$T2S_BIN" ] || return 1
+    _out=$("$T2S_BIN" -version 2>&1 || true)
+    [ -n "$_out" ] || _out=$("$T2S_BIN" --version 2>&1 || true)
+    [ -n "$_out" ] || _out=$("$T2S_BIN" version 2>&1 || true)
+    echo "$_out" | grep -oE 'v?[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1
+}
+
+xray_t2s_stop_running() {
+    for _PIDFILE in /var/run/tun2socks_*.pid /var/run/tun2socks.pid; do
+        [ -f "$_PIDFILE" ] || continue
+        _PID=$(cat "$_PIDFILE" 2>/dev/null || echo "0")
+        if kill -0 "$_PID" 2>/dev/null; then
+            echo "  Stopping running tun2socks (PID $_PID)..."
+            kill "$_PID" 2>/dev/null || true
+        fi
+    done
+    sleep 1
+}
+
+# tun2socks from GitHub Releases (not a FreeBSD pkg): install or replace if newer.
+xray_ensure_tun2socks() {
+    echo "==> Checking tun2socks ..."
+    _latest=$(xray_github_release_tag "$T2S_GH_REPO" t2s)
+    _inst=""
+    if [ -x "$T2S_BIN" ]; then
+        _inst=$(xray_t2s_local_version || true)
+        if [ -n "$_latest" ] && [ -n "$_inst" ] && ! xray_pkg_is_older "$_inst" "$_latest"; then
+            echo "[OK]  tun2socks: ${_inst} (up to date)"
+            return 0
+        fi
+        if [ -n "$_latest" ] && [ -n "$_inst" ]; then
+            echo "[INFO] tun2socks $_inst → $_latest"
+        elif [ -z "$_latest" ] && [ -n "$_inst" ]; then
+            warn "GitHub API unavailable — leaving tun2socks $_inst"
+            return 0
+        else
+            echo "[INFO] tun2socks present (version unknown) — installing GitHub latest"
+        fi
+    else
+        warn "tun2socks NOT found — installing from GitHub..."
+    fi
+    _zip="/tmp/tun2socks-freebsd-amd64.zip"
+    _ex="/tmp/tun2socks-extract"
+    rm -rf "$_ex"
+    mkdir -p "$_ex"
+    if ! fetch -o "$_zip" "$T2S_ZIP_URL"; then
+        warn "Failed to fetch $T2S_ZIP_URL"
+        if [ ! -x "$T2S_BIN" ]; then
+            echo "       Install manually: fetch -o /tmp/t2s.zip $T2S_ZIP_URL"
+            echo "       cd /tmp && unzip t2s.zip && mkdir -p $T2S_DIR"
+            echo "       install -m 0755 tun2socks-freebsd-amd64 $T2S_BIN"
+            BINARIES_OK=0
+        fi
+        rm -f "$_zip"
+        rmdir "$_ex" 2>/dev/null || true
+        return 0
+    fi
+    if ! unzip -o "$_zip" -d "$_ex" >/dev/null 2>&1; then
+        warn "unzip failed for tun2socks zip"
+        if [ ! -x "$T2S_BIN" ]; then
+            BINARIES_OK=0
+        fi
+        rm -f "$_zip"
+        rm -rf "$_ex"
+        return 0
+    fi
+    _src=""
+    for _cand in \
+        "$_ex/tun2socks-freebsd-amd64" \
+        "$_ex/tun2socks" \
+        "$_ex/tun2socks-freebsd-amd64-v3"
+    do
+        if [ -f "$_cand" ]; then
+            _src="$_cand"
+            break
+        fi
+    done
+    if [ -z "$_src" ]; then
+        _src=$(find "$_ex" -type f -name 'tun2socks*' ! -name '*.zip' | head -1)
+    fi
+    if [ -z "$_src" ] || [ ! -f "$_src" ]; then
+        warn "tun2socks binary not found in zip"
+        if [ ! -x "$T2S_BIN" ]; then
+            BINARIES_OK=0
+        fi
+        rm -f "$_zip"
+        rm -rf "$_ex"
+        return 0
+    fi
+    if [ -x "$T2S_BIN" ]; then
+        xray_t2s_stop_running
+    fi
+    mkdir -p "$T2S_DIR"
+    if install -m 0755 "$_src" "$T2S_BIN"; then
+        _now=$(xray_t2s_local_version || echo "${_latest:-installed}")
+        echo "[OK]  tun2socks installed: $_now"
+    else
+        warn "Failed to install tun2socks to $T2S_BIN"
+        BINARIES_OK=0
+    fi
+    rm -f "$_zip"
+    rm -rf "$_ex"
+}
+
+# bird2 from OPNsense/FreeBSD pkg repo: install or upgrade if a newer version exists.
+xray_ensure_bird2() {
+    echo "==> Checking bird2 ..."
+    if ! pkg update >/dev/null 2>&1; then
+        pkg update -f >/dev/null 2>&1 || warn "pkg update failed — bird2 version check may be stale"
+    fi
+    if pkg info -e bird2 >/dev/null 2>&1; then
+        _inst=$(pkg query '%v' bird2 2>/dev/null || echo '')
+        _avail=$(pkg rquery '%v' bird2 2>/dev/null | head -1 || true)
+        if [ -n "$_avail" ] && xray_pkg_is_older "$_inst" "$_avail"; then
+            echo "[INFO] bird2 $_inst → $_avail"
+            if pkg upgrade -y bird2; then
+                echo "[OK]  bird2 upgraded: $(pkg query '%v' bird2 2>/dev/null)"
+            else
+                warn "bird2 upgrade failed (keeping $_inst)"
+            fi
+        else
+            echo "[OK]  bird2: ${_inst:-installed} (up to date)"
+        fi
+    else
+        warn "bird2 NOT found — installing via pkg..."
+        if pkg install -y bird2; then
+            echo "[OK]  bird2 installed: $(pkg query '%v' bird2 2>/dev/null || echo installed)"
+        else
+            warn "Failed to install bird2. Install manually: pkg update && pkg install bird2"
+            BINARIES_OK=0
+        fi
+    fi
+}
+
+xray_github_dnstap_pkg_url() {
+    _json="/tmp/os-dnstap-bgp-latest.json"
+    _url=""
+    if fetch -o "$_json" "https://api.github.com/repos/${DTAP_GH_REPO}/releases/latest" 2>/dev/null; then
+        _url=$(php -r '
+$j = json_decode((string)file_get_contents($argv[1]), true);
+if (!is_array($j)) { exit(1); }
+foreach (($j["assets"] ?? []) as $a) {
+    $n = (string)($a["name"] ?? "");
+    if (preg_match("/^os-dnstap-bgp-.*\\.pkg\$/", $n)) {
+        echo (string)($a["browser_download_url"] ?? "");
+        exit(0);
+    }
+}
+exit(1);
+' "$_json" 2>/dev/null || true)
+    fi
+    rm -f "$_json"
+    if [ -n "$_url" ]; then
+        echo "$_url"
+        return 0
+    fi
+    echo "$DTAP_PKG_FALLBACK"
+}
+
+# Unbound: GitHub DNSTAP build. Install if missing/no-dnstap; upgrade if newer pkg.
+xray_ensure_unbound_dnstap() {
+    echo "==> Checking Unbound (DNSTAP / GitHub) ..."
+    UB_PKG="/tmp/unbound-latest.pkg"
+    UB_NEED=0
+    if ! xray_unbound_has_dnstap; then
+        UB_NEED=1
+        if xray_unbound_bin >/dev/null 2>&1; then
+            warn "unbound found but compiled without --enable-dnstap — installing GitHub build..."
+        else
+            warn "unbound NOT found — installing from GitHub..."
+        fi
+    fi
+    if ! fetch -o "$UB_PKG" "$UNBOUND_DNSTAP_PKG_URL"; then
+        warn "Failed to fetch $UNBOUND_DNSTAP_PKG_URL"
+        if [ "$UB_NEED" = "1" ]; then
+            BINARIES_OK=0
+        fi
+        rm -f "$UB_PKG"
+        return 0
+    fi
+    _new=$(xray_pkg_file_version "$UB_PKG")
+    _inst=$(pkg query '%v' unbound 2>/dev/null || true)
+    if [ "$UB_NEED" != "1" ] && [ -z "$_new" ]; then
+        warn "Could not read version from GitHub unbound pkg — leaving $_inst"
+        rm -f "$UB_PKG"
+        return 0
+    fi
+    if [ "$UB_NEED" != "1" ] && [ -n "$_inst" ] && [ -n "$_new" ] && ! xray_pkg_is_older "$_inst" "$_new"; then
+        echo "[OK]  unbound: $_inst (DNSTAP, up to date)"
+        rm -f "$UB_PKG"
+        return 0
+    fi
+    if [ "$UB_NEED" != "1" ]; then
+        echo "[INFO] unbound $_inst → ${_new:-GitHub latest} (DNSTAP)"
+    fi
+    UB_WAS_RUNNING=0
+    if service unbound onestatus >/dev/null 2>&1; then
+        UB_WAS_RUNNING=1
+    fi
+    if [ "$(pkg query '%k' unbound 2>/dev/null || echo 0)" = "1" ]; then
+        pkg unlock -y unbound >/dev/null 2>&1 || true
+        echo "[INFO] unbound was pkg-locked — unlocked to replace the package"
+    fi
+    if pkg add -f "$UB_PKG"; then
+        if xray_unbound_has_dnstap; then
+            _ub="$(xray_unbound_bin)"
+            echo "[OK]  unbound $("$_ub" -V 2>&1 | awk 'NR==1{print; exit}')"
+        else
+            warn "unbound package installed, but --enable-dnstap still not in unbound -V"
+            BINARIES_OK=0
+        fi
+        if pkg lock -y unbound >/dev/null 2>&1; then
+            echo "[OK]  unbound заблокирован через pkg lock — pkg/OPNsense не перезапишут пакет при обновлении"
+        else
+            warn "pkg lock unbound failed — OPNsense upgrade may replace this GitHub build"
+        fi
+        if [ "$UB_WAS_RUNNING" = "1" ]; then
+            if service unbound restart >/dev/null 2>&1; then
+                echo "[OK]  unbound restarted"
+            else
+                warn "Could not restart unbound — restart DNS from GUI"
+            fi
+        fi
+    else
+        warn "Failed to install unbound from $UNBOUND_DNSTAP_PKG_URL"
+        if [ "$UB_NEED" = "1" ]; then
+            BINARIES_OK=0
+        fi
+    fi
+    rm -f "$UB_PKG"
+}
+
+xray_ensure_os_dnstap_bgp() {
+    echo "==> Checking os-dnstap-bgp from https://github.com/${DTAP_GH_REPO} ..."
+    DTAP_FRESH_INSTALL=0
+    DTAP_PKG="/tmp/os-dnstap-bgp.pkg"
+    DTAP_URL=$(xray_github_dnstap_pkg_url)
+    if [ "$DTAP_URL" = "$DTAP_PKG_FALLBACK" ]; then
+        warn "GitHub API unavailable — using $DTAP_URL"
+    fi
+    if ! fetch -o "$DTAP_PKG" "$DTAP_URL" 2>/dev/null; then
+        warn "Failed to fetch os-dnstap-bgp from $DTAP_URL"
+        if ! pkg info -e os-dnstap-bgp >/dev/null 2>&1; then
+            BINARIES_OK=0
+        fi
+        rm -f "$DTAP_PKG"
+        return 0
+    fi
+    _new=$(xray_pkg_file_version "$DTAP_PKG")
+    if pkg info -e os-dnstap-bgp >/dev/null 2>&1; then
+        _inst=$(pkg query '%v' os-dnstap-bgp 2>/dev/null || echo '')
+        if [ -z "$_new" ]; then
+            echo "[OK]  os-dnstap-bgp: ${_inst:-installed} (could not read GitHub pkg version, configs unchanged)"
+            rm -f "$DTAP_PKG"
+            return 0
+        fi
+        if [ -n "$_new" ] && xray_pkg_is_older "$_inst" "$_new"; then
+            echo "[INFO] os-dnstap-bgp $_inst → $_new"
+            if pkg add -f "$DTAP_PKG"; then
+                echo "[OK]  os-dnstap-bgp upgraded: $(pkg query '%v' os-dnstap-bgp 2>/dev/null)"
+            else
+                warn "os-dnstap-bgp upgrade failed (keeping $_inst)"
+            fi
+        else
+            echo "[OK]  os-dnstap-bgp: ${_inst:-installed} (up to date, configs unchanged)"
+        fi
+    else
+        if pkg add "$DTAP_PKG"; then
+            echo "[OK]  os-dnstap-bgp installed: $(pkg query '%v' os-dnstap-bgp 2>/dev/null || echo installed)"
+            DTAP_FRESH_INSTALL=1
+        else
+            warn "Failed to install os-dnstap-bgp. Install manually from https://github.com/${DTAP_GH_REPO}/releases"
+            BINARIES_OK=0
+        fi
+    fi
+    rm -f "$DTAP_PKG"
+}
+
+# Remove packages (and their configs) that were not on the system before first install.
+xray_uninstall_managed_packages() {
+    echo "==> Removing packages installed by os-xray (not present before first install)..."
+    if [ ! -f "$XRAY_PKG_BASELINE" ]; then
+        warn "No $XRAY_PKG_BASELINE — not deleting bird2/unbound/os-dnstap-bgp/tun2socks (unknown pre-install state)"
+        return 0
+    fi
+    if ! xray_pkg_was_preinstalled os-dnstap-bgp; then
+        if pkg info -e os-dnstap-bgp >/dev/null 2>&1; then
+            service dnstap_bgp onestop >/dev/null 2>&1 || true
+            pkg delete -y os-dnstap-bgp || true
+            echo "[OK]  removed os-dnstap-bgp"
+        fi
+        rm -rf /usr/local/etc/dnstap-bgp
+        rm -f /usr/local/etc/rc.conf.d/dnstap_bgp
+        rm -rf /var/log/dnstap-bgp
+        echo "[OK]  removed dnstap-bgp configs"
+    else
+        echo "[OK]  os-dnstap-bgp was pre-installed — package and configs kept"
+    fi
+    if ! xray_pkg_was_preinstalled bird2; then
+        if pkg info -e bird2 >/dev/null 2>&1; then
+            service bird onestop >/dev/null 2>&1 || true
+            pkg delete -y bird2 || true
+            echo "[OK]  removed bird2"
+        fi
+        rm -f /usr/local/etc/bird.conf
+        rm -rf /usr/local/etc/bird
+        rm -f /usr/local/etc/rc.conf.d/bird
+        echo "[OK]  removed bird2 configs"
+    else
+        echo "[OK]  bird2 was pre-installed — package kept (plugin bird includes still removed)"
+    fi
+    if ! xray_pkg_was_preinstalled unbound; then
+        if pkg info -e unbound >/dev/null 2>&1; then
+            pkg unlock -y unbound >/dev/null 2>&1 || true
+            pkg delete -y unbound || true
+            echo "[OK]  removed unbound"
+        fi
+        rm -rf /usr/local/etc/unbound
+        echo "[OK]  removed unbound package configs (/var/unbound left for OPNsense)"
+    else
+        echo "[OK]  unbound was pre-installed — package kept"
+    fi
+    if ! xray_pkg_was_preinstalled tun2socks; then
+        rm -f "$T2S_BIN"
+        echo "[OK]  removed tun2socks binary"
+    else
+        echo "[OK]  tun2socks was pre-installed — binary kept"
+    fi
+    rm -f "$XRAY_PKG_BASELINE"
+    rmdir "$(dirname "$XRAY_PKG_BASELINE")" 2>/dev/null || true
+}
+
 xray_restart_bird_log_services() {
     echo "==> Restarting syslog-ng and BIRD..."
     if service syslog-ng restart >/dev/null 2>&1; then
@@ -328,6 +733,10 @@ if [ "${1:-}" = "uninstall" ]; then
     echo "==> Removing BIRD / dnstap-bgp syslog-ng / newsyslog configs..."
     xray_remove_bird_log_configs
     xray_remove_dnstap_log_configs
+
+    xray_uninstall_managed_packages
+
+    echo "==> Restarting syslog-ng / BIRD (if still installed)..."
     xray_restart_bird_log_services
 
     echo "==> Restarting configd..."
@@ -695,6 +1104,9 @@ fi
 
 echo ""
 
+echo "==> Recording package baseline (first install only)..."
+xray_pkg_baseline_init
+
 # ── Шаг 1: Проверка бинарников ───────────────────────────────────────────────
 echo "==> Step 1: Checking binaries..."
 BINARIES_OK=1
@@ -769,16 +1181,7 @@ if [ "$XRAY_NEEDS_INSTALL" = "1" ] || [ "$XRAY_NEEDS_UPGRADE" = "1" ]; then
     esac
 fi
 
-if [ ! -f /usr/local/tun2socks/tun2socks ]; then
-    warn "tun2socks NOT found at /usr/local/tun2socks/tun2socks"
-    echo "       Download: https://github.com/xjasonlyu/tun2socks/releases"
-    echo "       fetch -o /tmp/t2s.zip <URL-for-tun2socks-freebsd-amd64.zip>"
-    echo "       cd /tmp && unzip t2s.zip && mkdir -p /usr/local/tun2socks"
-    echo "       install -m 0755 tun2socks-freebsd-amd64 /usr/local/tun2socks/tun2socks"
-    BINARIES_OK=0
-else
-    echo "[OK]  tun2socks found"
-fi
+xray_ensure_tun2socks
 
 # bird2 — пакет FreeBSD/OPNsense (pkg) + конфиг из git
 BIRD_CONF_SRC="$(dirname "$0")/bird.conf"
@@ -789,114 +1192,10 @@ BGP_CONF_DST="/usr/local/etc/bird/bgp.conf"
 BGP_CONF_URL="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}/bgp.conf"
 BIRD_INC_DIR="/usr/local/etc/bird"
 
-if pkg info -e bird2 >/dev/null 2>&1; then
-    BIRD_VER=$(pkg query '%v' bird2 2>/dev/null || echo 'installed')
-    echo "[OK]  bird2: $BIRD_VER"
-else
-    warn "bird2 NOT found — installing via pkg..."
-    if pkg update -f && pkg install -y bird2; then
-        BIRD_VER=$(pkg query '%v' bird2 2>/dev/null || echo 'installed')
-        echo "[OK]  bird2 installed: $BIRD_VER"
-    else
-        warn "Failed to install bird2. Install manually: pkg update && pkg install bird2"
-        BINARIES_OK=0
-    fi
-fi
-
-# unbound с --enable-dnstap — drop-in pkg с GitHub, если штатный unbound без DNSTAP
-UNBOUND_DNSTAP_PKG_URL="https://github.com/ha-harbor-ws/os-unbound/releases/latest/download/unbound-latest.pkg"
-
-echo "==> Checking Unbound for --enable-dnstap ..."
-if xray_unbound_has_dnstap; then
-    _ub="$(xray_unbound_bin)"
-    echo "[OK]  unbound already built with --enable-dnstap ($("$_ub" -V 2>&1 | awk 'NR==1{print; exit}'))"
-else
-    _ub="$(xray_unbound_bin 2>/dev/null || true)"
-    if [ -n "$_ub" ]; then
-        warn "unbound found but compiled without --enable-dnstap — reinstalling from GitHub..."
-    else
-        warn "unbound NOT found — installing from GitHub..."
-    fi
-    UB_PKG="/tmp/unbound-latest.pkg"
-    UB_WAS_RUNNING=0
-    if service unbound onestatus >/dev/null 2>&1; then
-        UB_WAS_RUNNING=1
-    fi
-    if [ "$(pkg query '%k' unbound 2>/dev/null || echo 0)" = "1" ]; then
-        pkg unlock -y unbound >/dev/null 2>&1 || true
-        echo "[INFO] unbound was pkg-locked — unlocked to replace the package"
-    fi
-    if fetch -o "$UB_PKG" "$UNBOUND_DNSTAP_PKG_URL" && pkg add -f "$UB_PKG"; then
-        if xray_unbound_has_dnstap; then
-            _ub="$(xray_unbound_bin)"
-            echo "[OK]  unbound reinstalled with --enable-dnstap ($("$_ub" -V 2>&1 | awk 'NR==1{print; exit}'))"
-        else
-            warn "unbound package installed, but --enable-dnstap still not in unbound -V"
-            BINARIES_OK=0
-        fi
-        if pkg lock -y unbound >/dev/null 2>&1; then
-            echo "[OK]  unbound заблокирован через pkg lock — pkg/OPNsense не перезапишут пакет при обновлении"
-            echo "      Снять блокировку: pkg unlock unbound"
-        else
-            warn "pkg lock unbound failed — OPNsense upgrade may replace this GitHub build"
-        fi
-        if [ "$UB_WAS_RUNNING" = "1" ]; then
-            if service unbound restart >/dev/null 2>&1; then
-                echo "[OK]  unbound restarted"
-            else
-                warn "Could not restart unbound — restart DNS from GUI"
-            fi
-        fi
-    else
-        warn "Failed to install unbound from $UNBOUND_DNSTAP_PKG_URL"
-        warn "Install manually: fetch -o /tmp/unbound-latest.pkg $UNBOUND_DNSTAP_PKG_URL && pkg add -f /tmp/unbound-latest.pkg"
-        BINARIES_OK=0
-    fi
-    rm -f "$UB_PKG"
-fi
-
-# os-dnstap-bgp — OPNsense pkg с GitHub (не из репозитория pkg)
-DTAP_GH_REPO="ha-harbor-ws/dnstap-bgp"
-DTAP_PKG_FALLBACK="https://github.com/${DTAP_GH_REPO}/releases/download/v1.3.0/os-dnstap-bgp-1.3.0-opnsense26.7-freebsd15-amd64.pkg"
-
-echo "==> Installing os-dnstap-bgp from https://github.com/${DTAP_GH_REPO} ..."
+xray_ensure_bird2
+xray_ensure_unbound_dnstap
 DTAP_FRESH_INSTALL=0
-if pkg info -e os-dnstap-bgp >/dev/null 2>&1; then
-    DTAP_VER=$(pkg query '%v' os-dnstap-bgp 2>/dev/null || echo 'installed')
-    echo "[OK]  os-dnstap-bgp: $DTAP_VER (already installed, configs unchanged)"
-else
-    DTAP_JSON="/tmp/os-dnstap-bgp-latest.json"
-    DTAP_PKG="/tmp/os-dnstap-bgp.pkg"
-    DTAP_URL=""
-    if fetch -o "$DTAP_JSON" "https://api.github.com/repos/${DTAP_GH_REPO}/releases/latest" 2>/dev/null; then
-        DTAP_URL=$(php -r '
-$j = json_decode((string)file_get_contents($argv[1]), true);
-if (!is_array($j)) { exit(1); }
-foreach (($j["assets"] ?? []) as $a) {
-    $n = (string)($a["name"] ?? "");
-    if (preg_match("/^os-dnstap-bgp-.*\\.pkg\$/", $n)) {
-        echo (string)($a["browser_download_url"] ?? "");
-        exit(0);
-    }
-}
-exit(1);
-' "$DTAP_JSON" 2>/dev/null || true)
-    fi
-    if [ -z "$DTAP_URL" ]; then
-        DTAP_URL="$DTAP_PKG_FALLBACK"
-        warn "GitHub API unavailable — using $DTAP_URL"
-    fi
-    if fetch -o "$DTAP_PKG" "$DTAP_URL" 2>/dev/null && pkg add "$DTAP_PKG"; then
-        DTAP_VER=$(pkg query '%v' os-dnstap-bgp 2>/dev/null || echo 'installed')
-        echo "[OK]  os-dnstap-bgp installed: $DTAP_VER"
-        DTAP_FRESH_INSTALL=1
-    else
-        warn "Failed to install os-dnstap-bgp."
-        warn "Install manually: fetch the .pkg from https://github.com/${DTAP_GH_REPO}/releases and run: pkg add <file>.pkg"
-        BINARIES_OK=0
-    fi
-    rm -f "$DTAP_JSON" "$DTAP_PKG"
-fi
+xray_ensure_os_dnstap_bgp
 
 if [ "$DTAP_FRESH_INSTALL" = "1" ]; then
     echo "==> Copying dnstap-bgp sample configs (first install only)..."
