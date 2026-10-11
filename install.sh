@@ -59,6 +59,19 @@ xray_unbound_has_dnstap() {
     "$_ub" -V 2>&1 | grep -q -- '--enable-dnstap'
 }
 
+# Reinstall/upgrade without uninstall: keep live configs, still refresh packages and rc/syshooks.
+xray_keep_config() {
+    [ "${XRAY_KEEP_CONFIG:-0}" = "1" ]
+}
+
+xray_skip_existing_config() {
+    if xray_keep_config && [ -e "$1" ]; then
+        echo "[SKIP] $1 (reinstall — keep configuration)"
+        return 0
+    fi
+    return 1
+}
+
 xray_copy_dnstap_bgp_samples() {
     _copied=0
     for _src in /usr/local/etc/dnstap-bgp/*.sample /usr/local/etc/rc.conf.d/dnstap_bgp.sample; do
@@ -80,6 +93,10 @@ xray_copy_dnstap_bgp_samples() {
 }
 
 xray_seed_dnstap_ipv6_default() {
+    if xray_keep_config; then
+        echo "[SKIP] dnstap-bgp.conf ipv6 (reinstall — keep configuration)"
+        return 0
+    fi
     _conf="/usr/local/etc/dnstap-bgp/dnstap-bgp.conf"
     if [ ! -f "$_conf" ]; then
         echo "[INFO] $_conf missing — skip ipv6 default"
@@ -94,6 +111,10 @@ xray_seed_dnstap_ipv6_default() {
 }
 
 xray_seed_dnstap_blocked_url() {
+    if xray_keep_config; then
+        echo "[SKIP] dnstap blocked-urls.txt (reinstall — keep configuration)"
+        return 0
+    fi
     _urls="/usr/local/etc/dnstap-bgp/blocked-urls.txt"
     mkdir -p /usr/local/etc/dnstap-bgp
     if [ ! -f "$_urls" ]; then
@@ -133,6 +154,9 @@ xray_detect_wan_v6() {
 }
 
 xray_shell_fill_wan_bird() {
+    if xray_skip_existing_config /usr/local/etc/bird/router_id.inc; then
+        return 0
+    fi
     _v4="$(xray_detect_wan_v4 || true)"
     _v6="$(xray_detect_wan_v6 || true)"
     if [ -n "$_v4" ]; then
@@ -152,7 +176,7 @@ xray_write_bird_log_configs() {
         : > /var/log/bird/bird.log
         chmod 0640 /var/log/bird/bird.log
     fi
-
+    if ! xray_skip_existing_config /usr/local/etc/syslog-ng.conf.d/bird.conf; then
     cat > /usr/local/etc/syslog-ng.conf.d/bird.conf << 'EOF'
 # BIRD logs (os-xray): bird.conf uses "log syslog { warning };" by default
 destination d_bird {
@@ -176,15 +200,18 @@ log {
 };
 EOF
     chmod 0644 /usr/local/etc/syslog-ng.conf.d/bird.conf
+    fi
 
     # logfile owner:group mode count size when flags pid
     # when=-  no time rotation; size=1000 KB; count=7; J=bzip2; C=create if missing
+    if ! xray_skip_existing_config /usr/local/etc/newsyslog.conf.d/bird.conf; then
     cat > /usr/local/etc/newsyslog.conf.d/bird.conf << 'EOF'
 # newsyslog rotation for BIRD (os-xray)
 # count=7  size=1000KB  when=- (size only)  JC (bzip2 + create)
 /var/log/bird/bird.log		root:wheel	640	7	1000	-	JC	/var/run/syslog-ng.pid
 EOF
     chmod 0644 /usr/local/etc/newsyslog.conf.d/bird.conf
+    fi
 }
 
 xray_write_dnstap_log_configs() {
@@ -195,7 +222,7 @@ xray_write_dnstap_log_configs() {
         : > /var/log/dnstap-bgp/dnstap-bgp.log
         chmod 0640 /var/log/dnstap-bgp/dnstap-bgp.log
     fi
-
+    if ! xray_skip_existing_config /usr/local/etc/syslog-ng.conf.d/dnstap-bgp.conf; then
     cat > /usr/local/etc/syslog-ng.conf.d/dnstap-bgp.conf << 'EOF'
 # dnstap-bgp logs (os-xray): rc.d daemon -S -T dnstap_bgp
 destination d_dnstap_bgp {
@@ -219,13 +246,16 @@ log {
 };
 EOF
     chmod 0644 /usr/local/etc/syslog-ng.conf.d/dnstap-bgp.conf
+    fi
 
+    if ! xray_skip_existing_config /usr/local/etc/newsyslog.conf.d/dnstap-bgp.conf; then
     cat > /usr/local/etc/newsyslog.conf.d/dnstap-bgp.conf << 'EOF'
 # newsyslog rotation for dnstap-bgp (os-xray)
 # count=7  size=1000KB  when=- (size only)  JC (bzip2 + create)
 /var/log/dnstap-bgp/dnstap-bgp.log	root:wheel	640	7	1000	-	JC	/var/run/syslog-ng.pid
 EOF
     chmod 0644 /usr/local/etc/newsyslog.conf.d/dnstap-bgp.conf
+    fi
 }
 
 xray_remove_bird_log_configs() {
@@ -281,6 +311,23 @@ xray_pkg_was_preinstalled() {
         return 0
     fi
     grep -q "^${1}=1$" "$XRAY_PKG_BASELINE"
+}
+
+# Strip name=... from an rc.conf-style file (handles ""YES"" leftovers sysrc misses).
+xray_rc_delete_var() {
+    _file="$1"
+    _var="$2"
+    [ -f "$_file" ] || return 0
+    grep -qE "^[[:space:]]*${_var}=" "$_file" 2>/dev/null || return 0
+    grep -vE "^[[:space:]]*${_var}=" "$_file" > "${_file}.osxray.tmp" && mv "${_file}.osxray.tmp" "$_file"
+}
+
+xray_rc_delete_var_all() {
+    _var="$1"
+    shift
+    for _file in /etc/rc.conf /etc/rc.conf.local /usr/local/etc/rc.conf "$@"; do
+        xray_rc_delete_var "$_file" "$_var"
+    done
 }
 
 xray_pkg_is_older() {
@@ -600,12 +647,21 @@ xray_ensure_os_dnstap_bgp() {
             return 0
         fi
         if [ -n "$_new" ] && xray_pkg_is_older "$_inst" "$_new"; then
-            echo "[INFO] os-dnstap-bgp $_inst → $_new"
+            echo "[INFO] os-dnstap-bgp $_inst → $_new (preserving configs)"
+            _dtap_bak="/tmp/os-xray-dnstap-cfg-bak"
+            rm -rf "$_dtap_bak"
+            mkdir -p "$_dtap_bak"
+            [ -d /usr/local/etc/dnstap-bgp ] && cp -a /usr/local/etc/dnstap-bgp "$_dtap_bak/"
+            [ -e /usr/local/etc/rc.conf.d/dnstap_bgp ] && cp -a /usr/local/etc/rc.conf.d/dnstap_bgp "$_dtap_bak/"
             if pkg add -f "$DTAP_PKG"; then
                 echo "[OK]  os-dnstap-bgp upgraded: $(pkg query '%v' os-dnstap-bgp 2>/dev/null)"
+                [ -d "$_dtap_bak/dnstap-bgp" ] && rm -rf /usr/local/etc/dnstap-bgp && cp -a "$_dtap_bak/dnstap-bgp" /usr/local/etc/dnstap-bgp
+                [ -e "$_dtap_bak/dnstap_bgp" ] && cp -a "$_dtap_bak/dnstap_bgp" /usr/local/etc/rc.conf.d/dnstap_bgp
+                echo "[OK]  restored dnstap-bgp configuration"
             else
                 warn "os-dnstap-bgp upgrade failed (keeping $_inst)"
             fi
+            rm -rf "$_dtap_bak"
         else
             echo "[OK]  os-dnstap-bgp: ${_inst:-installed} (up to date, configs unchanged)"
         fi
@@ -621,7 +677,8 @@ xray_ensure_os_dnstap_bgp() {
     rm -f "$DTAP_PKG"
 }
 
-# Remove packages (and their configs) that were not on the system before first install.
+# Remove packages that were not on the system before first install,
+# including their configs and startup scripts (rc.d / rc.conf / rc.conf.d).
 xray_uninstall_managed_packages() {
     echo "==> Removing packages installed by os-xray (not present before first install)..."
     if [ ! -f "$XRAY_PKG_BASELINE" ]; then
@@ -635,11 +692,19 @@ xray_uninstall_managed_packages() {
             echo "[OK]  removed os-dnstap-bgp"
         fi
         rm -rf /usr/local/etc/dnstap-bgp
-        rm -f /usr/local/etc/rc.conf.d/dnstap_bgp
-        rm -rf /var/log/dnstap-bgp
-        echo "[OK]  removed dnstap-bgp configs"
+        rm -f /usr/local/etc/rc.conf.d/dnstap_bgp /usr/local/etc/rc.conf.d/dnstap_bgp.sample
+        rm -f /usr/local/etc/rc.d/dnstap_bgp /etc/rc.d/dnstap_bgp
+        xray_rc_delete_var_all dnstap_bgp_enable
+        xray_rc_delete_var_all dnstap_bgp_host_ip
+        xray_rc_delete_var_all dnstap_bgp_jail_ip
+        rm -f /usr/local/etc/unbound.opnsense.d/dnstap.conf
+        rm -rf /var/log/dnstap-bgp /var/run/dnstap-bgp
+        rm -f /var/run/dnstap_bgp.pid /var/run/dnstap-bgp.pid
+        rm -rf /var/unbound/var/run/dnstap-bgp
+        xray_remove_dnstap_log_configs
+        echo "[OK]  removed dnstap-bgp configs and startup scripts"
     else
-        echo "[OK]  os-dnstap-bgp was pre-installed — package and configs kept"
+        echo "[OK]  os-dnstap-bgp was pre-installed — package, configs and rc scripts kept"
     fi
     if ! xray_pkg_was_preinstalled bird2; then
         if pkg info -e bird2 >/dev/null 2>&1; then
@@ -649,25 +714,34 @@ xray_uninstall_managed_packages() {
         fi
         rm -f /usr/local/etc/bird.conf
         rm -rf /usr/local/etc/bird
-        rm -f /usr/local/etc/rc.conf.d/bird
-        echo "[OK]  removed bird2 configs"
+        rm -f /usr/local/etc/rc.conf.d/bird /usr/local/etc/rc.conf.d/bird2
+        rm -f /usr/local/etc/rc.d/bird /etc/rc.d/bird
+        xray_rc_delete_var_all bird_enable
+        rm -rf /var/log/bird /var/run/bird.ctl /var/run/bird.pid
+        xray_remove_bird_log_configs
+        echo "[OK]  removed bird2 configs and startup scripts"
     else
-        echo "[OK]  bird2 was pre-installed — package kept (plugin bird includes still removed)"
+        echo "[OK]  bird2 was pre-installed — package, configs and rc scripts kept (plugin bird includes still removed)"
     fi
     if ! xray_pkg_was_preinstalled unbound; then
         if pkg info -e unbound >/dev/null 2>&1; then
             pkg unlock -y unbound >/dev/null 2>&1 || true
+            service unbound onestop >/dev/null 2>&1 || true
             pkg delete -y unbound || true
             echo "[OK]  removed unbound"
         fi
         rm -rf /usr/local/etc/unbound
-        echo "[OK]  removed unbound package configs (/var/unbound left for OPNsense)"
+        rm -f /usr/local/etc/rc.conf.d/unbound
+        rm -f /usr/local/etc/rc.d/unbound /etc/rc.d/unbound
+        xray_rc_delete_var_all unbound_enable
+        echo "[OK]  removed unbound configs and startup scripts (/var/unbound left for OPNsense)"
     else
-        echo "[OK]  unbound was pre-installed — package kept"
+        echo "[OK]  unbound was pre-installed — package, configs and rc scripts kept"
     fi
     if ! xray_pkg_was_preinstalled tun2socks; then
         rm -f "$T2S_BIN"
-        echo "[OK]  removed tun2socks binary"
+        rm -rf "$T2S_DIR"
+        echo "[OK]  removed tun2socks binary and /usr/local/tun2socks"
     else
         echo "[OK]  tun2socks was pre-installed — binary kept"
     fi
@@ -1144,6 +1218,12 @@ fi
 
 echo ""
 
+XRAY_KEEP_CONFIG=0
+if [ "$CURRENT_VERSION" != "not installed" ]; then
+    XRAY_KEEP_CONFIG=1
+    echo "[INFO] Reinstall/upgrade: packages and startup scripts will be updated; live configs kept"
+fi
+
 echo "==> Recording package baseline (first install only)..."
 xray_pkg_baseline_init
 
@@ -1256,7 +1336,9 @@ xray_write_dnstap_log_configs
 echo "[OK]  /var/log/dnstap-bgp  /usr/local/etc/syslog-ng.conf.d/dnstap-bgp.conf  /usr/local/etc/newsyslog.conf.d/dnstap-bgp.conf"
 
 echo "==> Installing bird.conf from git (${REPO_BRANCH})..."
-if [ -f "$BIRD_CONF_SRC" ]; then
+if xray_skip_existing_config "$BIRD_CONF_DST"; then
+    :
+elif [ -f "$BIRD_CONF_SRC" ]; then
     install -m 0644 "$BIRD_CONF_SRC" "$BIRD_CONF_DST"
     echo "[OK]  $BIRD_CONF_DST (from local clone)"
 elif fetch -o "$BIRD_CONF_DST" "$BIRD_CONF_URL" 2>/dev/null; then
@@ -1265,7 +1347,7 @@ elif fetch -o "$BIRD_CONF_DST" "$BIRD_CONF_URL" 2>/dev/null; then
 else
     warn "Failed to install bird.conf from git. Place it at $BIRD_CONF_DST manually."
 fi
-if [ -f "$BIRD_CONF_DST" ]; then
+if ! xray_keep_config && [ -f "$BIRD_CONF_DST" ]; then
     if grep -q '^log syslog' "$BIRD_CONF_DST"; then
         sed -i '' -e 's/^log syslog.*/log syslog { warning };/' "$BIRD_CONF_DST"
     else
@@ -1279,7 +1361,9 @@ echo "==> Creating $BIRD_INC_DIR includes..."
 install -d -m 0755 "$BIRD_INC_DIR"
 
 echo "==> Installing bgp.conf template (${REPO_BRANCH})..."
-if [ -f "$BGP_CONF_SRC" ]; then
+if xray_skip_existing_config "$BGP_CONF_DST"; then
+    :
+elif [ -f "$BGP_CONF_SRC" ]; then
     install -m 0644 "$BGP_CONF_SRC" "$BGP_CONF_DST"
     echo "[OK]  $BGP_CONF_DST (from local clone)"
 elif fetch -o "$BGP_CONF_DST" "$BGP_CONF_URL" 2>/dev/null; then
@@ -1297,6 +1381,9 @@ install_bird_inc() {
     _DST_BASE="$1"
     shift
     _DST="${BIRD_INC_DIR}/${_DST_BASE}.inc"
+    if xray_skip_existing_config "$_DST"; then
+        return 0
+    fi
     for _TRY in "$_DST_BASE" "$@"; do
         [ -n "$_TRY" ] || continue
         _SRC="${BGP_PEERS_SRC}/${_TRY}.inc"
@@ -1322,6 +1409,9 @@ for _PEER in filters router_id communities; do
 done
 
 echo "[INFO] peer/filter/community .inc files are generated from config.xml after seed."
+if xray_keep_config; then
+    echo "[SKIP] not removing existing BIRD include files (reinstall — keep configuration)"
+else
 rm -f "$BIRD_INC_DIR/refilter.inc" \
       "$BIRD_INC_DIR/antifilter_download.inc" \
       "$BIRD_INC_DIR/antifilter_network.inc" \
@@ -1333,6 +1423,7 @@ rm -f "$BIRD_INC_DIR/refilter.inc" \
       "$BIRD_INC_DIR/filter_accept_antifilter_download.inc" \
       "$BIRD_INC_DIR/filter_accept_antifilter_network_v4.inc" \
       "$BIRD_INC_DIR/filter_accept_antifilter_network_v6.inc"
+fi
 
 if [ ! -f "$BIRD_INC_DIR/communities.inc" ]; then
     printf '%s\n' '# generated by os-xray — BGP community defines from config.xml' \
@@ -1469,6 +1560,10 @@ echo "[OK]  Plugin files installed."
 
 echo ""
 echo "==> Filling BIRD router id and BGP source address from WAN..."
+if xray_keep_config; then
+    echo "[SKIP] WAN → BIRD addresses (reinstall — keep configuration)"
+    _WAN_BIRD_OK="SKIP"
+else
 _WAN_BIRD_OK=$(php << 'PHPEOF'
 <?php
 set_include_path('/usr/local/etc/inc' . PATH_SEPARATOR . get_include_path());
@@ -1483,11 +1578,12 @@ $v6 = function_exists('xray_wan_ipv6') ? xray_wan_ipv6() : '';
 echo "OK v4=" . $v4 . " v6=" . $v6;
 PHPEOF
 ) || true
-if echo "$_WAN_BIRD_OK" | grep -q '^OK v4=[0-9]'; then
-    echo "[OK]  $_WAN_BIRD_OK"
-else
-    echo "[INFO] PHP WAN lookup: ${_WAN_BIRD_OK:-empty}; using ifconfig/route"
-    xray_shell_fill_wan_bird
+    if echo "$_WAN_BIRD_OK" | grep -q '^OK v4=[0-9]'; then
+        echo "[OK]  $_WAN_BIRD_OK"
+    else
+        echo "[INFO] PHP WAN lookup: ${_WAN_BIRD_OK:-empty}; using ifconfig/route"
+        xray_shell_fill_wan_bird
+    fi
 fi
 
 # ── Шаг 4: Импорт существующего конфига ──────────────────────────────────────
@@ -1728,7 +1824,9 @@ fi
 # ── Шаг 4.9: Seed default BGP peers (disabled) ────────────────────────────────
 echo ""
 echo "==> Step 4.9: Seeding default BGP peers if none exist..."
-
+if xray_keep_config; then
+    echo "[SKIP] BGP peer seed (reinstall — keep configuration)"
+else
 _SEED_BGP_OK=$(php << 'PHPEOF'
 <?php
 set_include_path('/usr/local/etc/inc' . PATH_SEPARATOR . get_include_path());
@@ -1815,17 +1913,21 @@ echo "OK";
 PHPEOF
 ) || true
 
-if [ "$_SEED_BGP_OK" = "OK" ]; then
-    echo "[OK]  Added default BGP peers (disabled)."
-elif [ "$_SEED_BGP_OK" = "SKIP" ]; then
-    echo "[SKIP] BGP peers already present."
-else
-    warn "BGP peer seed failed."
+    if [ "$_SEED_BGP_OK" = "OK" ]; then
+        echo "[OK]  Added default BGP peers (disabled)."
+    elif [ "$_SEED_BGP_OK" = "SKIP" ]; then
+        echo "[SKIP] BGP peers already present."
+    else
+        warn "BGP peer seed failed."
+    fi
 fi
 
 # ── Шаг 4.10: Seed default BGP filters and communities ────────────────────────
 echo ""
 echo "==> Step 4.10: Seeding default BGP filters and communities if none exist..."
+if xray_keep_config; then
+    echo "[SKIP] BGP filter/community seed (reinstall — keep configuration)"
+else
 _SEED_BGP_EXTRA_OK=$(php << 'PHPEOF'
 <?php
 set_include_path('/usr/local/etc/inc' . PATH_SEPARATOR . get_include_path());
@@ -1921,16 +2023,21 @@ if ($changed) {
 PHPEOF
 ) || true
 
-if [ "$_SEED_BGP_EXTRA_OK" = "OK" ]; then
-    echo "[OK]  Added default BGP filters and communities."
-elif [ "$_SEED_BGP_EXTRA_OK" = "SKIP" ]; then
-    echo "[SKIP] BGP filters/communities already present."
-else
-    warn "BGP filter/community seed failed."
+    if [ "$_SEED_BGP_EXTRA_OK" = "OK" ]; then
+        echo "[OK]  Added default BGP filters and communities."
+    elif [ "$_SEED_BGP_EXTRA_OK" = "SKIP" ]; then
+        echo "[SKIP] BGP filters/communities already present."
+    else
+        warn "BGP filter/community seed failed."
+    fi
 fi
 
 echo ""
 echo "==> Writing BIRD includes for enabled peers/filters/communities only..."
+if xray_keep_config; then
+    echo "[SKIP] BIRD include rewrite (reinstall — keep configuration)"
+    _BIRD_INC_OK="SKIP"
+else
 _BIRD_INC_OK=$(php << 'PHPEOF'
 <?php
 set_include_path('/usr/local/etc/inc' . PATH_SEPARATOR . get_include_path());
@@ -1946,10 +2053,11 @@ if (function_exists('xray_bird_reload_config')) {
 echo "OK";
 PHPEOF
 ) || true
-if [ "$_BIRD_INC_OK" = "OK" ]; then
-    echo "[OK]  Regenerated bgp.conf / filters.inc / communities.inc from GUI enabled flags."
-else
-    echo "[INFO] BIRD include rewrite: ${_BIRD_INC_OK:-empty}"
+    if [ "$_BIRD_INC_OK" = "OK" ]; then
+        echo "[OK]  Regenerated bgp.conf / filters.inc / communities.inc from GUI enabled flags."
+    else
+        echo "[INFO] BIRD include rewrite: ${_BIRD_INC_OK:-empty}"
+    fi
 fi
 
 if ! grep -q '^router id [0-9]' /usr/local/etc/bird/router_id.inc 2>/dev/null; then
