@@ -445,4 +445,39 @@ class ServiceController extends ApiMutableServiceControllerBase
             'message' => $output !== '' ? $output : 'No response from configd',
         ];
     }
+
+    /**
+     * POST /api/xray/service/domainroute — resolv + birdcl show route for <ip> all.
+     */
+    public function domainrouteAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required', 'rows' => []];
+        }
+        $domain = $this->request->getPost('domain');
+        if ($domain === null) {
+            $json = $this->request->getJsonRawBody();
+            if (is_object($json)) {
+                $domain = $json->domain ?? '';
+            } elseif (is_array($json)) {
+                $domain = $json['domain'] ?? '';
+            }
+        }
+        $domain = strtolower(trim((string)$domain));
+        $domain = preg_replace('#^https?://#', '', $domain) ?? $domain;
+        $domain = preg_replace('#/.*$#', '', $domain) ?? $domain;
+        if ($domain === '' || !preg_match('/^[A-Za-z0-9._:\-]+$/', $domain)) {
+            return ['result' => 'failed', 'message' => 'Invalid domain', 'rows' => []];
+        }
+        $output = trim((string)(new Backend())->configdRun('xray domainroute ' . $domain));
+        $decoded = json_decode($output, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            return $decoded;
+        }
+        return [
+            'result'  => 'failed',
+            'message' => $output !== '' ? $output : 'No response from configd',
+            'rows'    => [],
+        ];
+    }
 }

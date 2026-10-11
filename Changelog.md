@@ -26,6 +26,7 @@ Format: [Semantic Versioning](https://semver.org/).
 - **DNStap без пакета** — Apply не вызывает `service dnstap_bgp`, если бинарь/rc.d/`os-dnstap-bgp` отсутствуют
 
 ### Added
+- **Domains — Check domain route** — resolv домена, для каждого IP `birdcl show route for <ip> all`; таблица: domain, IP, BGP peer, Instance, интерфейс (`dev` или WAN), Active (`*` в BIRD; если Network not found — N/A / N/A / WAN / да)
 - **DNStap BGP 1.3.0** — вкладка DNStap пишет `blocked.txt` / `unblocked.txt`, URL и extra для каждого списка, `bgp.blocked_communities` / `bgp.unblocked_communities`; при пересечении имён побеждает blocked; Apply шлёт SIGHUP
 - **DNStap domain files** — перед стартом создаются пустые `blocked.txt` / `unblocked.txt` (и extra/URL), если их нет
 - **DNStap URL cron** — каждый день в 04:15 скачиваются списки по URL и выполняется `service dnstap_bgp reload`

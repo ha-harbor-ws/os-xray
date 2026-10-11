@@ -53,6 +53,50 @@
                     <thead>
                         <tr>
                             <th>
+                                <a href="#" class="xray-showhelp" id="help_for_domains_check">
+                                    <i class="fa fa-info-circle"></i>
+                                </a>
+                                {{ lang._('Check domain route') }}
+                                <div class="hidden" data-for="help_for_domains_check">
+                                    <small>{{ lang._('Resolve the domain and for each IP run birdcl show route for IP all. Active is the BIRD * route. If Network not found: peer N/A, instance N/A, interface WAN, Active yes.') }}</small>
+                                </div>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>
+                                <div class="dnstap-row-edit">
+                                    <input type="text" class="form-control" id="domainsCheckInput"
+                                           placeholder="{{ lang._('example.com') }}"/>
+                                    <button type="button" class="btn btn-xs btn-primary" id="domainsCheckBtn">
+                                        <span class="fa fa-fw fa-search"></span> {{ lang._('Check') }}
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <table class="table table-condensed table-hover table-striped" id="domainsCheckTable" style="margin-top: 8px; display: none;">
+                    <thead>
+                        <tr>
+                            <th>{{ lang._('Domain') }}</th>
+                            <th>{{ lang._('IP address') }}</th>
+                            <th>{{ lang._('BGP peer') }}</th>
+                            <th>{{ lang._('Instance') }}</th>
+                            <th>{{ lang._('Interface') }}</th>
+                            <th>{{ lang._('Active') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody id="domainsCheckRows"></tbody>
+                </table>
+                <p class="text-muted" id="domainsCheckMsg" style="margin: 8px 0 0; font-size: 12px; display: none;"></p>
+            </div>
+            <div class="dnstap-section-wrap">
+                <table class="table table-condensed table-hover table-striped">
+                    <thead>
+                        <tr>
+                            <th>
                                 <a href="#" class="xray-showhelp" id="help_for_domains_blocked">
                                     <i class="fa fa-info-circle"></i>
                                 </a>

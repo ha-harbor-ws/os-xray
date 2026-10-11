@@ -706,6 +706,54 @@
             $('#domainsListModal').modal('show');
         }
 
+        function domainsRenderRouteRows(rows) {
+            var $tb = $('#domainsCheckRows').empty();
+            (rows || []).forEach(function (r) {
+                $tb.append(
+                    '<tr><td>' + escAttr(r.domain || '') + '</td>'
+                    + '<td>' + escAttr(r.ip || '') + '</td>'
+                    + '<td>' + escAttr(r.peer || 'N/A') + '</td>'
+                    + '<td>' + escAttr(r.instance || 'N/A') + '</td>'
+                    + '<td>' + escAttr(r.dev || 'WAN') + '</td>'
+                    + '<td>' + (r.active ? '{{ lang._("yes") }}' : '{{ lang._("no") }}') + '</td></tr>'
+                );
+            });
+        }
+
+        function domainsCheckRoute() {
+            var d = $.trim($('#domainsCheckInput').val() || '');
+            var $btn = $('#domainsCheckBtn');
+            var $msg = $('#domainsCheckMsg');
+            var $tbl = $('#domainsCheckTable');
+            if (!d) {
+                $tbl.hide();
+                $msg.text('{{ lang._("Enter a domain") }}').show();
+                return;
+            }
+            $btn.prop('disabled', true);
+            $msg.text('{{ lang._("Checking…") }}').show();
+            ajaxCall('/api/xray/service/domainroute', { domain: d }, function (data) {
+                $btn.prop('disabled', false);
+                var rows = data && data.rows ? data.rows : [];
+                domainsRenderRouteRows(rows);
+                if (rows.length) {
+                    $tbl.show();
+                    $msg.hide();
+                } else {
+                    $tbl.hide();
+                    $msg.text((data && data.message) ? data.message : '{{ lang._("No routes") }}').show();
+                }
+            });
+        }
+
+        $(document).on('click', '#domainsCheckBtn', function () { domainsCheckRoute(); });
+        $('#domainsCheckInput').on('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                domainsCheckRoute();
+            }
+        });
+
         $(document).on('click', '#domainsBlockedAdd', function () { dnstapExtraAdd('blocked'); });
         $(document).on('click', '#domainsUnblockedAdd', function () { dnstapExtraAdd('unblocked'); });
         $(document).on('click', '#domainsBlockedRemove', function () { dnstapExtraRemove('blocked'); });

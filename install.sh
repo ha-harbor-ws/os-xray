@@ -812,6 +812,7 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-log.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-conf.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-unbound.php
+    rm -f  /usr/local/opnsense/scripts/Xray/xray-domain-route.php
     rmdir  /usr/local/opnsense/scripts/Xray 2>/dev/null || true
     # BUG-11: удаляем конфиг ротации логов newsyslog
     rm -f  /etc/newsyslog.conf.d/xray.conf
