@@ -123,11 +123,11 @@ class BgpPeer extends BaseModel
                 $changed = true;
             }
             if (trim((string)$item->ipv4_community_name) === '') {
-                $item->ipv4_community_name = 'community_DNSTAP_BLOCKED';
+                $item->ipv4_community_name = 'community_DNSTAP_PROXY';
                 $changed = true;
             }
             if (trim((string)$item->ipv6_community_name) === '') {
-                $item->ipv6_community_name = 'community_DNSTAP_BLOCKED';
+                $item->ipv6_community_name = 'community_DNSTAP_PROXY';
                 $changed = true;
             }
             break;

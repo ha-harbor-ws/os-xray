@@ -812,6 +812,7 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-log.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-conf.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-unbound.php
+    rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-geosite.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-domain-route.php
     rmdir  /usr/local/opnsense/scripts/Xray 2>/dev/null || true
     # BUG-11: удаляем конфиг ротации логов newsyslog
@@ -1992,13 +1993,13 @@ $changed = xray_seed_array_if_empty($xray->bgpfilters, 'filter', [
     ['enabled' => '1', 'name' => 'filter_antifilter_download', 'community' => 'community_ANTIFILTER_DOWNLOAD', 'family' => 'ipv4', 'tun_if' => 'ACTIVE_TUN4_IF'],
     ['enabled' => '1', 'name' => 'filter_antifilter_network_v4', 'community' => 'community_ANTIFILTER_NETWORK', 'family' => 'ipv4', 'tun_if' => 'ACTIVE_TUN4_IF'],
     ['enabled' => '1', 'name' => 'filter_antifilter_network_v6', 'community' => 'community_ANTIFILTER_NETWORK', 'family' => 'ipv6', 'tun_if' => 'ACTIVE_TUN6_IF'],
-    ['enabled' => '1', 'name' => 'filter_dnstap_v4', 'community' => 'community_DNSTAP_BLOCKED', 'family' => 'ipv4', 'tun_if' => 'ACTIVE_TUN4_IF'],
-    ['enabled' => '1', 'name' => 'filter_dnstap_v6', 'community' => 'community_DNSTAP_BLOCKED', 'family' => 'ipv6', 'tun_if' => 'ACTIVE_TUN6_IF'],
+    ['enabled' => '1', 'name' => 'filter_dnstap_v4', 'community' => 'community_DNSTAP_PROXY', 'family' => 'ipv4', 'tun_if' => 'ACTIVE_TUN4_IF'],
+    ['enabled' => '1', 'name' => 'filter_dnstap_v6', 'community' => 'community_DNSTAP_PROXY', 'family' => 'ipv6', 'tun_if' => 'ACTIVE_TUN6_IF'],
 ]) || $changed;
 $changed = xray_seed_array_if_empty($xray->bgpcommunities, 'community', [
     ['enabled' => '1', 'name' => 'community_ANTIFILTER_DOWNLOAD', 'communities' => '65432:500'],
     ['enabled' => '1', 'name' => 'community_ANTIFILTER_NETWORK', 'communities' => $networkComm],
-    ['enabled' => '1', 'name' => 'community_DNSTAP_BLOCKED', 'communities' => '65103:777'],
+    ['enabled' => '1', 'name' => 'community_DNSTAP_PROXY', 'communities' => '65103:777'],
 ]) || $changed;
 
 $script = '/usr/local/opnsense/scripts/Xray/xray-bird-peers.php';

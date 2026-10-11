@@ -14,12 +14,16 @@ if (is_file($xray_config_inc)) {
     require_once 'config.inc';
 }
 require_once __DIR__ . '/xray-dnstap-unbound.php';
+require_once __DIR__ . '/xray-dnstap-geosite.php';
 
 const XRAY_DNSTAP_STAGED = '/tmp/xray_dnstap_write.json';
+const XRAY_DNSTAP_GEODAT_STAGED = '/tmp/xray_dnstap_geodat.json';
 const XRAY_DNSTAP_MAX = 524288;
 const XRAY_DNSTAP_DOMAINS_MAX = 33554432;
 const XRAY_DNSTAP_CONF_HIDDEN = [
     'domains',
+    'proxy_domains',
+    'direct_domains',
     'blocked_domains',
     'unblocked_domains',
     'cache',
@@ -30,19 +34,26 @@ const XRAY_DNSTAP_CONF_HIDDEN = [
     'bgp.nextHop',
 ];
 const XRAY_DNSTAP_FILES = [
-    'conf'            => '/usr/local/etc/dnstap-bgp/dnstap-bgp.conf',
-    'blocked'         => '/usr/local/etc/dnstap-bgp/blocked.txt',
-    'unblocked'       => '/usr/local/etc/dnstap-bgp/unblocked.txt',
-    'blocked_extra'   => '/usr/local/etc/dnstap-bgp/blocked-extra.txt',
-    'unblocked_extra' => '/usr/local/etc/dnstap-bgp/unblocked-extra.txt',
-    'blocked_urls'    => '/usr/local/etc/dnstap-bgp/blocked-urls.txt',
-    'unblocked_urls'  => '/usr/local/etc/dnstap-bgp/unblocked-urls.txt',
-    'rc'              => '/usr/local/etc/rc.conf.d/dnstap_bgp',
+    'conf'           => '/usr/local/etc/dnstap-bgp/dnstap-bgp.conf',
+    'proxy'          => '/usr/local/etc/dnstap-bgp/proxy.txt',
+    'direct'         => '/usr/local/etc/dnstap-bgp/direct.txt',
+    'proxy_extra'    => '/usr/local/etc/dnstap-bgp/proxy-extra.txt',
+    'direct_extra'   => '/usr/local/etc/dnstap-bgp/direct-extra.txt',
+    'proxy_urls'     => '/usr/local/etc/dnstap-bgp/proxy-urls.txt',
+    'direct_urls'    => '/usr/local/etc/dnstap-bgp/direct-urls.txt',
+    'geodat_urls'    => '/usr/local/etc/dnstap-bgp/geodat-urls.txt',
+    'rc'             => '/usr/local/etc/rc.conf.d/dnstap_bgp',
 ];
 const XRAY_DNSTAP_LEGACY = [
-    'domains' => '/usr/local/etc/dnstap-bgp/domains.txt',
-    'extra'   => '/usr/local/etc/dnstap-bgp/domains-extra.txt',
-    'urls'    => '/usr/local/etc/dnstap-bgp/domain-urls.txt',
+    'domains'      => '/usr/local/etc/dnstap-bgp/domains.txt',
+    'blocked'      => '/usr/local/etc/dnstap-bgp/blocked.txt',
+    'unblocked'    => '/usr/local/etc/dnstap-bgp/unblocked.txt',
+    'extra'        => '/usr/local/etc/dnstap-bgp/domains-extra.txt',
+    'blocked_extra'=> '/usr/local/etc/dnstap-bgp/blocked-extra.txt',
+    'unblocked_extra' => '/usr/local/etc/dnstap-bgp/unblocked-extra.txt',
+    'urls'         => '/usr/local/etc/dnstap-bgp/domain-urls.txt',
+    'blocked_urls' => '/usr/local/etc/dnstap-bgp/blocked-urls.txt',
+    'unblocked_urls' => '/usr/local/etc/dnstap-bgp/unblocked-urls.txt',
 ];
 
 function xray_dnstap_running(): bool
@@ -212,6 +223,8 @@ function xray_dnstap_is_array_key(string $key): bool
         $name = substr($key, $dot + 1);
     }
     return $name === 'peers'
+        || $name === 'proxy_communities'
+        || $name === 'direct_communities'
         || $name === 'blocked_communities'
         || $name === 'unblocked_communities'
         || substr($name, -12) === '_communities';
@@ -242,9 +255,9 @@ function xray_dnstap_conf_managed_rows(): array
     $sock = defined('XRAY_DNSTAP_SOCK') ? XRAY_DNSTAP_SOCK : '/var/unbound/var/run/dnstap-bgp/dnstap.sock';
     $perm = defined('XRAY_DNSTAP_PERM') ? XRAY_DNSTAP_PERM : '0666';
     return [
-        ['key' => 'domains', 'value' => XRAY_DNSTAP_FILES['blocked']],
-        ['key' => 'blocked_domains', 'value' => XRAY_DNSTAP_FILES['blocked']],
-        ['key' => 'unblocked_domains', 'value' => XRAY_DNSTAP_FILES['unblocked']],
+        ['key' => 'domains', 'value' => XRAY_DNSTAP_FILES['proxy']],
+        ['key' => 'proxy_domains', 'value' => XRAY_DNSTAP_FILES['proxy']],
+        ['key' => 'direct_domains', 'value' => XRAY_DNSTAP_FILES['direct']],
         ['key' => 'cache', 'value' => '/var/db/dnstap-bgp/cache.db'],
         ['key' => 'dnstap.listen', 'value' => $sock],
         ['key' => 'dnstap.perm', 'value' => $perm],
@@ -256,8 +269,8 @@ function xray_dnstap_default_communities(): array
 {
     $as = function_exists('xray_dnstap_bird_local_as') ? xray_dnstap_bird_local_as() : 65103;
     return [
-        'bgp.blocked_communities'   => $as . ':777',
-        'bgp.unblocked_communities' => $as . ':555',
+        'bgp.proxy_communities'  => $as . ':777',
+        'bgp.direct_communities' => $as . ':555',
     ];
 }
 
@@ -302,6 +315,12 @@ function xray_dnstap_conf_merge_managed(array $guiRows): array
         if ($k === '' || xray_dnstap_conf_is_hidden($k)) {
             continue;
         }
+        if ($k === 'bgp.blocked_communities' || $k === 'blocked_communities') {
+            $k = 'bgp.proxy_communities';
+        }
+        if ($k === 'bgp.unblocked_communities' || $k === 'unblocked_communities') {
+            $k = 'bgp.direct_communities';
+        }
         if ($k === 'ipv6') {
             $on = in_array(strtolower($v), ['1', 'true', 'yes', 'on'], true);
             $v = $on ? 'true' : 'false';
@@ -327,9 +346,19 @@ function xray_dnstap_conf_merge_managed(array $guiRows): array
 
 function xray_dnstap_conf_for_ui(array $rows): array
 {
+    $rename = [
+        'bgp.blocked_communities'   => 'bgp.proxy_communities',
+        'bgp.unblocked_communities' => 'bgp.direct_communities',
+        'blocked_communities'       => 'bgp.proxy_communities',
+        'unblocked_communities'     => 'bgp.direct_communities',
+    ];
     $out = [];
     foreach ($rows as $row) {
         $k = trim((string)($row['key'] ?? ''));
+        if (isset($rename[$k])) {
+            $k = $rename[$k];
+            $row['key'] = $k;
+        }
         if ($k === '' || xray_dnstap_conf_is_hidden($k)) {
             continue;
         }
@@ -507,7 +536,7 @@ function xray_dnstap_parse_urls(string $text): array
     return $out;
 }
 
-function xray_dnstap_render_urls(array $rows, string $kind = 'blocked'): string
+function xray_dnstap_render_urls(array $rows, string $kind = 'proxy'): string
 {
     $lines = [
         '# HTTP(S) URLs of ' . $kind . ' domain lists. One URL per line.',
@@ -599,7 +628,7 @@ function xray_dnstap_read_first(array $paths): string
     return '';
 }
 
-function xray_dnstap_merge_domains(array $extraRows, array $urlRows, string $kind = 'blocked', array $exclude = []): array
+function xray_dnstap_merge_domains(array $extraRows, array $urlRows, string $kind = 'proxy', array $exclude = [], array $more = []): array
 {
     $set = [];
     foreach ($extraRows as $row) {
@@ -621,6 +650,12 @@ function xray_dnstap_merge_domains(array $extraRows, array $urlRows, string $kin
             if (!isset($exclude[$d])) {
                 $set[$d] = true;
             }
+        }
+    }
+    foreach ($more as $raw) {
+        $d = xray_dnstap_normalize_domain((string)$raw);
+        if ($d !== '' && !isset($exclude[$d])) {
+            $set[$d] = true;
         }
     }
     $list = array_keys($set);
@@ -645,61 +680,183 @@ function xray_dnstap_has_urls(array $urlRows): bool
     return xray_dnstap_url_list($urlRows) !== [];
 }
 
+function xray_dnstap_geosite_load(array $urlRows): array
+{
+    $cats = [];
+    $fetched = 0;
+    $failed = [];
+    foreach (xray_dnstap_url_list($urlRows) as $url) {
+        $body = xray_dnstap_fetch_url($url);
+        if ($body === '') {
+            $failed[] = $url;
+            continue;
+        }
+        $parsed = xray_geosite_parse_dat($body);
+        if ($parsed === []) {
+            $failed[] = $url;
+            continue;
+        }
+        $fetched++;
+        foreach ($parsed as $name => $set) {
+            if (!isset($cats[$name])) {
+                $cats[$name] = [];
+            }
+            foreach ($set as $d => $_) {
+                $cats[$name][$d] = true;
+            }
+        }
+    }
+    ksort($cats, SORT_STRING);
+    return ['cats' => $cats, 'fetched' => $fetched, 'failed' => $failed];
+}
+
+function xray_dnstap_geodat_assign_for_url(string $url): array
+{
+    return xray_geosite_parse_assignments(xray_dnstap_read_file(xray_dnstap_geodat_cat_path($url)));
+}
+
+function xray_dnstap_geodat_has_any_assign(array $urlRows): bool
+{
+    foreach (xray_dnstap_url_list($urlRows) as $url) {
+        if (xray_dnstap_geodat_assign_for_url($url) !== []) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function xray_dnstap_geosite_sets(array $urlRows): array
+{
+    $proxy = [];
+    $direct = [];
+    $fetched = 0;
+    $failed = [];
+    foreach (xray_dnstap_url_list($urlRows) as $url) {
+        $assign = xray_dnstap_geodat_assign_for_url($url);
+        if ($assign === []) {
+            continue;
+        }
+        $load = xray_dnstap_geosite_load([['key' => 'url', 'value' => $url]]);
+        $fetched += $load['fetched'];
+        $failed = array_merge($failed, $load['failed']);
+        $collected = xray_geosite_collect_domains($load['cats'], $assign);
+        foreach ($collected['proxy'] as $d) {
+            $proxy[$d] = true;
+        }
+        foreach ($collected['direct'] as $d) {
+            $direct[$d] = true;
+        }
+    }
+    return [
+        'proxy'   => array_keys($proxy),
+        'direct'  => array_keys($direct),
+        'fetched' => $fetched,
+        'failed'  => $failed,
+    ];
+}
+
+function xray_dnstap_geosite_ui_rows(array $cats, array $assign): array
+{
+    $rows = [];
+    foreach ($cats as $name => $set) {
+        $rows[] = [
+            'name'   => $name,
+            'count'  => count($set),
+            'action' => $assign[$name] ?? '',
+        ];
+    }
+    return $rows;
+}
+
+function xray_dnstap_commit_summaries(
+    array $proxyExtra,
+    array $proxyUrls,
+    array $directExtra,
+    array $directUrls,
+    array $geoProxy,
+    array $geoDirect
+): array {
+    $merged = xray_dnstap_merge_domains($proxyExtra, $proxyUrls, 'proxy', [], $geoProxy);
+    if (!xray_dnstap_write_file(XRAY_DNSTAP_FILES['proxy'], $merged['body'])) {
+        echo "ERROR: cannot write " . XRAY_DNSTAP_FILES['proxy'] . "\n";
+    }
+    $exclude = xray_dnstap_parse_domain_text($merged['body']);
+    $mergedU = xray_dnstap_merge_domains($directExtra, $directUrls, 'direct', $exclude, $geoDirect);
+    if (!xray_dnstap_write_file(XRAY_DNSTAP_FILES['direct'], $mergedU['body'])) {
+        echo "ERROR: cannot write " . XRAY_DNSTAP_FILES['direct'] . "\n";
+    }
+    return [
+        'proxy'   => $merged,
+        'direct'  => $mergedU,
+        'fetched' => $merged['fetched'] + $mergedU['fetched'],
+        'failed'  => array_merge($merged['failed'], $mergedU['failed']),
+    ];
+}
+
 function xray_dnstap_refresh_from_urls(): array
 {
     xray_dnstap_ensure_domain_files();
-    $blockedExtra = xray_dnstap_parse_domains(xray_dnstap_read_first([
-        XRAY_DNSTAP_FILES['blocked_extra'],
+    $proxyExtra = xray_dnstap_parse_domains(xray_dnstap_read_first([
+        XRAY_DNSTAP_FILES['proxy_extra'],
+        XRAY_DNSTAP_LEGACY['blocked_extra'],
         XRAY_DNSTAP_LEGACY['extra'],
     ]));
-    $blockedUrls = xray_dnstap_parse_urls(xray_dnstap_read_first([
-        XRAY_DNSTAP_FILES['blocked_urls'],
+    $proxyUrls = xray_dnstap_parse_urls(xray_dnstap_read_first([
+        XRAY_DNSTAP_FILES['proxy_urls'],
+        XRAY_DNSTAP_LEGACY['blocked_urls'],
         XRAY_DNSTAP_LEGACY['urls'],
     ]));
-    $unblockedExtra = xray_dnstap_parse_domains(xray_dnstap_read_file(XRAY_DNSTAP_FILES['unblocked_extra']));
-    $unblockedUrls = xray_dnstap_parse_urls(xray_dnstap_read_file(XRAY_DNSTAP_FILES['unblocked_urls']));
+    $directExtra = xray_dnstap_parse_domains(xray_dnstap_read_first([
+        XRAY_DNSTAP_FILES['direct_extra'],
+        XRAY_DNSTAP_LEGACY['unblocked_extra'],
+    ]));
+    $directUrls = xray_dnstap_parse_urls(xray_dnstap_read_first([
+        XRAY_DNSTAP_FILES['direct_urls'],
+        XRAY_DNSTAP_LEGACY['unblocked_urls'],
+    ]));
+    $geodatUrls = xray_dnstap_parse_urls(xray_dnstap_read_file(XRAY_DNSTAP_FILES['geodat_urls']));
 
-    $wrote = false;
+    $hasGeo = xray_dnstap_has_urls($geodatUrls);
+    $hasUrls = xray_dnstap_has_urls($proxyUrls) || xray_dnstap_has_urls($directUrls) || $hasGeo;
+    if (!$hasUrls) {
+        return [
+            'wrote'    => false,
+            'proxy'    => 0,
+            'direct'   => 0,
+            'fetched'  => 0,
+            'failed'   => [],
+            'has_urls' => false,
+        ];
+    }
+
+    $geoProxy = [];
+    $geoDirect = [];
     $failed = [];
-    $blockedCount = 0;
-    $unblockedCount = 0;
     $fetched = 0;
-    $hasUrls = xray_dnstap_has_urls($blockedUrls) || xray_dnstap_has_urls($unblockedUrls);
-
-    if (xray_dnstap_has_urls($blockedUrls)) {
-        $merged = xray_dnstap_merge_domains($blockedExtra, $blockedUrls, 'blocked');
-        if (!xray_dnstap_write_file(XRAY_DNSTAP_FILES['blocked'], $merged['body'])) {
-            echo "ERROR: cannot write " . XRAY_DNSTAP_FILES['blocked'] . "\n";
-        } else {
-            $wrote = true;
-            $blockedCount = $merged['count'];
-            $fetched += $merged['fetched'];
-            $failed = array_merge($failed, $merged['failed']);
-        }
-        $exclude = xray_dnstap_parse_domain_text($merged['body']);
-    } else {
-        $exclude = xray_dnstap_parse_domain_text(xray_dnstap_read_file(XRAY_DNSTAP_FILES['blocked']));
+    if ($hasGeo && xray_dnstap_geodat_has_any_assign($geodatUrls)) {
+        $geo = xray_dnstap_geosite_sets($geodatUrls);
+        $geoProxy = $geo['proxy'];
+        $geoDirect = $geo['direct'];
+        $fetched += $geo['fetched'];
+        $failed = array_merge($failed, $geo['failed']);
     }
 
-    if (xray_dnstap_has_urls($unblockedUrls)) {
-        $mergedU = xray_dnstap_merge_domains($unblockedExtra, $unblockedUrls, 'unblocked', $exclude);
-        if (!xray_dnstap_write_file(XRAY_DNSTAP_FILES['unblocked'], $mergedU['body'])) {
-            echo "ERROR: cannot write " . XRAY_DNSTAP_FILES['unblocked'] . "\n";
-        } else {
-            $wrote = true;
-            $unblockedCount = $mergedU['count'];
-            $fetched += $mergedU['fetched'];
-            $failed = array_merge($failed, $mergedU['failed']);
-        }
-    }
+    $sum = xray_dnstap_commit_summaries(
+        $proxyExtra,
+        $proxyUrls,
+        $directExtra,
+        $directUrls,
+        $geoProxy,
+        $geoDirect
+    );
 
     return [
-        'wrote'     => $wrote,
-        'blocked'   => $blockedCount,
-        'unblocked' => $unblockedCount,
-        'fetched'   => $fetched,
-        'failed'    => $failed,
-        'has_urls'  => $hasUrls,
+        'wrote'    => true,
+        'proxy'    => $sum['proxy']['count'],
+        'direct'   => $sum['direct']['count'],
+        'fetched'  => $fetched + $sum['fetched'],
+        'failed'   => array_merge($failed, $sum['failed']),
+        'has_urls' => true,
     ];
 }
 
@@ -708,8 +865,15 @@ function xray_dnstap_rows_from_post($raw): array
     if (is_array($raw)) {
         $rows = [];
         foreach ($raw as $item) {
-            if (is_array($item) && isset($item['key'])) {
+            if (!is_array($item)) {
+                continue;
+            }
+            if (isset($item['key'])) {
                 $rows[] = ['key' => (string)$item['key'], 'value' => (string)($item['value'] ?? '')];
+                continue;
+            }
+            if (isset($item['name'])) {
+                $rows[] = ['key' => (string)$item['name'], 'value' => (string)($item['action'] ?? $item['value'] ?? '')];
             }
         }
         return $rows;
@@ -730,7 +894,7 @@ if ($op === 'start') {
     $rows = xray_dnstap_ensure_community_rows(xray_dnstap_parse_toml(xray_dnstap_read_file($confPath)));
     if ($rows !== [] && is_file($confPath)) {
         xray_dnstap_write_file($confPath, xray_dnstap_render_toml($rows));
-        echo "dnstap: blocked_communities AS:777 unblocked_communities AS:555\n";
+        echo "dnstap: proxy_communities AS:777 direct_communities AS:555\n";
     }
     xray_dnstap_unbound_activate();
     echo "OK\n";
@@ -749,7 +913,7 @@ if ($op === 'fetch') {
         echo "OK no domain list URLs — skip download\n";
         exit(0);
     }
-    echo "OK fetched {$result['fetched']} URL(s), {$result['blocked']} blocked + {$result['unblocked']} unblocked\n";
+    echo "OK fetched {$result['fetched']} URL(s), {$result['proxy']} PROXY + {$result['direct']} DIRECT\n";
     if ($result['failed'] !== []) {
         echo "WARN could not download: " . implode(' ', $result['failed']) . "\n";
     }
@@ -766,6 +930,85 @@ if ($op === 'fetch') {
     exit(0);
 }
 
+if ($op === 'geodatcats') {
+    if (!is_readable(XRAY_DNSTAP_GEODAT_STAGED)) {
+        echo json_encode(['result' => 'failed', 'message' => 'No staged geosite request']) . "\n";
+        exit(1);
+    }
+    $j = json_decode((string)file_get_contents(XRAY_DNSTAP_GEODAT_STAGED), true);
+    @unlink(XRAY_DNSTAP_GEODAT_STAGED);
+    if (!is_array($j)) {
+        echo json_encode(['result' => 'failed', 'message' => 'Invalid staged JSON']) . "\n";
+        exit(1);
+    }
+    xray_dnstap_ensure_domain_files();
+    $urlRows = xray_dnstap_rows_from_post($j['geodat_urls'] ?? $j['urls'] ?? []);
+    if ($urlRows === []) {
+        $urlRows = xray_dnstap_parse_urls(xray_dnstap_read_file(XRAY_DNSTAP_FILES['geodat_urls']));
+    }
+    $allUrls = xray_dnstap_url_list($urlRows);
+    $target = trim((string)($j['geodat_url'] ?? ''));
+    if ($target === '' || !preg_match('#^https?://#i', $target)) {
+        $target = $allUrls[0] ?? '';
+    }
+    $save = array_key_exists('geodat_categories', $j) || array_key_exists('categories', $j);
+    $oneRow = $target !== '' ? [['key' => 'url', 'value' => $target]] : [];
+    $assign = $save
+        ? xray_geosite_assignments_from_rows(xray_dnstap_rows_from_post($j['geodat_categories'] ?? $j['categories'] ?? []))
+        : ($target !== '' ? xray_dnstap_geodat_assign_for_url($target) : []);
+    if ($save && $target !== '') {
+        xray_dnstap_write_file(XRAY_DNSTAP_FILES['geodat_urls'], xray_dnstap_render_urls($urlRows, 'geodat'));
+        xray_dnstap_write_file(xray_dnstap_geodat_cat_path($target), xray_geosite_render_assignments($assign, $target));
+    }
+    $load = xray_dnstap_geosite_load($oneRow);
+    $saved = false;
+    if ($save) {
+        $geoAll = xray_dnstap_geosite_sets($urlRows);
+        $proxyExtra = xray_dnstap_parse_domains(xray_dnstap_read_first([
+            XRAY_DNSTAP_FILES['proxy_extra'],
+            XRAY_DNSTAP_LEGACY['blocked_extra'],
+            XRAY_DNSTAP_LEGACY['extra'],
+        ]));
+        $proxyUrls = xray_dnstap_parse_urls(xray_dnstap_read_first([
+            XRAY_DNSTAP_FILES['proxy_urls'],
+            XRAY_DNSTAP_LEGACY['blocked_urls'],
+            XRAY_DNSTAP_LEGACY['urls'],
+        ]));
+        $directExtra = xray_dnstap_parse_domains(xray_dnstap_read_first([
+            XRAY_DNSTAP_FILES['direct_extra'],
+            XRAY_DNSTAP_LEGACY['unblocked_extra'],
+        ]));
+        $directUrls = xray_dnstap_parse_urls(xray_dnstap_read_first([
+            XRAY_DNSTAP_FILES['direct_urls'],
+            XRAY_DNSTAP_LEGACY['unblocked_urls'],
+        ]));
+        xray_dnstap_commit_summaries(
+            $proxyExtra,
+            $proxyUrls,
+            $directExtra,
+            $directUrls,
+            $geoAll['proxy'],
+            $geoAll['direct']
+        );
+        $saved = true;
+        if (xray_dnstap_running()) {
+            xray_dnstap_sighup();
+        }
+    }
+    echo json_encode([
+        'result'     => $load['failed'] !== [] && $load['cats'] === [] ? 'failed' : 'ok',
+        'saved'      => $saved,
+        'geodat_url' => $target,
+        'categories' => xray_dnstap_geosite_ui_rows($load['cats'], $assign),
+        'fetched'    => $load['fetched'],
+        'failed'     => $load['failed'],
+        'message'    => $load['failed'] !== [] && $load['cats'] === []
+            ? ('Could not parse geosite.dat: ' . implode(' ', $load['failed']))
+            : '',
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+    exit(0);
+}
+
 if ($op === 'write') {
     if (!is_readable(XRAY_DNSTAP_STAGED)) {
         echo "OK\n";
@@ -777,28 +1020,43 @@ if ($op === 'write') {
         echo "ERROR: invalid staged JSON\n";
         exit(1);
     }
-    $blockedExtra   = xray_dnstap_rows_from_post($j['blocked'] ?? $j['domains'] ?? []);
-    $blockedUrls    = xray_dnstap_rows_from_post($j['blocked_urls'] ?? $j['urls'] ?? []);
-    $unblockedExtra = xray_dnstap_rows_from_post($j['unblocked'] ?? []);
-    $unblockedUrls  = xray_dnstap_rows_from_post($j['unblocked_urls'] ?? []);
-    $confPosted     = xray_dnstap_rows_from_post($j['conf'] ?? []);
-    $confRows       = $confPosted !== []
+    $proxyExtra  = xray_dnstap_rows_from_post($j['proxy'] ?? $j['blocked'] ?? $j['domains'] ?? []);
+    $proxyUrls   = xray_dnstap_rows_from_post($j['proxy_urls'] ?? $j['blocked_urls'] ?? $j['urls'] ?? []);
+    $directExtra = xray_dnstap_rows_from_post($j['direct'] ?? $j['unblocked'] ?? []);
+    $directUrls  = xray_dnstap_rows_from_post($j['direct_urls'] ?? $j['unblocked_urls'] ?? []);
+    $geodatUrls  = array_key_exists('geodat_urls', $j)
+        ? xray_dnstap_rows_from_post($j['geodat_urls'])
+        : xray_dnstap_parse_urls(xray_dnstap_read_file(XRAY_DNSTAP_FILES['geodat_urls']));
+    $confPosted  = xray_dnstap_rows_from_post($j['conf'] ?? []);
+    $confRows    = $confPosted !== []
         ? xray_dnstap_conf_merge_managed($confPosted)
         : xray_dnstap_conf_merge_managed(xray_dnstap_parse_toml(xray_dnstap_read_file(XRAY_DNSTAP_FILES['conf'])));
-    $mergedBlocked  = xray_dnstap_merge_domains($blockedExtra, $blockedUrls, 'blocked');
-    $exclude        = xray_dnstap_parse_domain_text($mergedBlocked['body']);
-    $mergedUnblocked = xray_dnstap_merge_domains($unblockedExtra, $unblockedUrls, 'unblocked', $exclude);
+    $geoProxy = [];
+    $geoDirect = [];
+    $geoFailed = [];
+    $geoFetched = 0;
+    if (xray_dnstap_has_urls($geodatUrls) && xray_dnstap_geodat_has_any_assign($geodatUrls)) {
+        $geo = xray_dnstap_geosite_sets($geodatUrls);
+        $geoProxy = $geo['proxy'];
+        $geoDirect = $geo['direct'];
+        $geoFailed = $geo['failed'];
+        $geoFetched = $geo['fetched'];
+    }
+    $mergedProxy  = xray_dnstap_merge_domains($proxyExtra, $proxyUrls, 'proxy', [], $geoProxy);
+    $exclude      = xray_dnstap_parse_domain_text($mergedProxy['body']);
+    $mergedDirect = xray_dnstap_merge_domains($directExtra, $directUrls, 'direct', $exclude, $geoDirect);
     $map = [
-        'conf'            => xray_dnstap_render_toml($confRows),
-        'blocked_extra'   => xray_dnstap_render_domains($blockedExtra),
-        'unblocked_extra' => xray_dnstap_render_domains($unblockedExtra),
-        'blocked_urls'    => xray_dnstap_render_urls($blockedUrls, 'blocked'),
-        'unblocked_urls'  => xray_dnstap_render_urls($unblockedUrls, 'unblocked'),
-        'blocked'         => $mergedBlocked['body'],
-        'unblocked'       => $mergedUnblocked['body'],
+        'conf'        => xray_dnstap_render_toml($confRows),
+        'proxy_extra' => xray_dnstap_render_domains($proxyExtra),
+        'direct_extra'=> xray_dnstap_render_domains($directExtra),
+        'proxy_urls'  => xray_dnstap_render_urls($proxyUrls, 'proxy'),
+        'direct_urls' => xray_dnstap_render_urls($directUrls, 'direct'),
+        'geodat_urls' => xray_dnstap_render_urls($geodatUrls, 'geodat'),
+        'proxy'       => $mergedProxy['body'],
+        'direct'      => $mergedDirect['body'],
     ];
     foreach ($map as $key => $body) {
-        $limit = ($key === 'blocked' || $key === 'unblocked') ? XRAY_DNSTAP_DOMAINS_MAX : XRAY_DNSTAP_MAX;
+        $limit = ($key === 'proxy' || $key === 'direct') ? XRAY_DNSTAP_DOMAINS_MAX : XRAY_DNSTAP_MAX;
         if (strlen($body) > $limit) {
             echo "ERROR: {$key} too large\n";
             exit(1);
@@ -808,10 +1066,10 @@ if ($op === 'write') {
             exit(1);
         }
     }
-    echo "OK merged {$mergedBlocked['count']} blocked + {$mergedUnblocked['count']} unblocked"
-        . " from " . ($mergedBlocked['fetched'] + $mergedUnblocked['fetched']) . " URL(s)\n";
+    echo "OK merged {$mergedProxy['count']} PROXY + {$mergedDirect['count']} DIRECT"
+        . " from " . ($mergedProxy['fetched'] + $mergedDirect['fetched'] + $geoFetched) . " URL(s)\n";
     xray_dnstap_sync_rc_from_bgp($confRows);
-    $failed = array_merge($mergedBlocked['failed'], $mergedUnblocked['failed']);
+    $failed = array_merge($mergedProxy['failed'], $mergedDirect['failed'], $geoFailed);
     if ($failed !== []) {
         echo "WARN could not download: " . implode(' ', $failed) . "\n";
     }
@@ -839,43 +1097,62 @@ if ($op === 'write') {
     exit(0);
 }
 
-$blockedUrlsText = xray_dnstap_read_first([
-    XRAY_DNSTAP_FILES['blocked_urls'],
+$proxyUrlsText = xray_dnstap_read_first([
+    XRAY_DNSTAP_FILES['proxy_urls'],
+    XRAY_DNSTAP_LEGACY['blocked_urls'],
     XRAY_DNSTAP_LEGACY['urls'],
 ]);
-$blockedExtraText = xray_dnstap_read_first([
-    XRAY_DNSTAP_FILES['blocked_extra'],
+$proxyExtraText = xray_dnstap_read_first([
+    XRAY_DNSTAP_FILES['proxy_extra'],
+    XRAY_DNSTAP_LEGACY['blocked_extra'],
     XRAY_DNSTAP_LEGACY['extra'],
 ]);
-$unblockedUrlsText = xray_dnstap_read_file(XRAY_DNSTAP_FILES['unblocked_urls']);
-$unblockedExtraText = xray_dnstap_read_file(XRAY_DNSTAP_FILES['unblocked_extra']);
-$blockedRows   = xray_dnstap_parse_domains($blockedExtraText);
-$unblockedRows = xray_dnstap_parse_domains($unblockedExtraText);
-$blockedUrlRows = xray_dnstap_parse_urls($blockedUrlsText);
-$unblockedUrlRows = xray_dnstap_parse_urls($unblockedUrlsText);
-if (function_exists('xray_dnstap_with_default_blocked_urls')) {
-    $blockedUrlRows = xray_dnstap_with_default_blocked_urls($blockedUrlRows);
+$directUrlsText = xray_dnstap_read_first([
+    XRAY_DNSTAP_FILES['direct_urls'],
+    XRAY_DNSTAP_LEGACY['unblocked_urls'],
+]);
+$directExtraText = xray_dnstap_read_first([
+    XRAY_DNSTAP_FILES['direct_extra'],
+    XRAY_DNSTAP_LEGACY['unblocked_extra'],
+]);
+$geodatUrlsText = xray_dnstap_read_file(XRAY_DNSTAP_FILES['geodat_urls']);
+$proxyRows   = xray_dnstap_parse_domains($proxyExtraText);
+$directRows  = xray_dnstap_parse_domains($directExtraText);
+$proxyUrlRows = xray_dnstap_parse_urls($proxyUrlsText);
+$directUrlRows = xray_dnstap_parse_urls($directUrlsText);
+$geodatUrlRows = xray_dnstap_parse_urls($geodatUrlsText);
+if (function_exists('xray_dnstap_with_default_proxy_urls')) {
+    $proxyUrlRows = xray_dnstap_with_default_proxy_urls($proxyUrlRows);
+}
+if (function_exists('xray_dnstap_with_default_geodat_urls')) {
+    $geodatUrlRows = xray_dnstap_with_default_geodat_urls($geodatUrlRows);
 }
 
 echo json_encode([
-    'result'           => 'ok',
-    'running'          => xray_dnstap_running(),
-    'paths'            => XRAY_DNSTAP_FILES,
-    'conf'             => xray_dnstap_conf_for_ui(xray_dnstap_parse_toml(xray_dnstap_read_file(XRAY_DNSTAP_FILES['conf']))),
-    'blocked'          => $blockedRows,
-    'unblocked'        => $unblockedRows,
-    'blocked_urls'     => $blockedUrlRows,
-    'unblocked_urls'   => $unblockedUrlRows,
-    'domains'          => $blockedRows,
-    'urls'             => $blockedUrlRows,
-    'blocked_count'    => xray_dnstap_count_domains(xray_dnstap_read_first([
-        XRAY_DNSTAP_FILES['blocked'],
+    'result'          => 'ok',
+    'running'         => xray_dnstap_running(),
+    'paths'           => XRAY_DNSTAP_FILES,
+    'conf'            => xray_dnstap_conf_for_ui(xray_dnstap_parse_toml(xray_dnstap_read_file(XRAY_DNSTAP_FILES['conf']))),
+    'proxy'           => $proxyRows,
+    'direct'          => $directRows,
+    'proxy_urls'      => $proxyUrlRows,
+    'direct_urls'     => $directUrlRows,
+    'geodat_urls'     => $geodatUrlRows,
+    'domains'         => $proxyRows,
+    'urls'            => $proxyUrlRows,
+    'proxy_count'     => xray_dnstap_count_domains(xray_dnstap_read_first([
+        XRAY_DNSTAP_FILES['proxy'],
+        XRAY_DNSTAP_LEGACY['blocked'],
         XRAY_DNSTAP_LEGACY['domains'],
     ])),
-    'unblocked_count'  => xray_dnstap_count_domains(xray_dnstap_read_file(XRAY_DNSTAP_FILES['unblocked'])),
-    'domains_count'    => xray_dnstap_count_domains(xray_dnstap_read_first([
-        XRAY_DNSTAP_FILES['blocked'],
+    'direct_count'    => xray_dnstap_count_domains(xray_dnstap_read_first([
+        XRAY_DNSTAP_FILES['direct'],
+        XRAY_DNSTAP_LEGACY['unblocked'],
+    ])),
+    'domains_count'   => xray_dnstap_count_domains(xray_dnstap_read_first([
+        XRAY_DNSTAP_FILES['proxy'],
+        XRAY_DNSTAP_LEGACY['blocked'],
         XRAY_DNSTAP_LEGACY['domains'],
     ])),
-    'rc'               => xray_dnstap_parse_rc(xray_dnstap_read_file(XRAY_DNSTAP_FILES['rc'])),
+    'rc'              => xray_dnstap_parse_rc(xray_dnstap_read_file(XRAY_DNSTAP_FILES['rc'])),
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";

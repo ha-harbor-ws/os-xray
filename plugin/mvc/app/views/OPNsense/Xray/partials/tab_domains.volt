@@ -97,12 +97,12 @@
                     <thead>
                         <tr>
                             <th>
-                                <a href="#" class="xray-showhelp" id="help_for_domains_blocked">
+                                <a href="#" class="xray-showhelp" id="help_for_domains_proxy">
                                     <i class="fa fa-info-circle"></i>
                                 </a>
-                                {{ lang._('Extra blocked domains') }}
-                                <div class="hidden" data-for="help_for_domains_blocked">
-                                    <small>{{ lang._('Add a domain to the extra blocked list. Remove deletes the domain in the field. The magnifying glass shows all extra blocked names.') }}</small>
+                                {{ lang._('Extra PROXY domains') }}
+                                <div class="hidden" data-for="help_for_domains_proxy">
+                                    <small>{{ lang._('Add a domain to the extra PROXY list. Remove deletes the domain in the field. The magnifying glass shows all extra PROXY names.') }}</small>
                                 </div>
                             </th>
                         </tr>
@@ -111,16 +111,16 @@
                         <tr>
                             <td>
                                 <div class="dnstap-row-edit">
-                                    <input type="text" class="form-control" id="domainsBlockedInput"
+                                    <input type="text" class="form-control" id="domainsProxyInput"
                                            placeholder="{{ lang._('example.com') }}"/>
-                                    <button type="button" class="btn btn-xs btn-primary" id="domainsBlockedAdd">
+                                    <button type="button" class="btn btn-xs btn-primary" id="domainsProxyAdd">
                                         <span class="fa fa-fw fa-plus"></span> {{ lang._('Add') }}
                                     </button>
-                                    <button type="button" class="btn btn-xs btn-default" id="domainsBlockedRemove">
+                                    <button type="button" class="btn btn-xs btn-default" id="domainsProxyRemove">
                                         <span class="fa fa-fw fa-minus"></span> {{ lang._('Remove') }}
                                     </button>
-                                    <button type="button" class="btn btn-xs btn-default" id="domainsBlockedSearch"
-                                            title="{{ lang._('Show blocked domains') }}">
+                                    <button type="button" class="btn btn-xs btn-default" id="domainsProxySearch"
+                                            title="{{ lang._('Show PROXY domains') }}">
                                         <span class="fa fa-fw fa-search"></span>
                                     </button>
                                 </div>
@@ -134,12 +134,12 @@
                     <thead>
                         <tr>
                             <th>
-                                <a href="#" class="xray-showhelp" id="help_for_domains_unblocked">
+                                <a href="#" class="xray-showhelp" id="help_for_domains_direct">
                                     <i class="fa fa-info-circle"></i>
                                 </a>
-                                {{ lang._('Extra unblocked domains') }}
-                                <div class="hidden" data-for="help_for_domains_unblocked">
-                                    <small>{{ lang._('Add a domain to the extra unblocked list. Names also present in blocked are dropped on Apply.') }}</small>
+                                {{ lang._('Extra DIRECT domains') }}
+                                <div class="hidden" data-for="help_for_domains_direct">
+                                    <small>{{ lang._('Add a domain to the extra DIRECT list. Names also present in PROXY are dropped on Apply.') }}</small>
                                 </div>
                             </th>
                         </tr>
@@ -148,16 +148,16 @@
                         <tr>
                             <td>
                                 <div class="dnstap-row-edit">
-                                    <input type="text" class="form-control" id="domainsUnblockedInput"
+                                    <input type="text" class="form-control" id="domainsDirectInput"
                                            placeholder="{{ lang._('example.com') }}"/>
-                                    <button type="button" class="btn btn-xs btn-primary" id="domainsUnblockedAdd">
+                                    <button type="button" class="btn btn-xs btn-primary" id="domainsDirectAdd">
                                         <span class="fa fa-fw fa-plus"></span> {{ lang._('Add') }}
                                     </button>
-                                    <button type="button" class="btn btn-xs btn-default" id="domainsUnblockedRemove">
+                                    <button type="button" class="btn btn-xs btn-default" id="domainsDirectRemove">
                                         <span class="fa fa-fw fa-minus"></span> {{ lang._('Remove') }}
                                     </button>
-                                    <button type="button" class="btn btn-xs btn-default" id="domainsUnblockedSearch"
-                                            title="{{ lang._('Show unblocked domains') }}">
+                                    <button type="button" class="btn btn-xs btn-default" id="domainsDirectSearch"
+                                            title="{{ lang._('Show DIRECT domains') }}">
                                         <span class="fa fa-fw fa-search"></span>
                                     </button>
                                 </div>

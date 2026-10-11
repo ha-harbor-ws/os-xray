@@ -22,13 +22,12 @@
         <id>filter.family</id>
         <label>Address family</label>
         <type>dropdown</type>
-        <help>IPv4 or IPv6. The filter always rejects the default route first (0.0.0.0/0 for IPv4, ::/0 for IPv6) before accepting other prefixes, and sets Interface to ACTIVE_TUN4_IF or ACTIVE_TUN6_IF.</help>
+        <help>IPv4 or IPv6. The filter always rejects the default route first (0.0.0.0/0 for IPv4, ::/0 for IPv6) before accepting other prefixes.</help>
     </field>
     <field>
         <id>filter.tun_if</id>
         <label>Interface</label>
-        <type>text</type>
-        <readonly>true</readonly>
-        <help>BIRD ifname identifier, shown for reference. It follows Address family: ACTIVE_TUN4_IF for IPv4, ACTIVE_TUN6_IF for IPv6.</help>
+        <type>dropdown</type>
+        <help>BIRD ifname: ACTIVE_TUN4_IF, ACTIVE_TUN6_IF (auto-selected tun2socks) or WAN (OPNsense WAN device).</help>
     </field>
 </form>

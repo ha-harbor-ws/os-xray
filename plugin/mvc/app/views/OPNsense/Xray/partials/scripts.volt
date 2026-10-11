@@ -316,19 +316,8 @@
             $(this).find('.selectpicker').selectpicker('refresh');
         });
 
-        function filterTunIfFromFamily($dlg) {
-            var fam = $dlg.find('[id="filter.family"]').val();
-            var tun = (fam === 'ipv6') ? 'ACTIVE_TUN6_IF' : 'ACTIVE_TUN4_IF';
-            $dlg.find('[id="filter.tun_if"]').val(tun).prop('readonly', true);
-        }
-
         $('#DialogBgpFilter').on('shown.bs.modal', function () {
-            var $dlg = $(this);
-            $dlg.find('.selectpicker').selectpicker('refresh');
-            filterTunIfFromFamily($dlg);
-        });
-        $(document).on('changed.bs.select change', '#DialogBgpFilter [id="filter.family"]', function () {
-            filterTunIfFromFamily($('#DialogBgpFilter'));
+            $(this).find('.selectpicker').selectpicker('refresh');
         });
 
         $(document).ajaxSuccess(function (e, xhr, settings) {
@@ -372,13 +361,15 @@
             return $('#domains').filter('.active').length > 0;
         }
 
-        var dnstapExtraBlocked = [];
-        var dnstapExtraUnblocked = [];
+        var dnstapExtraProxy = [];
+        var dnstapExtraDirect = [];
         var dnstapExtrasDirty = false;
         var dnstapConfCache = [];
-        var dnstapBlockedUrlsCache = [];
-        var dnstapUnblockedUrlsCache = [];
-        var domainsListKind = 'blocked';
+        var dnstapProxyUrlsCache = [];
+        var dnstapDirectUrlsCache = [];
+        var dnstapGeodatUrlsCache = [];
+        var dnstapGeodatActiveUrl = '';
+        var domainsListKind = 'proxy';
 
         function dnstapNormalizeDomain(raw) {
             var v = String(raw || '').replace(/^\uFEFF/, '').split('#')[0].trim().toLowerCase();
@@ -413,21 +404,36 @@
             if (!conf.length && dnstapConfCache.length) {
                 conf = dnstapConfCache;
             }
-            var blockedUrls = dnstapCollectKv($('#dnstapBlockedUrlsKv'));
-            if (!$('#dnstapBlockedUrlsKv input').length && dnstapBlockedUrlsCache.length) {
-                blockedUrls = dnstapBlockedUrlsCache;
+            var proxyUrls = dnstapCollectKv($('#dnstapProxyUrlsKv'));
+            if (!$('#dnstapProxyUrlsKv input').length && dnstapProxyUrlsCache.length) {
+                proxyUrls = dnstapProxyUrlsCache;
             }
-            var unblockedUrls = dnstapCollectKv($('#dnstapUnblockedUrlsKv'));
-            if (!$('#dnstapUnblockedUrlsKv input').length && dnstapUnblockedUrlsCache.length) {
-                unblockedUrls = dnstapUnblockedUrlsCache;
+            var directUrls = dnstapCollectKv($('#dnstapDirectUrlsKv'));
+            if (!$('#dnstapDirectUrlsKv input').length && dnstapDirectUrlsCache.length) {
+                directUrls = dnstapDirectUrlsCache;
+            }
+            var geodatUrls = dnstapCollectKv($('#dnstapGeodatUrlsKv'));
+            if (!$('#dnstapGeodatUrlsKv input').length && dnstapGeodatUrlsCache.length) {
+                geodatUrls = dnstapGeodatUrlsCache;
             }
             return {
                 conf: JSON.stringify(conf),
-                blocked: JSON.stringify(dnstapDomainsToRows(dnstapExtraBlocked)),
-                blocked_urls: JSON.stringify(blockedUrls),
-                unblocked: JSON.stringify(dnstapDomainsToRows(dnstapExtraUnblocked)),
-                unblocked_urls: JSON.stringify(unblockedUrls)
+                proxy: JSON.stringify(dnstapDomainsToRows(dnstapExtraProxy)),
+                proxy_urls: JSON.stringify(proxyUrls),
+                direct: JSON.stringify(dnstapDomainsToRows(dnstapExtraDirect)),
+                direct_urls: JSON.stringify(directUrls),
+                geodat_urls: JSON.stringify(geodatUrls)
             };
+        }
+
+        function dnstapCollectGeodatUrls() {
+            var urls = dnstapCollectKv($('#dnstapGeodatUrlsKv'));
+            if (!$('#dnstapGeodatUrlsKv input').length && dnstapGeodatUrlsCache.length) {
+                urls = dnstapGeodatUrlsCache;
+            }
+            return urls.filter(function (row) {
+                return /^https?:\/\//i.test(String(row.value || '').trim());
+            });
         }
 
         function updateDnstapBadge(running) {
@@ -443,8 +449,8 @@
                 ipv6: '{{ lang._("Enable IPv6") }}',
                 'bgp.peers': '{{ lang._("Bird IP") }}',
                 'bgp.sourceIP': '{{ lang._("DNStap IP") }}',
-                'bgp.blocked_communities': '{{ lang._("Blocked communities") }}',
-                'bgp.unblocked_communities': '{{ lang._("Unblocked communities") }}'
+                'bgp.proxy_communities': '{{ lang._("PROXY communities") }}',
+                'bgp.direct_communities': '{{ lang._("DIRECT communities") }}'
             };
             return map[key] || key;
         }
@@ -455,8 +461,8 @@
                 ipv6: '{{ lang._("Enable IPv6 AFI in dnstap-bgp and the ipv6 channel on the BIRD dnstap peer.") }}',
                 'bgp.peers': '{{ lang._("BIRD neighbor address (host side of the dnstap iBGP session).") }}',
                 'bgp.sourceIP': '{{ lang._("dnstap-bgp source address (jail / DNStap side of the iBGP session).") }}',
-                'bgp.blocked_communities': '{{ lang._("Fixed BGP community on blocked prefixes (local AS:777). Not editable.") }}',
-                'bgp.unblocked_communities': '{{ lang._("Fixed BGP community on unblocked prefixes (local AS:555). Not editable.") }}'
+                'bgp.proxy_communities': '{{ lang._("Fixed BGP community on PROXY prefixes (local AS:777). Not editable.") }}',
+                'bgp.direct_communities': '{{ lang._("Fixed BGP community on DIRECT prefixes (local AS:555). Not editable.") }}'
             };
             return map[key] || '';
         }
@@ -497,7 +503,7 @@
                 var $inp = $('<input type="text" class="form-control"/>')
                     .attr('data-key', key)
                     .val(value == null ? '' : String(value));
-                if (key === 'bgp.blocked_communities' || key === 'bgp.unblocked_communities') {
+                if (key === 'bgp.proxy_communities' || key === 'bgp.direct_communities') {
                     $inp.prop('readonly', true).attr('tabindex', '-1')
                         .css({'cursor': 'default'});
                 }
@@ -568,8 +574,8 @@
                     return;
                 }
                 updateDnstapBadge(!!data.running);
-                dnstapSetCount($('#dnstapBlockedCount'), data.blocked_count || data.domains_count);
-                dnstapSetCount($('#dnstapUnblockedCount'), data.unblocked_count);
+                dnstapSetCount($('#dnstapProxyCount'), data.proxy_count || data.blocked_count || data.domains_count);
+                dnstapSetCount($('#dnstapDirectCount'), data.direct_count || data.unblocked_count);
                 (function () {
                     var $tbody = $('#dnstapConfKv');
                     $tbody.empty();
@@ -577,14 +583,16 @@
                         $tbody.append(dnstapConfRow(row.key || '', row.value));
                     });
                 })();
-                dnstapFillOrEmpty($('#dnstapBlockedUrlsKv'), data.blocked_urls || data.urls, 'url', 'dnstap-blocked-url-del');
-                dnstapFillOrEmpty($('#dnstapUnblockedUrlsKv'), data.unblocked_urls, 'url', 'dnstap-unblocked-url-del');
+                dnstapFillOrEmpty($('#dnstapProxyUrlsKv'), data.proxy_urls || data.blocked_urls || data.urls, 'url', 'dnstap-proxy-url-del');
+                dnstapFillOrEmpty($('#dnstapDirectUrlsKv'), data.direct_urls || data.unblocked_urls, 'url', 'dnstap-direct-url-del');
+                dnstapFillOrEmpty($('#dnstapGeodatUrlsKv'), data.geodat_urls, 'url', 'dnstap-geodat-url-del');
                 dnstapConfCache = dnstapCollectKv($('#dnstapConfKv'));
-                dnstapBlockedUrlsCache = dnstapCollectKv($('#dnstapBlockedUrlsKv'));
-                dnstapUnblockedUrlsCache = dnstapCollectKv($('#dnstapUnblockedUrlsKv'));
+                dnstapProxyUrlsCache = dnstapCollectKv($('#dnstapProxyUrlsKv'));
+                dnstapDirectUrlsCache = dnstapCollectKv($('#dnstapDirectUrlsKv'));
+                dnstapGeodatUrlsCache = dnstapCollectKv($('#dnstapGeodatUrlsKv'));
                 if (!dnstapExtrasDirty) {
-                    dnstapExtraBlocked = dnstapRowsToDomains(data.blocked_extra || data.blocked || data.domains);
-                    dnstapExtraUnblocked = dnstapRowsToDomains(data.unblocked_extra || data.unblocked);
+                    dnstapExtraProxy = dnstapRowsToDomains(data.proxy || data.blocked_extra || data.blocked || data.domains);
+                    dnstapExtraDirect = dnstapRowsToDomains(data.direct || data.unblocked_extra || data.unblocked);
                 }
             });
         }
@@ -628,7 +636,7 @@
             var delClass = String($tbody.attr('data-del-class') || 'dnstap-domain-del');
             $(this).closest('tr').after(dnstapKvRow(key, '', true, delClass));
         });
-        $(document).on('click', '#dnstap .dnstap-blocked-url-del, #dnstap .dnstap-blocked-del, #dnstap .dnstap-unblocked-url-del, #dnstap .dnstap-unblocked-del', function () {
+        $(document).on('click', '#dnstap .dnstap-proxy-url-del, #dnstap .dnstap-direct-url-del, #dnstap .dnstap-geodat-url-del', function () {
             var $tbody = $(this).closest('tbody');
             var key = String($tbody.attr('data-row-key') || 'url');
             var delClass = String($tbody.attr('data-del-class') || 'dnstap-domain-del');
@@ -637,6 +645,158 @@
                 $tbody.append(dnstapKvRow(key, '', true, delClass));
             }
         });
+        function dnstapGeodatFillModal(categories) {
+            var $tb = $('#dnstapGeodatCats').empty();
+            (categories || []).forEach(function (cat) {
+                var name = String(cat.name || cat.key || '');
+                if (!name) {
+                    return;
+                }
+                var action = String(cat.action || cat.value || '');
+                var $sel = $('<select class="form-control input-sm dnstap-geodat-action"/>')
+                    .attr('data-cat', name);
+                [
+                    {v: '', t: '—'},
+                    {v: 'proxy', t: '{{ lang._("PROXY") }}'},
+                    {v: 'direct', t: '{{ lang._("DIRECT") }}'}
+                ].forEach(function (opt) {
+                    $sel.append($('<option/>').attr('value', opt.v).text(opt.t));
+                });
+                if (action === 'blocked') {
+                    action = 'proxy';
+                } else if (action === 'unblocked') {
+                    action = 'direct';
+                }
+                $sel.val(action === 'proxy' || action === 'direct' ? action : '');
+                var $tr = $('<tr/>');
+                $tr.append($('<td/>').text(name));
+                $tr.append($('<td/>').text(String(cat.count != null ? cat.count : '')));
+                $tr.append($('<td/>').append($sel));
+                $tb.append($tr);
+            });
+            dnstapGeodatApplyFilter();
+        }
+
+        function dnstapGeodatApplyFilter() {
+            var q = String($('#dnstapGeodatFilter').val() || '').toLowerCase();
+            $('#dnstapGeodatCats tr').each(function () {
+                var name = $(this).children('td').first().text().toLowerCase();
+                $(this).toggle(!q || name.indexOf(q) !== -1);
+            });
+        }
+
+        function dnstapGeodatCollectCats() {
+            var rows = [];
+            $('#dnstapGeodatCats select').each(function () {
+                var name = String($(this).attr('data-cat') || '');
+                var action = String($(this).val() || '');
+                if (name && (action === 'proxy' || action === 'direct')) {
+                    rows.push({key: name, value: action});
+                }
+            });
+            return rows;
+        }
+
+        $(document).on('input', '#dnstapGeodatFilter', dnstapGeodatApplyFilter);
+
+        function dnstapGeodatFillUrlPick(selected) {
+            var $pick = $('#dnstapGeodatUrlPick').empty();
+            dnstapCollectGeodatUrls().forEach(function (row) {
+                var u = String(row.value || '').trim();
+                $pick.append($('<option/>').attr('value', u).text(u));
+            });
+            if (selected) {
+                $pick.val(selected);
+            }
+            dnstapGeodatActiveUrl = String($pick.val() || '');
+        }
+
+        function dnstapGeodatLoad(url) {
+            var urls = dnstapCollectGeodatUrls();
+            if (!url) {
+                return;
+            }
+            dnstapGeodatActiveUrl = url;
+            $('#dnstapGeodatStatus').text('{{ lang._("Downloading geosite.dat…") }}');
+            $('#dnstapGeodatCats').empty();
+            $.ajax({
+                url: '/api/xray/service/dnstapgeodat',
+                type: 'POST',
+                dataType: 'json',
+                timeout: 180000,
+                data: {
+                    geodat_urls: JSON.stringify(urls),
+                    geodat_url: url
+                },
+                success: function (data) {
+                    if (!data || data.result === 'failed') {
+                        $('#dnstapGeodatStatus').text(data && data.message
+                            ? data.message
+                            : '{{ lang._("Failed to parse geosite.dat") }}');
+                        return;
+                    }
+                    var n = (data.categories || []).length;
+                    $('#dnstapGeodatStatus').text(
+                        '{{ lang._("Categories in file:") }} ' + n
+                    );
+                    dnstapGeodatFillModal(data.categories || []);
+                },
+                error: function (xhr) {
+                    $('#dnstapGeodatStatus').text('{{ lang._("HTTP error:") }} ' + xhr.status);
+                }
+            });
+        }
+
+        $(document).on('change', '#dnstapGeodatUrlPick', function () {
+            dnstapGeodatLoad(String($(this).val() || ''));
+        });
+
+        $(document).on('click', '#dnstapGeodatCategory', function () {
+            var urls = dnstapCollectGeodatUrls();
+            if (!urls.length) {
+                alert('{{ lang._("Add a geosite.dat URL first.") }}');
+                return;
+            }
+            $('#dnstapGeodatModal').modal('show');
+            dnstapGeodatFillUrlPick(urls[0].value);
+            dnstapGeodatLoad(dnstapGeodatActiveUrl);
+        });
+
+        $(document).on('click', '#dnstapGeodatSave', function () {
+            var urls = dnstapCollectGeodatUrls();
+            var url = dnstapGeodatActiveUrl || String($('#dnstapGeodatUrlPick').val() || '');
+            var cats = dnstapGeodatCollectCats();
+            var $btn = $(this).prop('disabled', true);
+            $('#dnstapGeodatStatus').text('{{ lang._("Saving categories…") }}');
+            $.ajax({
+                url: '/api/xray/service/dnstapgeodat',
+                type: 'POST',
+                dataType: 'json',
+                timeout: 180000,
+                data: {
+                    geodat_urls: JSON.stringify(urls),
+                    geodat_url: url,
+                    geodat_categories: JSON.stringify(cats)
+                },
+                success: function (data) {
+                    $btn.prop('disabled', false);
+                    if (!data || data.result === 'failed') {
+                        $('#dnstapGeodatStatus').text(data && data.message
+                            ? data.message
+                            : '{{ lang._("Failed to save categories") }}');
+                        return;
+                    }
+                    dnstapGeodatUrlsCache = urls;
+                    $('#dnstapGeodatModal').modal('hide');
+                    loadDnstapConf();
+                },
+                error: function (xhr) {
+                    $btn.prop('disabled', false);
+                    $('#dnstapGeodatStatus').text('{{ lang._("HTTP error:") }} ' + xhr.status);
+                }
+            });
+        });
+
         $(document).on('click', '#dnstapStart', function () {
             var $btn = $(this).prop('disabled', true);
             ajaxCall('/api/xray/service/dnstapstart', {}, function (data) {
@@ -648,13 +808,13 @@
             });
         });
         function dnstapExtraAdd(kind) {
-            var $inp = kind === 'unblocked' ? $('#domainsUnblockedInput') : $('#domainsBlockedInput');
+            var $inp = kind === 'direct' ? $('#domainsDirectInput') : $('#domainsProxyInput');
             var d = dnstapNormalizeDomain($inp.val());
             if (d === '') {
                 alert('{{ lang._("Enter a valid domain name.") }}');
                 return;
             }
-            var list = kind === 'unblocked' ? dnstapExtraUnblocked : dnstapExtraBlocked;
+            var list = kind === 'direct' ? dnstapExtraDirect : dnstapExtraProxy;
             if (list.indexOf(d) === -1) {
                 list.push(d);
             }
@@ -663,19 +823,19 @@
         }
 
         function dnstapExtraRemove(kind) {
-            var $inp = kind === 'unblocked' ? $('#domainsUnblockedInput') : $('#domainsBlockedInput');
+            var $inp = kind === 'direct' ? $('#domainsDirectInput') : $('#domainsProxyInput');
             var d = dnstapNormalizeDomain($inp.val());
-            if (kind === 'unblocked') {
-                dnstapExtraUnblocked = dnstapExtraUnblocked.filter(function (x) { return x !== d; });
+            if (kind === 'direct') {
+                dnstapExtraDirect = dnstapExtraDirect.filter(function (x) { return x !== d; });
             } else {
-                dnstapExtraBlocked = dnstapExtraBlocked.filter(function (x) { return x !== d; });
+                dnstapExtraProxy = dnstapExtraProxy.filter(function (x) { return x !== d; });
             }
             dnstapExtrasDirty = true;
             $inp.val('');
         }
 
         function dnstapRenderDomainList(filter) {
-            var list = domainsListKind === 'unblocked' ? dnstapExtraUnblocked : dnstapExtraBlocked;
+            var list = domainsListKind === 'direct' ? dnstapExtraDirect : dnstapExtraProxy;
             var q = String(filter || '').toLowerCase();
             var shown = 0;
             var $tb = $('#domainsListRows').empty();
@@ -687,7 +847,7 @@
                 var $tr = $('<tr/>').css('cursor', 'pointer');
                 $tr.append($('<td/>').text(d));
                 $tr.on('click', function () {
-                    var $inp = domainsListKind === 'unblocked' ? $('#domainsUnblockedInput') : $('#domainsBlockedInput');
+                    var $inp = domainsListKind === 'direct' ? $('#domainsDirectInput') : $('#domainsProxyInput');
                     $inp.val(d);
                     $('#domainsListModal').modal('hide');
                 });
@@ -698,9 +858,9 @@
 
         function dnstapOpenDomainList(kind) {
             domainsListKind = kind;
-            $('#domainsListModalTitle').text(kind === 'unblocked'
-                ? '{{ lang._("Unblocked domains") }}'
-                : '{{ lang._("Blocked domains") }}');
+            $('#domainsListModalTitle').text(kind === 'direct'
+                ? '{{ lang._("DIRECT domains") }}'
+                : '{{ lang._("PROXY domains") }}');
             $('#domainsListFilter').val('');
             dnstapRenderDomainList('');
             $('#domainsListModal').modal('show');
@@ -754,25 +914,25 @@
             }
         });
 
-        $(document).on('click', '#domainsBlockedAdd', function () { dnstapExtraAdd('blocked'); });
-        $(document).on('click', '#domainsUnblockedAdd', function () { dnstapExtraAdd('unblocked'); });
-        $(document).on('click', '#domainsBlockedRemove', function () { dnstapExtraRemove('blocked'); });
-        $(document).on('click', '#domainsUnblockedRemove', function () { dnstapExtraRemove('unblocked'); });
-        $(document).on('click', '#domainsBlockedSearch', function () { dnstapOpenDomainList('blocked'); });
-        $(document).on('click', '#domainsUnblockedSearch', function () { dnstapOpenDomainList('unblocked'); });
+        $(document).on('click', '#domainsProxyAdd', function () { dnstapExtraAdd('proxy'); });
+        $(document).on('click', '#domainsDirectAdd', function () { dnstapExtraAdd('direct'); });
+        $(document).on('click', '#domainsProxyRemove', function () { dnstapExtraRemove('proxy'); });
+        $(document).on('click', '#domainsDirectRemove', function () { dnstapExtraRemove('direct'); });
+        $(document).on('click', '#domainsProxySearch', function () { dnstapOpenDomainList('proxy'); });
+        $(document).on('click', '#domainsDirectSearch', function () { dnstapOpenDomainList('direct'); });
         $(document).on('input', '#domainsListFilter', function () {
             dnstapRenderDomainList($(this).val());
         });
-        $('#domainsBlockedInput').on('keydown', function (e) {
+        $('#domainsProxyInput').on('keydown', function (e) {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                dnstapExtraAdd('blocked');
+                dnstapExtraAdd('proxy');
             }
         });
-        $('#domainsUnblockedInput').on('keydown', function (e) {
+        $('#domainsDirectInput').on('keydown', function (e) {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                dnstapExtraAdd('unblocked');
+                dnstapExtraAdd('direct');
             }
         });
 

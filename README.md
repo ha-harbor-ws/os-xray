@@ -130,7 +130,7 @@ Refresh browser (`Ctrl+F5`) → **VPN → Xray**
 3. Press **Apply** (this does **not** run Auto route poll loops; polls live in cron)
 4. **Test Connection** button — verify the tunnel is working (shows HTTP 200)
 5. **Routing** tab — BGP peers, filters, communities. **Apply** writes BIRD includes and runs `birdc configure` (no `service bird restart`, BGP sessions stay up)
-6. **DNStap** tab — config plus blocked/unblocked URL lists and extra domains (`blocked.txt` / `unblocked.txt`, communities). **Apply** writes those files and sends SIGHUP if dnstap-bgp is already running
+6. **DNStap** tab — config plus PROXY/DIRECT URL lists and extra domains (`proxy.txt` / `direct.txt`, communities). **Apply** writes those files and sends SIGHUP if dnstap-bgp is already running
 
 ---
 
@@ -234,9 +234,9 @@ On start the plugin writes `/usr/local/etc/unbound.opnsense.d/dnstap.conf` (`dns
 
 The installer does **not** start dnstap. Start happens on Apply when the checkbox is on and the package is present.
 
-The **DNStap** tab (after Routing) matches [dnstap-bgp v1.3.0](https://github.com/ha-harbor-ws/dnstap-bgp): `blocked_domains` / `unblocked_domains`, separate URL and extra lists, and `bgp.blocked_communities` / `bgp.unblocked_communities`. If a name is in both lists, blocked wins. Apply writes the files and sends SIGHUP when the service is already running (Unbound is not restarted). The old `domains.txt` is used as a fallback until the first Apply migrates it to `blocked.txt`.
+The **DNStap** tab (after Routing) matches [dnstap-bgp v1.3.0](https://github.com/ha-harbor-ws/dnstap-bgp): `proxy_domains` / `direct_domains`, separate URL and extra lists, and `bgp.proxy_communities` / `bgp.direct_communities`. If a name is in both lists, PROXY wins. Apply writes the files and sends SIGHUP when the service is already running (Unbound is not restarted). The old `domains.txt` / `blocked.txt` is used as a fallback until the first Apply migrates it to `proxy.txt`.
 
-Missing domain list files (`blocked.txt`, `unblocked.txt`, extras, URL lists) are created empty before dnstap-bgp starts. With **Enable DNStap BGP** on, cron at **04:15** downloads the URL lists, rewrites the summarized files, and runs `service dnstap_bgp reload`.
+Missing domain list files (`proxy.txt`, `direct.txt`, extras, URL lists) are created empty before dnstap-bgp starts. Default Geodat URL is hydraponique `geosite.dat`; Category assignments are stored per file under `geodat-categories/`. With **Enable DNStap BGP** on, cron at **04:15** downloads the URL lists, rewrites the summarized files, and runs `service dnstap_bgp reload`.
 
 ---
 

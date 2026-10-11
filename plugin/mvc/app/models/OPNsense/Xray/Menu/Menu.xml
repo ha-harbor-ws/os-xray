@@ -1,7 +1,14 @@
 <menu>
     <VPN>
         <Xray cssClass="fa fa-rocket fa-fw">
-            <General order="10" url="/ui/xray/"/>
+            <Instances order="10" VisibleName="Instances" url="/ui/xray/#instances"/>
+            <BgpPeers order="20" VisibleName="BGP peers" url="/ui/xray/#routing-peers"/>
+            <BgpFilter order="30" VisibleName="BGP filter" url="/ui/xray/#routing-filters"/>
+            <BgpCommunity order="40" VisibleName="BGP community" url="/ui/xray/#routing-communities"/>
+            <DNStap order="50" VisibleName="DNStap" url="/ui/xray/#dnstap"/>
+            <General order="60" VisibleName="General" url="/ui/xray/#general"/>
+            <Domains order="70" VisibleName="Domains" url="/ui/xray/#domains"/>
+            <Log order="80" VisibleName="Log" url="/ui/xray/#logs"/>
         </Xray>
     </VPN>
 </menu>

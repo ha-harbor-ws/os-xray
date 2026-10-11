@@ -336,20 +336,32 @@ class ServiceController extends ApiMutableServiceControllerBase
             return ['result' => 'failed', 'message' => 'POST required'];
         }
 
-        $conf           = $this->request->getPost('conf');
-        $blocked        = $this->request->getPost('blocked');
-        $blockedUrls    = $this->request->getPost('blocked_urls');
-        $unblocked      = $this->request->getPost('unblocked');
-        $unblockedUrls  = $this->request->getPost('unblocked_urls');
-        $domains        = $this->request->getPost('domains');
-        $urls           = $this->request->getPost('urls');
-        $rc             = $this->request->getPost('rc');
-        if ($conf === null && $blocked === null && $blockedUrls === null
+        $conf        = $this->request->getPost('conf');
+        $proxy       = $this->request->getPost('proxy');
+        $proxyUrls   = $this->request->getPost('proxy_urls');
+        $direct      = $this->request->getPost('direct');
+        $directUrls  = $this->request->getPost('direct_urls');
+        $geodatUrls  = $this->request->getPost('geodat_urls');
+        $blocked     = $this->request->getPost('blocked');
+        $blockedUrls = $this->request->getPost('blocked_urls');
+        $unblocked   = $this->request->getPost('unblocked');
+        $unblockedUrls = $this->request->getPost('unblocked_urls');
+        $domains     = $this->request->getPost('domains');
+        $urls        = $this->request->getPost('urls');
+        $rc          = $this->request->getPost('rc');
+        if ($conf === null && $proxy === null && $proxyUrls === null
+            && $direct === null && $directUrls === null && $geodatUrls === null
+            && $blocked === null && $blockedUrls === null
             && $unblocked === null && $unblockedUrls === null
             && $domains === null && $urls === null && $rc === null) {
             $json = $this->request->getJsonRawBody();
             if (is_object($json)) {
                 $conf          = $json->conf ?? null;
+                $proxy         = $json->proxy ?? null;
+                $proxyUrls     = $json->proxy_urls ?? null;
+                $direct        = $json->direct ?? null;
+                $directUrls    = $json->direct_urls ?? null;
+                $geodatUrls    = $json->geodat_urls ?? null;
                 $blocked       = $json->blocked ?? null;
                 $blockedUrls   = $json->blocked_urls ?? null;
                 $unblocked     = $json->unblocked ?? null;
@@ -359,6 +371,11 @@ class ServiceController extends ApiMutableServiceControllerBase
                 $rc            = $json->rc ?? null;
             } elseif (is_array($json)) {
                 $conf          = $json['conf'] ?? null;
+                $proxy         = $json['proxy'] ?? null;
+                $proxyUrls     = $json['proxy_urls'] ?? null;
+                $direct        = $json['direct'] ?? null;
+                $directUrls    = $json['direct_urls'] ?? null;
+                $geodatUrls    = $json['geodat_urls'] ?? null;
                 $blocked       = $json['blocked'] ?? null;
                 $blockedUrls   = $json['blocked_urls'] ?? null;
                 $unblocked     = $json['unblocked'] ?? null;
@@ -369,7 +386,9 @@ class ServiceController extends ApiMutableServiceControllerBase
             }
         }
 
-        if ($conf === null && $blocked === null && $blockedUrls === null
+        if ($conf === null && $proxy === null && $proxyUrls === null
+            && $direct === null && $directUrls === null && $geodatUrls === null
+            && $blocked === null && $blockedUrls === null
             && $unblocked === null && $unblockedUrls === null
             && $domains === null && $urls === null && $rc === null) {
             return ['result' => 'ok', 'message' => 'Nothing to write'];
@@ -388,12 +407,13 @@ class ServiceController extends ApiMutableServiceControllerBase
 
         $staged = '/tmp/xray_dnstap_write.json';
         $payload = json_encode([
-            'conf'           => $decodeRows($conf),
-            'blocked'        => $decodeRows($blocked !== null ? $blocked : $domains),
-            'blocked_urls'   => $decodeRows($blockedUrls !== null ? $blockedUrls : $urls),
-            'unblocked'      => $decodeRows($unblocked),
-            'unblocked_urls' => $decodeRows($unblockedUrls),
-            'rc'             => $decodeRows($rc),
+            'conf'        => $decodeRows($conf),
+            'proxy'       => $decodeRows($proxy !== null ? $proxy : ($blocked !== null ? $blocked : $domains)),
+            'proxy_urls'  => $decodeRows($proxyUrls !== null ? $proxyUrls : ($blockedUrls !== null ? $blockedUrls : $urls)),
+            'direct'      => $decodeRows($direct !== null ? $direct : $unblocked),
+            'direct_urls' => $decodeRows($directUrls !== null ? $directUrls : $unblockedUrls),
+            'geodat_urls' => $decodeRows($geodatUrls),
+            'rc'          => $decodeRows($rc),
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($payload === false || file_put_contents($staged, $payload) === false) {
             return ['result' => 'failed', 'message' => 'Cannot stage dnstap files'];
@@ -406,6 +426,67 @@ class ServiceController extends ApiMutableServiceControllerBase
             || stripos($output, 'failed') !== false;
         return [
             'result'  => $failed ? 'failed' : 'ok',
+            'message' => $output !== '' ? $output : 'No response from configd',
+        ];
+    }
+
+    /**
+     * POST /api/xray/service/dnstapgeodat — download geosite.dat and list/save categories.
+     */
+    public function dnstapgeodatAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+
+        $geodatUrls = $this->request->getPost('geodat_urls');
+        $geodatUrl  = $this->request->getPost('geodat_url');
+        $geodatCats = $this->request->getPost('geodat_categories');
+        if ($geodatUrls === null && $geodatCats === null && $geodatUrl === null) {
+            $json = $this->request->getJsonRawBody();
+            if (is_object($json)) {
+                $geodatUrls = $json->geodat_urls ?? null;
+                $geodatUrl  = $json->geodat_url ?? null;
+                $geodatCats = $json->geodat_categories ?? null;
+            } elseif (is_array($json)) {
+                $geodatUrls = $json['geodat_urls'] ?? null;
+                $geodatUrl  = $json['geodat_url'] ?? null;
+                $geodatCats = $json['geodat_categories'] ?? null;
+            }
+        }
+
+        $decodeRows = static function ($raw): array {
+            if (is_array($raw)) {
+                return $raw;
+            }
+            if (is_string($raw) && $raw !== '') {
+                $j = json_decode($raw, true);
+                return is_array($j) ? $j : [];
+            }
+            return [];
+        };
+
+        $payload = [
+            'geodat_urls' => $decodeRows($geodatUrls),
+            'geodat_url'  => is_string($geodatUrl) ? $geodatUrl : (string)$geodatUrl,
+        ];
+        if ($geodatCats !== null) {
+            $payload['geodat_categories'] = $decodeRows($geodatCats);
+        }
+        $staged = '/tmp/xray_dnstap_geodat.json';
+        $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($json === false || file_put_contents($staged, $json) === false) {
+            return ['result' => 'failed', 'message' => 'Cannot stage geosite request'];
+        }
+        @chmod($staged, 0600);
+
+        $output = trim((string)(new Backend())->configdRun('xray dnstapgeodat'));
+        $decoded = json_decode($output, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+        return [
+            'result'  => 'failed',
             'message' => $output !== '' ? $output : 'No response from configd',
         ];
     }

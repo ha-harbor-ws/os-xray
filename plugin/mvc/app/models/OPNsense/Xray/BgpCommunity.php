@@ -23,7 +23,7 @@ class BgpCommunity extends BaseModel
             ],
             [
                 'enabled'      => '1',
-                'name'         => 'community_DNSTAP_BLOCKED',
+                'name'         => 'community_DNSTAP_PROXY',
                 'communities'  => '65103:777',
             ],
         ];
@@ -81,15 +81,29 @@ class BgpCommunity extends BaseModel
         return self::overlayDropdownFromNames(self::liveNames(), $current);
     }
 
-    public function ensureDnstapBlockedCommunity(): string
+    public function ensureDnstapProxyCommunity(): string
     {
-        $name = 'community_DNSTAP_BLOCKED';
+        $want = 'community_DNSTAP_PROXY';
+        $legacy = 'community_DNSTAP_BLOCKED';
+        $legacyUuid = '';
         if (method_exists($this->community, 'iterateItems')) {
             foreach ($this->community->iterateItems() as $uuid => $item) {
-                if (strcasecmp(trim((string)$item->name), $name) === 0) {
+                $n = trim((string)$item->name);
+                if (strcasecmp($n, $want) === 0) {
                     return (string)$uuid;
                 }
+                if (strcasecmp($n, $legacy) === 0) {
+                    $legacyUuid = (string)$uuid;
+                }
             }
+        }
+        if ($legacyUuid !== '' && method_exists($this->community, 'iterateItems')) {
+            $node = $this->community->{$legacyUuid};
+            if ($node !== null && method_exists($node, 'setNodes')) {
+                $node->setNodes(['name' => $want]);
+            }
+            $this->persistConfig();
+            return $legacyUuid;
         }
         if (!method_exists($this->community, 'add')) {
             return '';
@@ -99,12 +113,17 @@ class BgpCommunity extends BaseModel
         if ($node !== null && method_exists($node, 'setNodes')) {
             $node->setNodes([
                 'enabled'     => '1',
-                'name'        => $name,
+                'name'        => $want,
                 'communities' => '65103:777',
             ]);
         }
         $this->persistConfig();
         return (string)$uuid;
+    }
+
+    public function ensureDnstapBlockedCommunity(): string
+    {
+        return $this->ensureDnstapProxyCommunity();
     }
 
     public function seedDefaultCommunitiesIfEmpty(): void

@@ -41,14 +41,14 @@ class BgpFilter extends BaseModel
             [
                 'enabled'        => '1',
                 'name'           => 'filter_dnstap_v4',
-                'community'      => 'community_DNSTAP_BLOCKED',
+                'community'      => 'community_DNSTAP_PROXY',
                 'family'         => 'ipv4',
                 'tun_if'         => 'ACTIVE_TUN4_IF',
             ],
             [
                 'enabled'        => '1',
                 'name'           => 'filter_dnstap_v6',
-                'community'      => 'community_DNSTAP_BLOCKED',
+                'community'      => 'community_DNSTAP_PROXY',
                 'family'         => 'ipv6',
                 'tun_if'         => 'ACTIVE_TUN6_IF',
             ],
@@ -116,10 +116,6 @@ class BgpFilter extends BaseModel
                     $item->family = $want[$n]['family'];
                     $changed = true;
                 }
-                if ((string)$item->tun_if !== $want[$n]['tun_if']) {
-                    $item->tun_if = $want[$n]['tun_if'];
-                    $changed = true;
-                }
             }
         }
         foreach ($want as $name => $meta) {
@@ -135,7 +131,7 @@ class BgpFilter extends BaseModel
                 $node->setNodes([
                     'enabled'   => '1',
                     'name'      => $name,
-                    'community' => $commUuid !== '' ? $commUuid : 'community_DNSTAP_BLOCKED',
+                    'community' => $commUuid !== '' ? $commUuid : 'community_DNSTAP_PROXY',
                     'family'    => $meta['family'],
                     'tun_if'    => $meta['tun_if'],
                 ]);
@@ -173,6 +169,20 @@ class BgpFilter extends BaseModel
             return;
         }
         $changed = false;
+        foreach ($this->filter->iterateItems() as $item) {
+            $tif = trim((string)$item->tun_if);
+            $low = strtolower($tif);
+            if ($low === 'wan' || $low === 'wan_if' || $low === 'wan6_if') {
+                if ($tif !== 'wan') {
+                    $item->tun_if = 'wan';
+                    $changed = true;
+                }
+            } elseif ($tif === '' || $low === 'active_tun') {
+                $fam = ((string)$item->family === 'ipv6') ? 'ACTIVE_TUN6_IF' : 'ACTIVE_TUN4_IF';
+                $item->tun_if = $fam;
+                $changed = true;
+            }
+        }
         foreach ($this->filter->iterateItems() as $item) {
             $n = (string)$item->name;
             if (strncasecmp($n, 'accept_', 7) !== 0) {

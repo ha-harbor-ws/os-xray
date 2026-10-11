@@ -13,7 +13,7 @@ Format: [Semantic Versioning](https://semver.org/).
 - DNStap / Domains — фон ячеек из темы OPNsense (жёсткий `#f9f9f9`/`#333` давал белый нечитаемый фон)
 - Падение GUI после установки — `ensureDnstapPeerFilters` вызывал ValidationException (кэш ModelRelationField ещё без новых фильтров); seed/ensure пишут config без валидации и больше не роняют `/ui/xray/`
 - Help на всех вкладках как на General: переключатель full help, иконка у поля, текст под полем; кнопка Help на DNStap заменена
-- Routing — dropdown фильтров у пира и community у фильтра берёт все записи из config (кэш ModelRelationField обрезал список); пиру dnstap по умолчанию назначаются `filter_dnstap_v4`/`v6` и `community_DNSTAP_BLOCKED`
+- Routing — dropdown фильтров у пира и community у фильтра берёт все записи из config (кэш ModelRelationField обрезал список); пиру dnstap по умолчанию назначаются `filter_dnstap_v4`/`v6` и `community_DNSTAP_PROXY`
 - **sysrc quoting** — `bird_enable` / `dnstap_bgp_enable` писались как `""YES""` и на каждом Apply дописывались; строки в rc.conf переписываются целиком, `dnstap_bgp_enable` только в `rc.conf.d` (битая строка из `/etc/rc.conf` удаляется)
 - **dnstap-bgp `bgp.as`** — в TOML писался как строка `"65103"`, демон ждёт integer; теперь `as = 65103` без кавычек
 - **DNStap IPv6 → BIRD** — чекбокс Enable IPv6 включает `ipv6 {}` у peer dnstap и исключает его при выключении; Apply/Start делают `birdc configure`
@@ -26,9 +26,12 @@ Format: [Semantic Versioning](https://semver.org/).
 - **DNStap без пакета** — Apply не вызывает `service dnstap_bgp`, если бинарь/rc.d/`os-dnstap-bgp` отсутствуют
 
 ### Added
+- **BGP filter Interface** — выбор ACTIVE_TUN4_IF, ACTIVE_TUN6_IF или WAN (устройство OPNsense WAN)
+- **DNStap PROXY/DIRECT** — списки, файлы и UI: `proxy.txt` / `direct.txt` (бывшие blocked/unblocked); community `community_DNSTAP_PROXY`
+- **DNStap Geodat** — URL `geosite.dat` (hydraponique по умолчанию) и кнопка Category: каждой категории PROXY или DIRECT; назначения в `geodat-categories/<sha1>.txt` на каждый URL; без признака категории не попадают в файлы; cron/Apply учитывают назначения
 - **Domains — Check domain route** — resolv домена, для каждого IP `birdcl show route for <ip> all`; таблица: domain, IP, BGP peer, Instance, интерфейс (`dev` или WAN), Active (`*` в BIRD; если Network not found — N/A / N/A / WAN / да)
-- **DNStap BGP 1.3.0** — вкладка DNStap пишет `blocked.txt` / `unblocked.txt`, URL и extra для каждого списка, `bgp.blocked_communities` / `bgp.unblocked_communities`; при пересечении имён побеждает blocked; Apply шлёт SIGHUP
-- **DNStap domain files** — перед стартом создаются пустые `blocked.txt` / `unblocked.txt` (и extra/URL), если их нет
+- **DNStap BGP 1.3.0** — вкладка DNStap пишет `proxy.txt` / `direct.txt`, URL и extra для каждого списка, `bgp.proxy_communities` / `bgp.direct_communities`; при пересечении имён побеждает PROXY; Apply шлёт SIGHUP
+- **DNStap domain files** — перед стартом создаются пустые `proxy.txt` / `direct.txt` (и extra/URL), если их нет
 - **DNStap URL cron** — каждый день в 04:15 скачиваются списки по URL и выполняется `service dnstap_bgp reload`
 - **DNStap ↔ Unbound** — при старте: `dnstap-enable: yes`, общий сокет (chroot `/var/run/dnstap-bgp/dnstap.sock` = хост `/var/unbound/var/run/dnstap-bgp/dnstap.sock`), `configctl unbound reload`, затем старт dnstap-bgp; при выключении: `dnstap-enable: no` и reload Unbound
 - **Auto route** — cron раз в минуту; реальный SOCKS-опрос раз в **Auto route interval**; состояние в `/var/run/xray_autoroute_state.json`; выбор TUN по среднему latency; Apply цикл опросов не запускает
@@ -40,14 +43,15 @@ Format: [Semantic Versioning](https://semver.org/).
 - **DNStap BGP** — `install.sh` ставит `os-dnstap-bgp` с GitHub Releases; General **Enable DNStap BGP**; вкладка DNStap (ключ/значение из живых конфигов)
 
 ### Changed
+- Меню VPN → Xray — пункты всех вкладок по порядку (Instances, BGP peers/filter/community, DNStap, General, Domains, Log)
 - `install.sh` — `pkg update` не вызывается; пауза с напоминанием обновить систему из GUI (System → Firmware → Updates), дальше — любая клавиша; повторная установка без uninstall обновляет пакеты и стартовые скрипты, живые конфиги не трогает; uninstall пакета, которого не было до первой установки, снимает конфиги и автозапуск
 - Вкладка DNStap — табличная вёрстка как BGP peers (ячейки с рамками), Add/Remove справа от поля, TTL → Routing prefix TTL, описания в Help
 - DNStap blocked URL — по умолчанию Re-filter `domains_all.lst` и `https://community.antifilter.download/list/domains.lst`
-- DNStap start — если URL списков заполнены, домены скачиваются до старта демона, в нижний регистр, без дублей, в summarized `blocked.txt` / `unblocked.txt`
+- DNStap start — если URL списков заполнены, домены скачиваются до старта демона, в нижний регистр, без дублей, в summarized `proxy.txt` / `direct.txt`
 - DNStap communities — blocked `AS:777`, unblocked `AS:555`, в GUI только просмотр
 - Вкладка Log — **DNStap Log** (`/var/log/dnstap-bgp/dnstap-bgp.log`, syslog-ng + newsyslog), как Bird Log
 - DNStap IPv6 по умолчанию включён (`ipv6 = true`, BIRD peer ipv4+ipv6)
-- DNStap BIRD — community `community_DNSTAP_BLOCKED` (`AS:777`), фильтры `filter_dnstap_v4` / `filter_dnstap_v6` редистрибьют в ACTIVE_TUN4_IF / ACTIVE_TUN6_IF
+- DNStap BIRD — community `community_DNSTAP_PROXY` (`AS:777`), фильтры `filter_dnstap_v4` / `filter_dnstap_v6` редистрибьют в ACTIVE_TUN4_IF / ACTIVE_TUN6_IF
 - Вкладка **Domains** — extra blocked/unblocked: одно поле, Add/Remove, лупа со списком; extra убраны с DNStap
 - `install.sh`: fallback-пакет os-dnstap-bgp — **v1.3.0**
 - Смена active TUN и Apply Routing — `birdc configure`, не `service bird restart`. Удалены birdstart/birdstop/birdrestart из actions/API
