@@ -38,7 +38,7 @@ Format: [Semantic Versioning](https://semver.org/).
 - **DNStap BGP** — `install.sh` ставит `os-dnstap-bgp` с GitHub Releases; General **Enable DNStap BGP**; вкладка DNStap (ключ/значение из живых конфигов)
 
 ### Changed
-- `install.sh` — при каждой установке проверяет новые версии `bird2` (pkg), Unbound DNSTAP, `os-dnstap-bgp` и `tun2socks` (GitHub) и обновляет их; при uninstall удаляет только то, чего не было до первой установки (`/var/db/os-xray/pkg-baseline`; без baseline пакеты/бинарь не трогает)
+- `install.sh` — сначала `pkg unlock unbound`, затем `pkg update`; устаревшие пакеты из репозитория; unbound: сначала repo, потом проверка DNSTAP, GitHub и `pkg lock` только если ставили с GitHub; tun2socks с GitHub; uninstall только того, чего не было до первой установки (`/var/db/os-xray/pkg-baseline`)
 - Вкладка DNStap — табличная вёрстка как BGP peers (ячейки с рамками), Add/Remove справа от поля, TTL → Routing prefix TTL, описания в Help
 - DNStap blocked URL — по умолчанию Re-filter `domains_all.lst` и `https://community.antifilter.download/list/domains.lst`
 - DNStap start — если URL списков заполнены, домены скачиваются до старта демона, в нижний регистр, без дублей, в summarized `blocked.txt` / `unblocked.txt`

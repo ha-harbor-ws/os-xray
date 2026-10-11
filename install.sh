@@ -407,34 +407,147 @@ xray_ensure_tun2socks() {
     rm -rf "$_ex"
 }
 
-# bird2 from OPNsense/FreeBSD pkg repo: install or upgrade if a newer version exists.
-xray_ensure_bird2() {
-    echo "==> Checking bird2 ..."
-    if ! pkg update >/dev/null 2>&1; then
-        pkg update -f >/dev/null 2>&1 || warn "pkg update failed — bird2 version check may be stale"
-    fi
-    if pkg info -e bird2 >/dev/null 2>&1; then
-        _inst=$(pkg query '%v' bird2 2>/dev/null || echo '')
-        _avail=$(pkg rquery '%v' bird2 2>/dev/null | head -1 || true)
-        if [ -n "$_avail" ] && xray_pkg_is_older "$_inst" "$_avail"; then
-            echo "[INFO] bird2 $_inst → $_avail"
-            if pkg upgrade -y bird2; then
-                echo "[OK]  bird2 upgraded: $(pkg query '%v' bird2 2>/dev/null)"
-            else
-                warn "bird2 upgrade failed (keeping $_inst)"
-            fi
+# Unlock GitHub unbound so pkg update / repo upgrade can replace it.
+xray_unbound_unlock() {
+    echo "==> Unlocking unbound (if pkg-locked)..."
+    if pkg info -e unbound >/dev/null 2>&1 && [ "$(pkg query '%k' unbound 2>/dev/null || echo 0)" = "1" ]; then
+        if pkg unlock -y unbound; then
+            echo "[OK]  pkg unlock unbound"
         else
-            echo "[OK]  bird2: ${_inst:-installed} (up to date)"
+            warn "pkg unlock unbound failed"
         fi
     else
-        warn "bird2 NOT found — installing via pkg..."
-        if pkg install -y bird2; then
-            echo "[OK]  bird2 installed: $(pkg query '%v' bird2 2>/dev/null || echo installed)"
+        echo "[OK]  unbound is not pkg-locked"
+    fi
+}
+
+# One catalog refresh for all repo packages (visible output — not redirected).
+xray_pkg_catalog_update() {
+    echo "==> pkg update (repository catalog)..."
+    if pkg update; then
+        echo "[OK]  pkg catalog updated"
+    else
+        warn "pkg update failed — version checks use the last catalog"
+    fi
+}
+
+xray_pkg_repo_version() {
+    pkg rquery '%v' "$1" 2>/dev/null | head -1 || true
+}
+
+# Install or upgrade a FreeBSD/OPNsense repo package if the catalog is newer.
+# Sets XRAY_PKG_SYNC_CHANGED=1 when install/upgrade from repo succeeded.
+xray_pkg_sync_repo() {
+    _name="$1"
+    XRAY_PKG_SYNC_CHANGED=0
+    echo "==> Checking $_name (pkg repository) ..."
+    _avail=$(xray_pkg_repo_version "$_name")
+    if pkg info -e "$_name" >/dev/null 2>&1; then
+        _inst=$(pkg query '%v' "$_name" 2>/dev/null || echo '')
+        if [ -z "$_avail" ]; then
+            echo "[OK]  $_name: ${_inst:-installed} (not in catalog — skip)"
+            return 0
+        fi
+        if xray_pkg_is_older "$_inst" "$_avail"; then
+            echo "[INFO] $_name $_inst → $_avail (repo)"
+            if pkg upgrade -y "$_name"; then
+                echo "[OK]  $_name upgraded: $(pkg query '%v' "$_name" 2>/dev/null)"
+                XRAY_PKG_SYNC_CHANGED=1
+                return 0
+            fi
+            warn "$_name repo upgrade failed (keeping $_inst)"
+            return 1
+        fi
+        echo "[OK]  $_name: $_inst (repo $_avail, up to date)"
+        return 0
+    fi
+    if [ -z "$_avail" ]; then
+        warn "$_name not installed and not in pkg catalog"
+        return 1
+    fi
+    echo "[INFO] installing $_name $_avail from repo..."
+    if pkg install -y "$_name"; then
+        echo "[OK]  $_name installed: $(pkg query '%v' "$_name" 2>/dev/null || echo installed)"
+        XRAY_PKG_SYNC_CHANGED=1
+        return 0
+    fi
+    warn "Failed to install $_name from pkg repository"
+    return 1
+}
+
+xray_unbound_restart_if_needed() {
+    if [ "${UB_WAS_RUNNING:-0}" = "1" ]; then
+        if service unbound restart >/dev/null 2>&1; then
+            echo "[OK]  unbound restarted"
         else
-            warn "Failed to install bird2. Install manually: pkg update && pkg install bird2"
-            BINARIES_OK=0
+            warn "Could not restart unbound — restart DNS from GUI"
         fi
     fi
+}
+
+xray_unbound_install_github() {
+    UB_PKG="/tmp/unbound-latest.pkg"
+    echo "==> Installing unbound with DNSTAP from GitHub..."
+    if ! fetch -o "$UB_PKG" "$UNBOUND_DNSTAP_PKG_URL"; then
+        warn "Failed to fetch $UNBOUND_DNSTAP_PKG_URL"
+        BINARIES_OK=0
+        rm -f "$UB_PKG"
+        return 1
+    fi
+    if pkg add -f "$UB_PKG"; then
+        rm -f "$UB_PKG"
+        if xray_unbound_has_dnstap; then
+            _ub="$(xray_unbound_bin)"
+            echo "[OK]  unbound (GitHub) $("$_ub" -V 2>&1 | awk 'NR==1{print; exit}')"
+        else
+            warn "GitHub unbound installed, but --enable-dnstap still not in unbound -V"
+            BINARIES_OK=0
+            return 1
+        fi
+        if pkg lock -y unbound; then
+            echo "[OK]  pkg lock unbound (GitHub DNSTAP — OPNsense/pkg will not overwrite)"
+        else
+            warn "pkg lock unbound failed — OPNsense upgrade may replace this GitHub build"
+        fi
+        xray_unbound_restart_if_needed
+        return 0
+    fi
+    warn "Failed to install unbound from $UNBOUND_DNSTAP_PKG_URL"
+    BINARIES_OK=0
+    rm -f "$UB_PKG"
+    return 1
+}
+
+xray_ensure_bird2() {
+    if xray_pkg_sync_repo bird2; then
+        :
+    else
+        BINARIES_OK=0
+    fi
+}
+
+# Unbound: repo first (if catalog is newer), then DNSTAP check; GitHub + lock only if no DNSTAP.
+xray_ensure_unbound_dnstap() {
+    echo "==> Checking unbound ..."
+    UB_WAS_RUNNING=0
+    if service unbound onestatus >/dev/null 2>&1; then
+        UB_WAS_RUNNING=1
+    fi
+    if xray_pkg_sync_repo unbound; then
+        if [ "${XRAY_PKG_SYNC_CHANGED:-0}" = "1" ]; then
+            xray_unbound_restart_if_needed
+        fi
+    elif ! pkg info -e unbound >/dev/null 2>&1; then
+        BINARIES_OK=0
+    fi
+    if xray_unbound_has_dnstap; then
+        _ub="$(xray_unbound_bin)"
+        echo "[OK]  unbound has --enable-dnstap ($("$_ub" -V 2>&1 | awk 'NR==1{print; exit}'))"
+        echo "[OK]  unbound not pkg-locked (lock only after GitHub DNSTAP install)"
+        return 0
+    fi
+    warn "unbound has no --enable-dnstap — replacing with GitHub build"
+    xray_unbound_install_github || true
 }
 
 xray_github_dnstap_pkg_url() {
@@ -460,79 +573,6 @@ exit(1);
         return 0
     fi
     echo "$DTAP_PKG_FALLBACK"
-}
-
-# Unbound: GitHub DNSTAP build. Install if missing/no-dnstap; upgrade if newer pkg.
-xray_ensure_unbound_dnstap() {
-    echo "==> Checking Unbound (DNSTAP / GitHub) ..."
-    UB_PKG="/tmp/unbound-latest.pkg"
-    UB_NEED=0
-    if ! xray_unbound_has_dnstap; then
-        UB_NEED=1
-        if xray_unbound_bin >/dev/null 2>&1; then
-            warn "unbound found but compiled without --enable-dnstap — installing GitHub build..."
-        else
-            warn "unbound NOT found — installing from GitHub..."
-        fi
-    fi
-    if ! fetch -o "$UB_PKG" "$UNBOUND_DNSTAP_PKG_URL"; then
-        warn "Failed to fetch $UNBOUND_DNSTAP_PKG_URL"
-        if [ "$UB_NEED" = "1" ]; then
-            BINARIES_OK=0
-        fi
-        rm -f "$UB_PKG"
-        return 0
-    fi
-    _new=$(xray_pkg_file_version "$UB_PKG")
-    _inst=$(pkg query '%v' unbound 2>/dev/null || true)
-    if [ "$UB_NEED" != "1" ] && [ -z "$_new" ]; then
-        warn "Could not read version from GitHub unbound pkg — leaving $_inst"
-        rm -f "$UB_PKG"
-        return 0
-    fi
-    if [ "$UB_NEED" != "1" ] && [ -n "$_inst" ] && [ -n "$_new" ] && ! xray_pkg_is_older "$_inst" "$_new"; then
-        echo "[OK]  unbound: $_inst (DNSTAP, up to date)"
-        rm -f "$UB_PKG"
-        return 0
-    fi
-    if [ "$UB_NEED" != "1" ]; then
-        echo "[INFO] unbound $_inst → ${_new:-GitHub latest} (DNSTAP)"
-    fi
-    UB_WAS_RUNNING=0
-    if service unbound onestatus >/dev/null 2>&1; then
-        UB_WAS_RUNNING=1
-    fi
-    if [ "$(pkg query '%k' unbound 2>/dev/null || echo 0)" = "1" ]; then
-        pkg unlock -y unbound >/dev/null 2>&1 || true
-        echo "[INFO] unbound was pkg-locked — unlocked to replace the package"
-    fi
-    if pkg add -f "$UB_PKG"; then
-        if xray_unbound_has_dnstap; then
-            _ub="$(xray_unbound_bin)"
-            echo "[OK]  unbound $("$_ub" -V 2>&1 | awk 'NR==1{print; exit}')"
-        else
-            warn "unbound package installed, but --enable-dnstap still not in unbound -V"
-            BINARIES_OK=0
-        fi
-        if pkg lock -y unbound >/dev/null 2>&1; then
-            echo "[OK]  unbound заблокирован через pkg lock — pkg/OPNsense не перезапишут пакет при обновлении"
-        else
-            warn "pkg lock unbound failed — OPNsense upgrade may replace this GitHub build"
-        fi
-        if [ "$UB_WAS_RUNNING" = "1" ]; then
-            if service unbound restart >/dev/null 2>&1; then
-                echo "[OK]  unbound restarted"
-            else
-                warn "Could not restart unbound — restart DNS from GUI"
-            fi
-        fi
-    else
-        warn "Failed to install unbound from $UNBOUND_DNSTAP_PKG_URL"
-        if [ "$UB_NEED" = "1" ]; then
-            BINARIES_OK=0
-        fi
-    fi
-    rm -f "$UB_PKG"
 }
 
 xray_ensure_os_dnstap_bgp() {
@@ -1181,8 +1221,6 @@ if [ "$XRAY_NEEDS_INSTALL" = "1" ] || [ "$XRAY_NEEDS_UPGRADE" = "1" ]; then
     esac
 fi
 
-xray_ensure_tun2socks
-
 # bird2 — пакет FreeBSD/OPNsense (pkg) + конфиг из git
 BIRD_CONF_SRC="$(dirname "$0")/bird.conf"
 BIRD_CONF_DST="/usr/local/etc/bird.conf"
@@ -1192,6 +1230,9 @@ BGP_CONF_DST="/usr/local/etc/bird/bgp.conf"
 BGP_CONF_URL="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}/bgp.conf"
 BIRD_INC_DIR="/usr/local/etc/bird"
 
+xray_unbound_unlock
+xray_pkg_catalog_update
+xray_ensure_tun2socks
 xray_ensure_bird2
 xray_ensure_unbound_dnstap
 DTAP_FRESH_INSTALL=0
