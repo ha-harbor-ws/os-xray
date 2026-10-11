@@ -454,7 +454,7 @@ xray_ensure_tun2socks() {
     rm -rf "$_ex"
 }
 
-# Unlock GitHub unbound so pkg update / repo upgrade can replace it.
+# Unlock GitHub unbound so repo upgrade can replace it.
 xray_unbound_unlock() {
     echo "==> Unlocking unbound (if pkg-locked)..."
     if pkg info -e unbound >/dev/null 2>&1 && [ "$(pkg query '%k' unbound 2>/dev/null || echo 0)" = "1" ]; then
@@ -468,18 +468,32 @@ xray_unbound_unlock() {
     fi
 }
 
-# One catalog refresh for all repo packages (visible output — not redirected).
-xray_pkg_catalog_update() {
-    echo "==> pkg update (repository catalog)..."
-    if pkg update; then
-        echo "[OK]  pkg catalog updated"
+# Do not run pkg update here — it hangs on OPNsense; catalog is refreshed from the GUI.
+xray_pkg_gui_update_notice() {
+    echo ""
+    echo "------------------------------------------------------------"
+    echo "  Каталог пакетов этим скриптом не обновляется (pkg update не вызывается)."
+    echo "  Обновите систему из веб-интерфейса OPNsense:"
+    echo "    System → Firmware → Updates"
+    echo "------------------------------------------------------------"
+    printf "  Нажмите любую клавишу для продолжения... "
+    if [ -r /dev/tty ]; then
+        _stty=$(stty -g < /dev/tty 2>/dev/null || true)
+        if [ -n "$_stty" ] && stty -icanon -echo min 1 time 0 < /dev/tty 2>/dev/null; then
+            dd if=/dev/tty of=/dev/null bs=1 count=1 2>/dev/null || true
+            stty "$_stty" < /dev/tty 2>/dev/null || true
+        else
+            read -r _ </dev/tty || true
+        fi
     else
-        warn "pkg update failed — version checks use the last catalog"
+        read -r _ || true
     fi
+    echo ""
+    echo ""
 }
 
 xray_pkg_repo_version() {
-    pkg rquery '%v' "$1" 2>/dev/null | head -1 || true
+    pkg rquery -U '%v' "$1" 2>/dev/null | head -1 || true
 }
 
 # Install or upgrade a FreeBSD/OPNsense repo package if the catalog is newer.
@@ -497,7 +511,7 @@ xray_pkg_sync_repo() {
         fi
         if xray_pkg_is_older "$_inst" "$_avail"; then
             echo "[INFO] $_name $_inst → $_avail (repo)"
-            if pkg upgrade -y "$_name"; then
+            if pkg upgrade -Uy "$_name"; then
                 echo "[OK]  $_name upgraded: $(pkg query '%v' "$_name" 2>/dev/null)"
                 XRAY_PKG_SYNC_CHANGED=1
                 return 0
@@ -513,7 +527,7 @@ xray_pkg_sync_repo() {
         return 1
     fi
     echo "[INFO] installing $_name $_avail from repo..."
-    if pkg install -y "$_name"; then
+    if pkg install -Uy "$_name"; then
         echo "[OK]  $_name installed: $(pkg query '%v' "$_name" 2>/dev/null || echo installed)"
         XRAY_PKG_SYNC_CHANGED=1
         return 0
@@ -1311,7 +1325,7 @@ BGP_CONF_URL="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REP
 BIRD_INC_DIR="/usr/local/etc/bird"
 
 xray_unbound_unlock
-xray_pkg_catalog_update
+xray_pkg_gui_update_notice
 xray_ensure_tun2socks
 xray_ensure_bird2
 xray_ensure_unbound_dnstap

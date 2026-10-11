@@ -38,7 +38,7 @@ Format: [Semantic Versioning](https://semver.org/).
 - **DNStap BGP** — `install.sh` ставит `os-dnstap-bgp` с GitHub Releases; General **Enable DNStap BGP**; вкладка DNStap (ключ/значение из живых конфигов)
 
 ### Changed
-- `install.sh` — повторная установка без uninstall обновляет пакеты и стартовые скрипты (syshook/rc.d), живые конфиги не трогает; uninstall пакета, которого не было до первой установки, снимает конфиги и автозапуск (`rc.d` / `rc.conf` / `rc.conf.d`)
+- `install.sh` — `pkg update` не вызывается; пауза с напоминанием обновить систему из GUI (System → Firmware → Updates), дальше — любая клавиша; повторная установка без uninstall обновляет пакеты и стартовые скрипты, живые конфиги не трогает; uninstall пакета, которого не было до первой установки, снимает конфиги и автозапуск
 - Вкладка DNStap — табличная вёрстка как BGP peers (ячейки с рамками), Add/Remove справа от поля, TTL → Routing prefix TTL, описания в Help
 - DNStap blocked URL — по умолчанию Re-filter `domains_all.lst` и `https://community.antifilter.download/list/domains.lst`
 - DNStap start — если URL списков заполнены, домены скачиваются до старта демона, в нижний регистр, без дублей, в summarized `blocked.txt` / `unblocked.txt`
