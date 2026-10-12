@@ -90,7 +90,9 @@ class BgpFilter extends BaseModel
 
     public function ensureDnstapFilters(): void
     {
-        $commUuid = (new BgpCommunity())->ensureDnstapBlockedCommunity();
+        $commMdl = new BgpCommunity();
+        $commUuid = $commMdl->ensureDnstapBlockedCommunity();
+        $commMdl->ensureDnstapBlockCommunity();
         $want = [
             'filter_dnstap_v4' => ['family' => 'ipv4', 'tun_if' => 'ACTIVE_TUN4_IF'],
             'filter_dnstap_v6' => ['family' => 'ipv6', 'tun_if' => 'ACTIVE_TUN6_IF'],

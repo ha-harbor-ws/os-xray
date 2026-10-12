@@ -446,14 +446,17 @@ function xray_unbound_reload(): void
     }
 }
 
-function xray_dnstap_migrate_named_file(string $old, string $new): void
+function xray_dnstap_migrate_named_file(string $old, string $new, bool $removeOld = false): void
 {
-    if (is_file($new) || !is_readable($old)) {
-        return;
+    if (is_readable($old) && !is_file($new)) {
+        if (@copy($old, $new)) {
+            @chmod($new, 0644);
+            echo "dnstap: migrated {$old} → {$new}\n";
+        }
     }
-    if (@copy($old, $new)) {
-        @chmod($new, 0644);
-        echo "dnstap: migrated {$old} → {$new}\n";
+    if ($removeOld && is_file($old)) {
+        @unlink($old);
+        echo "dnstap: removed {$old}\n";
     }
 }
 
@@ -469,7 +472,7 @@ function xray_dnstap_ensure_domain_files(): void
         echo "dnstap: cannot mkdir {$catDir}\n";
     }
     xray_dnstap_migrate_named_file($dir . '/domains.txt', $dir . '/proxy.txt');
-    xray_dnstap_migrate_named_file($dir . '/blocked.txt', $dir . '/proxy.txt');
+    xray_dnstap_migrate_named_file($dir . '/blocked.txt', $dir . '/proxy.txt', true);
     xray_dnstap_migrate_named_file($dir . '/unblocked.txt', $dir . '/direct.txt');
     xray_dnstap_migrate_named_file($dir . '/blocked-extra.txt', $dir . '/proxy-extra.txt');
     xray_dnstap_migrate_named_file($dir . '/unblocked-extra.txt', $dir . '/direct-extra.txt');
@@ -489,10 +492,13 @@ function xray_dnstap_ensure_domain_files(): void
     $files = [
         $proxy                        => $emptyDomains,
         $dir . '/direct.txt'          => $emptyDomains,
+        $dir . '/block.txt'           => $emptyDomains,
         $dir . '/proxy-extra.txt'     => $emptyDomains,
         $dir . '/direct-extra.txt'    => $emptyDomains,
+        $dir . '/block-extra.txt'     => $emptyDomains,
         $dir . '/proxy-urls.txt'      => $proxyUrls,
         $dir . '/direct-urls.txt'     => $emptyUrls,
+        $dir . '/block-urls.txt'      => $emptyUrls,
         $dir . '/geodat-urls.txt'     => $geodatUrls,
     ];
     foreach ($files as $path => $body) {
@@ -582,7 +588,8 @@ function xray_dnstap_fetch_lists_on_start(): void
         }
         echo "dnstap: fetched " . (int)($result['fetched'] ?? 0) . " URL(s), "
             . (int)($result['proxy'] ?? $result['blocked'] ?? 0) . " PROXY + "
-            . (int)($result['direct'] ?? $result['unblocked'] ?? 0) . " DIRECT (lowercase, unique)\n";
+            . (int)($result['direct'] ?? $result['unblocked'] ?? 0) . " DIRECT + "
+            . (int)($result['block'] ?? 0) . " BLOCK (lowercase, unique)\n";
         $failed = $result['failed'] ?? [];
         if (is_array($failed) && $failed !== []) {
             echo "dnstap: could not download: " . implode(' ', $failed) . "\n";
@@ -618,6 +625,7 @@ function xray_dnstap_unbound_activate(): void
     xray_dnstap_fetch_lists_on_start();
     $proxyList  = '/usr/local/etc/dnstap-bgp/proxy.txt';
     $directList = '/usr/local/etc/dnstap-bgp/direct.txt';
+    $blockList  = '/usr/local/etc/dnstap-bgp/block.txt';
     $as = xray_dnstap_bird_local_as();
     if (is_readable(XRAY_DNSTAP_BGP_CONF)) {
         $text = (string)file_get_contents(XRAY_DNSTAP_BGP_CONF);
@@ -625,11 +633,12 @@ function xray_dnstap_unbound_activate(): void
             'domains'        => $proxyList,
             'proxy_domains'  => $proxyList,
             'direct_domains' => $directList,
+            'block_domains'  => $blockList,
         ]);
         $text = xray_dnstap_toml_upsert_section($text, 'bgp', ['as' => (string)$as]);
         @file_put_contents(XRAY_DNSTAP_BGP_CONF, $text);
         echo "dnstap: bgp.as={$as} (BIRD local AS)\n";
-        echo "dnstap: proxy_domains={$proxyList} direct_domains={$directList}\n";
+        echo "dnstap: proxy_domains={$proxyList} direct_domains={$directList} block_domains={$blockList}\n";
     }
     xray_dnstap_sync_rc_from_bgp();
     xray_unbound_reload();

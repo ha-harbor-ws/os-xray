@@ -155,6 +155,9 @@ function xray_geosite_normalize_action(string $action): string
     if ($action === 'direct' || $action === 'unblocked') {
         return 'direct';
     }
+    if ($action === 'block') {
+        return 'block';
+    }
     return '';
 }
 
@@ -179,7 +182,7 @@ function xray_geosite_parse_assignments(string $text): array
 function xray_geosite_render_assignments(array $map, string $url = ''): string
 {
     $lines = [
-        '# geosite category assignments: NAME proxy|direct',
+        '# geosite category assignments: NAME proxy|direct|block',
         '# Categories without an assignment are ignored.',
     ];
     if ($url !== '') {
@@ -233,19 +236,22 @@ function xray_dnstap_geodat_cat_path(string $url): string
 /**
  * @param array<string, array<string, true>> $cats
  * @param array<string, string> $assign
- * @return array{proxy: string[], direct: string[]}
+ * @return array{proxy: string[], direct: string[], block: string[]}
  */
 function xray_geosite_collect_domains(array $cats, array $assign): array
 {
     $proxy = [];
     $direct = [];
+    $block = [];
     foreach ($assign as $name => $action) {
         if (!isset($cats[$name])) {
             continue;
         }
         $action = xray_geosite_normalize_action((string)$action);
         foreach ($cats[$name] as $d => $_) {
-            if ($action === 'proxy') {
+            if ($action === 'block') {
+                $block[$d] = true;
+            } elseif ($action === 'proxy') {
                 $proxy[$d] = true;
             } elseif ($action === 'direct') {
                 $direct[$d] = true;
@@ -255,5 +261,6 @@ function xray_geosite_collect_domains(array $cats, array $assign): array
     return [
         'proxy'  => array_keys($proxy),
         'direct' => array_keys($direct),
+        'block'  => array_keys($block),
     ];
 }

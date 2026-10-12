@@ -139,7 +139,7 @@
                                 </a>
                                 {{ lang._('Extra DIRECT domains') }}
                                 <div class="hidden" data-for="help_for_domains_direct">
-                                    <small>{{ lang._('Add a domain to the extra DIRECT list. Names also present in PROXY are dropped on Apply.') }}</small>
+                                    <small>{{ lang._('Add a domain to the extra DIRECT list. Names also present in BLOCK or PROXY are dropped on Apply.') }}</small>
                                 </div>
                             </th>
                         </tr>
@@ -158,6 +158,43 @@
                                     </button>
                                     <button type="button" class="btn btn-xs btn-default" id="domainsDirectSearch"
                                             title="{{ lang._('Show DIRECT domains') }}">
+                                        <span class="fa fa-fw fa-search"></span>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="dnstap-section-wrap">
+                <table class="table table-condensed table-hover table-striped">
+                    <thead>
+                        <tr>
+                            <th>
+                                <a href="#" class="xray-showhelp" id="help_for_domains_block">
+                                    <i class="fa fa-info-circle"></i>
+                                </a>
+                                {{ lang._('Extra BLOCK domains') }}
+                                <div class="hidden" data-for="help_for_domains_block">
+                                    <small>{{ lang._('Add a domain to the extra BLOCK list. If a name is also in PROXY or DIRECT, BLOCK wins.') }}</small>
+                                </div>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>
+                                <div class="dnstap-row-edit">
+                                    <input type="text" class="form-control" id="domainsBlockInput"
+                                           placeholder="{{ lang._('example.com') }}"/>
+                                    <button type="button" class="btn btn-xs btn-primary" id="domainsBlockAdd">
+                                        <span class="fa fa-fw fa-plus"></span> {{ lang._('Add') }}
+                                    </button>
+                                    <button type="button" class="btn btn-xs btn-default" id="domainsBlockRemove">
+                                        <span class="fa fa-fw fa-minus"></span> {{ lang._('Remove') }}
+                                    </button>
+                                    <button type="button" class="btn btn-xs btn-default" id="domainsBlockSearch"
+                                            title="{{ lang._('Show BLOCK domains') }}">
                                         <span class="fa fa-fw fa-search"></span>
                                     </button>
                                 </div>

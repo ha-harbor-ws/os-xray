@@ -1339,6 +1339,19 @@ function xray_dnstap_ensure_bird_policy(\SimpleXMLElement $xray, int $localAs): 
         xray_xml_set_child($comm, 'communities', $commVal);
     }
     $commUuid = (string)$comm['uuid'];
+    $blockName = 'community_DNSTAP_BLOCK';
+    $blockVal  = $localAs . ':888';
+    $blockComm = xray_xml_find_named($xray->bgpcommunities, 'community', $blockName);
+    if ($blockComm === null) {
+        $blockComm = $xray->bgpcommunities->addChild('community');
+        $blockComm->addAttribute('uuid', xray_xml_new_uuid());
+        $blockComm->addChild('enabled', '1');
+        $blockComm->addChild('name', $blockName);
+        $blockComm->addChild('communities', $blockVal);
+    } else {
+        xray_xml_set_child($blockComm, 'enabled', '1');
+        xray_xml_set_child($blockComm, 'communities', $blockVal);
+    }
     $uuids    = ['community' => $commUuid];
     foreach ([
         'filter_dnstap_v4' => ['family' => 'ipv4', 'tun_if' => 'ACTIVE_TUN4_IF'],

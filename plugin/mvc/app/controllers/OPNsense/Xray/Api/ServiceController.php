@@ -341,6 +341,8 @@ class ServiceController extends ApiMutableServiceControllerBase
         $proxyUrls   = $this->request->getPost('proxy_urls');
         $direct      = $this->request->getPost('direct');
         $directUrls  = $this->request->getPost('direct_urls');
+        $block       = $this->request->getPost('block');
+        $blockUrls   = $this->request->getPost('block_urls');
         $geodatUrls  = $this->request->getPost('geodat_urls');
         $blocked     = $this->request->getPost('blocked');
         $blockedUrls = $this->request->getPost('blocked_urls');
@@ -350,7 +352,8 @@ class ServiceController extends ApiMutableServiceControllerBase
         $urls        = $this->request->getPost('urls');
         $rc          = $this->request->getPost('rc');
         if ($conf === null && $proxy === null && $proxyUrls === null
-            && $direct === null && $directUrls === null && $geodatUrls === null
+            && $direct === null && $directUrls === null
+            && $block === null && $blockUrls === null && $geodatUrls === null
             && $blocked === null && $blockedUrls === null
             && $unblocked === null && $unblockedUrls === null
             && $domains === null && $urls === null && $rc === null) {
@@ -361,6 +364,8 @@ class ServiceController extends ApiMutableServiceControllerBase
                 $proxyUrls     = $json->proxy_urls ?? null;
                 $direct        = $json->direct ?? null;
                 $directUrls    = $json->direct_urls ?? null;
+                $block         = $json->block ?? null;
+                $blockUrls     = $json->block_urls ?? null;
                 $geodatUrls    = $json->geodat_urls ?? null;
                 $blocked       = $json->blocked ?? null;
                 $blockedUrls   = $json->blocked_urls ?? null;
@@ -375,6 +380,8 @@ class ServiceController extends ApiMutableServiceControllerBase
                 $proxyUrls     = $json['proxy_urls'] ?? null;
                 $direct        = $json['direct'] ?? null;
                 $directUrls    = $json['direct_urls'] ?? null;
+                $block         = $json['block'] ?? null;
+                $blockUrls     = $json['block_urls'] ?? null;
                 $geodatUrls    = $json['geodat_urls'] ?? null;
                 $blocked       = $json['blocked'] ?? null;
                 $blockedUrls   = $json['blocked_urls'] ?? null;
@@ -387,7 +394,8 @@ class ServiceController extends ApiMutableServiceControllerBase
         }
 
         if ($conf === null && $proxy === null && $proxyUrls === null
-            && $direct === null && $directUrls === null && $geodatUrls === null
+            && $direct === null && $directUrls === null
+            && $block === null && $blockUrls === null && $geodatUrls === null
             && $blocked === null && $blockedUrls === null
             && $unblocked === null && $unblockedUrls === null
             && $domains === null && $urls === null && $rc === null) {
@@ -412,6 +420,8 @@ class ServiceController extends ApiMutableServiceControllerBase
             'proxy_urls'  => $decodeRows($proxyUrls !== null ? $proxyUrls : ($blockedUrls !== null ? $blockedUrls : $urls)),
             'direct'      => $decodeRows($direct !== null ? $direct : $unblocked),
             'direct_urls' => $decodeRows($directUrls !== null ? $directUrls : $unblockedUrls),
+            'block'       => $decodeRows($block),
+            'block_urls'  => $decodeRows($blockUrls),
             'geodat_urls' => $decodeRows($geodatUrls),
             'rc'          => $decodeRows($rc),
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);

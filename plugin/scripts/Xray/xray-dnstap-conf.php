@@ -24,6 +24,7 @@ const XRAY_DNSTAP_CONF_HIDDEN = [
     'domains',
     'proxy_domains',
     'direct_domains',
+    'block_domains',
     'blocked_domains',
     'unblocked_domains',
     'cache',
@@ -37,16 +38,18 @@ const XRAY_DNSTAP_FILES = [
     'conf'           => '/usr/local/etc/dnstap-bgp/dnstap-bgp.conf',
     'proxy'          => '/usr/local/etc/dnstap-bgp/proxy.txt',
     'direct'         => '/usr/local/etc/dnstap-bgp/direct.txt',
+    'block'          => '/usr/local/etc/dnstap-bgp/block.txt',
     'proxy_extra'    => '/usr/local/etc/dnstap-bgp/proxy-extra.txt',
     'direct_extra'   => '/usr/local/etc/dnstap-bgp/direct-extra.txt',
+    'block_extra'    => '/usr/local/etc/dnstap-bgp/block-extra.txt',
     'proxy_urls'     => '/usr/local/etc/dnstap-bgp/proxy-urls.txt',
     'direct_urls'    => '/usr/local/etc/dnstap-bgp/direct-urls.txt',
+    'block_urls'     => '/usr/local/etc/dnstap-bgp/block-urls.txt',
     'geodat_urls'    => '/usr/local/etc/dnstap-bgp/geodat-urls.txt',
     'rc'             => '/usr/local/etc/rc.conf.d/dnstap_bgp',
 ];
 const XRAY_DNSTAP_LEGACY = [
     'domains'      => '/usr/local/etc/dnstap-bgp/domains.txt',
-    'blocked'      => '/usr/local/etc/dnstap-bgp/blocked.txt',
     'unblocked'    => '/usr/local/etc/dnstap-bgp/unblocked.txt',
     'extra'        => '/usr/local/etc/dnstap-bgp/domains-extra.txt',
     'blocked_extra'=> '/usr/local/etc/dnstap-bgp/blocked-extra.txt',
@@ -258,6 +261,7 @@ function xray_dnstap_conf_managed_rows(): array
         ['key' => 'domains', 'value' => XRAY_DNSTAP_FILES['proxy']],
         ['key' => 'proxy_domains', 'value' => XRAY_DNSTAP_FILES['proxy']],
         ['key' => 'direct_domains', 'value' => XRAY_DNSTAP_FILES['direct']],
+        ['key' => 'block_domains', 'value' => XRAY_DNSTAP_FILES['block']],
         ['key' => 'cache', 'value' => '/var/db/dnstap-bgp/cache.db'],
         ['key' => 'dnstap.listen', 'value' => $sock],
         ['key' => 'dnstap.perm', 'value' => $perm],
@@ -271,6 +275,7 @@ function xray_dnstap_default_communities(): array
     return [
         'bgp.proxy_communities'  => $as . ':777',
         'bgp.direct_communities' => $as . ':555',
+        'bgp.block_communities'  => $as . ':888',
     ];
 }
 
@@ -729,6 +734,7 @@ function xray_dnstap_geosite_sets(array $urlRows): array
 {
     $proxy = [];
     $direct = [];
+    $block = [];
     $fetched = 0;
     $failed = [];
     foreach (xray_dnstap_url_list($urlRows) as $url) {
@@ -746,10 +752,14 @@ function xray_dnstap_geosite_sets(array $urlRows): array
         foreach ($collected['direct'] as $d) {
             $direct[$d] = true;
         }
+        foreach ($collected['block'] as $d) {
+            $block[$d] = true;
+        }
     }
     return [
         'proxy'   => array_keys($proxy),
         'direct'  => array_keys($direct),
+        'block'   => array_keys($block),
         'fetched' => $fetched,
         'failed'  => $failed,
     ];
@@ -774,22 +784,31 @@ function xray_dnstap_commit_summaries(
     array $directExtra,
     array $directUrls,
     array $geoProxy,
-    array $geoDirect
+    array $geoDirect,
+    array $blockExtra = [],
+    array $blockUrls = [],
+    array $geoBlock = []
 ): array {
-    $merged = xray_dnstap_merge_domains($proxyExtra, $proxyUrls, 'proxy', [], $geoProxy);
+    $mergedB = xray_dnstap_merge_domains($blockExtra, $blockUrls, 'block', [], $geoBlock);
+    if (!xray_dnstap_write_file(XRAY_DNSTAP_FILES['block'], $mergedB['body'])) {
+        echo "ERROR: cannot write " . XRAY_DNSTAP_FILES['block'] . "\n";
+    }
+    $exclude = xray_dnstap_parse_domain_text($mergedB['body']);
+    $merged = xray_dnstap_merge_domains($proxyExtra, $proxyUrls, 'proxy', $exclude, $geoProxy);
     if (!xray_dnstap_write_file(XRAY_DNSTAP_FILES['proxy'], $merged['body'])) {
         echo "ERROR: cannot write " . XRAY_DNSTAP_FILES['proxy'] . "\n";
     }
-    $exclude = xray_dnstap_parse_domain_text($merged['body']);
+    $exclude = $exclude + xray_dnstap_parse_domain_text($merged['body']);
     $mergedU = xray_dnstap_merge_domains($directExtra, $directUrls, 'direct', $exclude, $geoDirect);
     if (!xray_dnstap_write_file(XRAY_DNSTAP_FILES['direct'], $mergedU['body'])) {
         echo "ERROR: cannot write " . XRAY_DNSTAP_FILES['direct'] . "\n";
     }
     return [
+        'block'   => $mergedB,
         'proxy'   => $merged,
         'direct'  => $mergedU,
-        'fetched' => $merged['fetched'] + $mergedU['fetched'],
-        'failed'  => array_merge($merged['failed'], $mergedU['failed']),
+        'fetched' => $mergedB['fetched'] + $merged['fetched'] + $mergedU['fetched'],
+        'failed'  => array_merge($mergedB['failed'], $merged['failed'], $mergedU['failed']),
     ];
 }
 
@@ -814,15 +833,19 @@ function xray_dnstap_refresh_from_urls(): array
         XRAY_DNSTAP_FILES['direct_urls'],
         XRAY_DNSTAP_LEGACY['unblocked_urls'],
     ]));
+    $blockExtra = xray_dnstap_parse_domains(xray_dnstap_read_file(XRAY_DNSTAP_FILES['block_extra']));
+    $blockUrls = xray_dnstap_parse_urls(xray_dnstap_read_file(XRAY_DNSTAP_FILES['block_urls']));
     $geodatUrls = xray_dnstap_parse_urls(xray_dnstap_read_file(XRAY_DNSTAP_FILES['geodat_urls']));
 
     $hasGeo = xray_dnstap_has_urls($geodatUrls);
-    $hasUrls = xray_dnstap_has_urls($proxyUrls) || xray_dnstap_has_urls($directUrls) || $hasGeo;
+    $hasUrls = xray_dnstap_has_urls($proxyUrls) || xray_dnstap_has_urls($directUrls)
+        || xray_dnstap_has_urls($blockUrls) || $hasGeo;
     if (!$hasUrls) {
         return [
             'wrote'    => false,
             'proxy'    => 0,
             'direct'   => 0,
+            'block'    => 0,
             'fetched'  => 0,
             'failed'   => [],
             'has_urls' => false,
@@ -831,12 +854,14 @@ function xray_dnstap_refresh_from_urls(): array
 
     $geoProxy = [];
     $geoDirect = [];
+    $geoBlock = [];
     $failed = [];
     $fetched = 0;
     if ($hasGeo && xray_dnstap_geodat_has_any_assign($geodatUrls)) {
         $geo = xray_dnstap_geosite_sets($geodatUrls);
         $geoProxy = $geo['proxy'];
         $geoDirect = $geo['direct'];
+        $geoBlock = $geo['block'] ?? [];
         $fetched += $geo['fetched'];
         $failed = array_merge($failed, $geo['failed']);
     }
@@ -847,13 +872,17 @@ function xray_dnstap_refresh_from_urls(): array
         $directExtra,
         $directUrls,
         $geoProxy,
-        $geoDirect
+        $geoDirect,
+        $blockExtra,
+        $blockUrls,
+        $geoBlock
     );
 
     return [
         'wrote'    => true,
         'proxy'    => $sum['proxy']['count'],
         'direct'   => $sum['direct']['count'],
+        'block'    => $sum['block']['count'],
         'fetched'  => $fetched + $sum['fetched'],
         'failed'   => array_merge($failed, $sum['failed']),
         'has_urls' => true,
@@ -894,7 +923,7 @@ if ($op === 'start') {
     $rows = xray_dnstap_ensure_community_rows(xray_dnstap_parse_toml(xray_dnstap_read_file($confPath)));
     if ($rows !== [] && is_file($confPath)) {
         xray_dnstap_write_file($confPath, xray_dnstap_render_toml($rows));
-        echo "dnstap: proxy_communities AS:777 direct_communities AS:555\n";
+        echo "dnstap: proxy_communities AS:777 direct_communities AS:555 block_communities AS:888\n";
     }
     xray_dnstap_unbound_activate();
     echo "OK\n";
@@ -913,7 +942,7 @@ if ($op === 'fetch') {
         echo "OK no domain list URLs — skip download\n";
         exit(0);
     }
-    echo "OK fetched {$result['fetched']} URL(s), {$result['proxy']} PROXY + {$result['direct']} DIRECT\n";
+    echo "OK fetched {$result['fetched']} URL(s), {$result['proxy']} PROXY + {$result['direct']} DIRECT + {$result['block']} BLOCK\n";
     if ($result['failed'] !== []) {
         echo "WARN could not download: " . implode(' ', $result['failed']) . "\n";
     }
@@ -982,13 +1011,18 @@ if ($op === 'geodatcats') {
             XRAY_DNSTAP_FILES['direct_urls'],
             XRAY_DNSTAP_LEGACY['unblocked_urls'],
         ]));
+        $blockExtra = xray_dnstap_parse_domains(xray_dnstap_read_file(XRAY_DNSTAP_FILES['block_extra']));
+        $blockUrls = xray_dnstap_parse_urls(xray_dnstap_read_file(XRAY_DNSTAP_FILES['block_urls']));
         xray_dnstap_commit_summaries(
             $proxyExtra,
             $proxyUrls,
             $directExtra,
             $directUrls,
             $geoAll['proxy'],
-            $geoAll['direct']
+            $geoAll['direct'],
+            $blockExtra,
+            $blockUrls,
+            $geoAll['block'] ?? []
         );
         $saved = true;
         if (xray_dnstap_running()) {
@@ -1024,6 +1058,8 @@ if ($op === 'write') {
     $proxyUrls   = xray_dnstap_rows_from_post($j['proxy_urls'] ?? $j['blocked_urls'] ?? $j['urls'] ?? []);
     $directExtra = xray_dnstap_rows_from_post($j['direct'] ?? $j['unblocked'] ?? []);
     $directUrls  = xray_dnstap_rows_from_post($j['direct_urls'] ?? $j['unblocked_urls'] ?? []);
+    $blockExtra  = xray_dnstap_rows_from_post($j['block'] ?? []);
+    $blockUrls   = xray_dnstap_rows_from_post($j['block_urls'] ?? []);
     $geodatUrls  = array_key_exists('geodat_urls', $j)
         ? xray_dnstap_rows_from_post($j['geodat_urls'])
         : xray_dnstap_parse_urls(xray_dnstap_read_file(XRAY_DNSTAP_FILES['geodat_urls']));
@@ -1033,30 +1069,40 @@ if ($op === 'write') {
         : xray_dnstap_conf_merge_managed(xray_dnstap_parse_toml(xray_dnstap_read_file(XRAY_DNSTAP_FILES['conf'])));
     $geoProxy = [];
     $geoDirect = [];
+    $geoBlock = [];
     $geoFailed = [];
     $geoFetched = 0;
     if (xray_dnstap_has_urls($geodatUrls) && xray_dnstap_geodat_has_any_assign($geodatUrls)) {
         $geo = xray_dnstap_geosite_sets($geodatUrls);
         $geoProxy = $geo['proxy'];
         $geoDirect = $geo['direct'];
+        $geoBlock = $geo['block'] ?? [];
         $geoFailed = $geo['failed'];
         $geoFetched = $geo['fetched'];
     }
-    $mergedProxy  = xray_dnstap_merge_domains($proxyExtra, $proxyUrls, 'proxy', [], $geoProxy);
-    $exclude      = xray_dnstap_parse_domain_text($mergedProxy['body']);
-    $mergedDirect = xray_dnstap_merge_domains($directExtra, $directUrls, 'direct', $exclude, $geoDirect);
+    $sum = xray_dnstap_commit_summaries(
+        $proxyExtra,
+        $proxyUrls,
+        $directExtra,
+        $directUrls,
+        $geoProxy,
+        $geoDirect,
+        $blockExtra,
+        $blockUrls,
+        $geoBlock
+    );
     $map = [
         'conf'        => xray_dnstap_render_toml($confRows),
         'proxy_extra' => xray_dnstap_render_domains($proxyExtra),
         'direct_extra'=> xray_dnstap_render_domains($directExtra),
+        'block_extra' => xray_dnstap_render_domains($blockExtra),
         'proxy_urls'  => xray_dnstap_render_urls($proxyUrls, 'proxy'),
         'direct_urls' => xray_dnstap_render_urls($directUrls, 'direct'),
+        'block_urls'  => xray_dnstap_render_urls($blockUrls, 'block'),
         'geodat_urls' => xray_dnstap_render_urls($geodatUrls, 'geodat'),
-        'proxy'       => $mergedProxy['body'],
-        'direct'      => $mergedDirect['body'],
     ];
     foreach ($map as $key => $body) {
-        $limit = ($key === 'proxy' || $key === 'direct') ? XRAY_DNSTAP_DOMAINS_MAX : XRAY_DNSTAP_MAX;
+        $limit = XRAY_DNSTAP_MAX;
         if (strlen($body) > $limit) {
             echo "ERROR: {$key} too large\n";
             exit(1);
@@ -1066,10 +1112,10 @@ if ($op === 'write') {
             exit(1);
         }
     }
-    echo "OK merged {$mergedProxy['count']} PROXY + {$mergedDirect['count']} DIRECT"
-        . " from " . ($mergedProxy['fetched'] + $mergedDirect['fetched'] + $geoFetched) . " URL(s)\n";
+    echo "OK merged {$sum['proxy']['count']} PROXY + {$sum['direct']['count']} DIRECT + {$sum['block']['count']} BLOCK"
+        . " from " . ($sum['fetched'] + $geoFetched) . " URL(s)\n";
     xray_dnstap_sync_rc_from_bgp($confRows);
-    $failed = array_merge($mergedProxy['failed'], $mergedDirect['failed'], $geoFailed);
+    $failed = array_merge($sum['failed'], $geoFailed);
     if ($failed !== []) {
         echo "WARN could not download: " . implode(' ', $failed) . "\n";
     }
@@ -1115,11 +1161,15 @@ $directExtraText = xray_dnstap_read_first([
     XRAY_DNSTAP_FILES['direct_extra'],
     XRAY_DNSTAP_LEGACY['unblocked_extra'],
 ]);
+$blockUrlsText = xray_dnstap_read_file(XRAY_DNSTAP_FILES['block_urls']);
+$blockExtraText = xray_dnstap_read_file(XRAY_DNSTAP_FILES['block_extra']);
 $geodatUrlsText = xray_dnstap_read_file(XRAY_DNSTAP_FILES['geodat_urls']);
 $proxyRows   = xray_dnstap_parse_domains($proxyExtraText);
 $directRows  = xray_dnstap_parse_domains($directExtraText);
+$blockRows   = xray_dnstap_parse_domains($blockExtraText);
 $proxyUrlRows = xray_dnstap_parse_urls($proxyUrlsText);
 $directUrlRows = xray_dnstap_parse_urls($directUrlsText);
+$blockUrlRows = xray_dnstap_parse_urls($blockUrlsText);
 $geodatUrlRows = xray_dnstap_parse_urls($geodatUrlsText);
 if (function_exists('xray_dnstap_with_default_proxy_urls')) {
     $proxyUrlRows = xray_dnstap_with_default_proxy_urls($proxyUrlRows);
@@ -1135,23 +1185,24 @@ echo json_encode([
     'conf'            => xray_dnstap_conf_for_ui(xray_dnstap_parse_toml(xray_dnstap_read_file(XRAY_DNSTAP_FILES['conf']))),
     'proxy'           => $proxyRows,
     'direct'          => $directRows,
+    'block'           => $blockRows,
     'proxy_urls'      => $proxyUrlRows,
     'direct_urls'     => $directUrlRows,
+    'block_urls'      => $blockUrlRows,
     'geodat_urls'     => $geodatUrlRows,
     'domains'         => $proxyRows,
     'urls'            => $proxyUrlRows,
     'proxy_count'     => xray_dnstap_count_domains(xray_dnstap_read_first([
         XRAY_DNSTAP_FILES['proxy'],
-        XRAY_DNSTAP_LEGACY['blocked'],
         XRAY_DNSTAP_LEGACY['domains'],
     ])),
     'direct_count'    => xray_dnstap_count_domains(xray_dnstap_read_first([
         XRAY_DNSTAP_FILES['direct'],
         XRAY_DNSTAP_LEGACY['unblocked'],
     ])),
+    'block_count'     => xray_dnstap_count_domains(xray_dnstap_read_file(XRAY_DNSTAP_FILES['block'])),
     'domains_count'   => xray_dnstap_count_domains(xray_dnstap_read_first([
         XRAY_DNSTAP_FILES['proxy'],
-        XRAY_DNSTAP_LEGACY['blocked'],
         XRAY_DNSTAP_LEGACY['domains'],
     ])),
     'rc'              => xray_dnstap_parse_rc(xray_dnstap_read_file(XRAY_DNSTAP_FILES['rc'])),

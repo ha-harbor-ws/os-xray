@@ -7,7 +7,8 @@
         }
         #dnstap table.table > thead > tr > th,
         #dnstap table.table > tbody > tr > th,
-        #dnstap table.table > tbody > tr > td {
+        #dnstap table.table > tbody > tr > td,
+        #dnstap table.table > tfoot > tr > td {
             border: 1px solid;
             vertical-align: middle;
             background-color: inherit;
@@ -105,7 +106,21 @@
                             </th>
                         </tr>
                     </thead>
-                    <tbody id="dnstapProxyUrlsKv" data-row-key="url" data-del-class="dnstap-proxy-url-del"></tbody>
+                    <tbody id="dnstapProxyUrlsKv" data-row-key="url"></tbody>
+                    <tfoot>
+                        <tr>
+                            <td>
+                                <div class="dnstap-row-edit">
+                                    <button type="button" class="btn btn-xs btn-primary dnstap-url-add" data-list="dnstapProxyUrlsKv">
+                                        <span class="fa fa-fw fa-plus"></span> {{ lang._('Add') }}
+                                    </button>
+                                    <button type="button" class="btn btn-xs btn-default dnstap-url-remove" data-list="dnstapProxyUrlsKv">
+                                        <span class="fa fa-fw fa-minus"></span> {{ lang._('Remove') }}
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
             <div class="dnstap-section-wrap">
@@ -119,12 +134,59 @@
                                 {{ lang._('DIRECT domain list URLs') }}
                                 <span id="dnstapDirectCount" class="label label-info" style="font-size:11px; margin-left:8px; display:none;"></span>
                                 <div class="hidden" data-for="help_for_dnstap_direct_urls">
-                                    <small>{{ lang._('HTTP(S) links to DIRECT domain lists. Names also present in PROXY are dropped.') }}</small>
+                                    <small>{{ lang._('HTTP(S) links to DIRECT domain lists. Names also present in BLOCK or PROXY are dropped.') }}</small>
                                 </div>
                             </th>
                         </tr>
                     </thead>
-                    <tbody id="dnstapDirectUrlsKv" data-row-key="url" data-del-class="dnstap-direct-url-del"></tbody>
+                    <tbody id="dnstapDirectUrlsKv" data-row-key="url"></tbody>
+                    <tfoot>
+                        <tr>
+                            <td>
+                                <div class="dnstap-row-edit">
+                                    <button type="button" class="btn btn-xs btn-primary dnstap-url-add" data-list="dnstapDirectUrlsKv">
+                                        <span class="fa fa-fw fa-plus"></span> {{ lang._('Add') }}
+                                    </button>
+                                    <button type="button" class="btn btn-xs btn-default dnstap-url-remove" data-list="dnstapDirectUrlsKv">
+                                        <span class="fa fa-fw fa-minus"></span> {{ lang._('Remove') }}
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+            <div class="dnstap-section-wrap">
+                <table class="table table-condensed table-hover table-striped">
+                    <thead>
+                        <tr>
+                            <th>
+                                <a href="#" class="xray-showhelp" id="help_for_dnstap_block_urls">
+                                    <i class="fa fa-info-circle"></i>
+                                </a>
+                                {{ lang._('BLOCK domain list URLs') }}
+                                <span id="dnstapBlockCount" class="label label-info" style="font-size:11px; margin-left:8px; display:none;"></span>
+                                <div class="hidden" data-for="help_for_dnstap_block_urls">
+                                    <small>{{ lang._('HTTP(S) links to BLOCK domain lists. If a name is in several lists, BLOCK wins over PROXY and DIRECT.') }}</small>
+                                </div>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="dnstapBlockUrlsKv" data-row-key="url"></tbody>
+                    <tfoot>
+                        <tr>
+                            <td>
+                                <div class="dnstap-row-edit">
+                                    <button type="button" class="btn btn-xs btn-primary dnstap-url-add" data-list="dnstapBlockUrlsKv">
+                                        <span class="fa fa-fw fa-plus"></span> {{ lang._('Add') }}
+                                    </button>
+                                    <button type="button" class="btn btn-xs btn-default dnstap-url-remove" data-list="dnstapBlockUrlsKv">
+                                        <span class="fa fa-fw fa-minus"></span> {{ lang._('Remove') }}
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
             <div class="dnstap-section-wrap">
@@ -136,16 +198,30 @@
                                     <i class="fa fa-info-circle"></i>
                                 </a>
                                 {{ lang._('Geodat domain list URLs') }}
-                                <button type="button" class="btn btn-xs btn-default" id="dnstapGeodatCategory" style="margin-left:8px;">
-                                    {{ lang._('Category') }}
-                                </button>
                                 <div class="hidden" data-for="help_for_dnstap_geodat_urls">
-                                    <small>{{ lang._('HTTP(S) links to geosite.dat. Category is unique per file: assign PROXY or DIRECT. Unassigned categories are ignored. Apply and daily fetch add only assigned domains.') }}</small>
+                                    <small>{{ lang._('HTTP(S) links to geosite.dat. Category is unique per file: assign PROXY, DIRECT or BLOCK. Unassigned categories are ignored. Apply and daily fetch add only assigned domains.') }}</small>
                                 </div>
                             </th>
                         </tr>
                     </thead>
-                    <tbody id="dnstapGeodatUrlsKv" data-row-key="url" data-del-class="dnstap-geodat-url-del"></tbody>
+                    <tbody id="dnstapGeodatUrlsKv" data-row-key="url"></tbody>
+                    <tfoot>
+                        <tr>
+                            <td>
+                                <div class="dnstap-row-edit">
+                                    <button type="button" class="btn btn-xs btn-primary dnstap-url-add" data-list="dnstapGeodatUrlsKv">
+                                        <span class="fa fa-fw fa-plus"></span> {{ lang._('Add') }}
+                                    </button>
+                                    <button type="button" class="btn btn-xs btn-default dnstap-url-remove" data-list="dnstapGeodatUrlsKv">
+                                        <span class="fa fa-fw fa-minus"></span> {{ lang._('Remove') }}
+                                    </button>
+                                    <button type="button" class="btn btn-xs btn-default dnstap-geodat-category">
+                                        {{ lang._('Category') }}
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
         </section>
