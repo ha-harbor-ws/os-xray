@@ -38,7 +38,7 @@
                 </div>
                 {{ partial('OPNsense/Xray/partials/help_toggle') }}
                 <div class="hidden" data-for="help_for_domains_check" style="flex-basis: 100%;">
-                    <small class="text-muted">{{ lang._('Resolve the domain and for each IP run birdcl show route for IP all. Active is the BIRD * route. If Network not found: peer N/A, instance N/A, interface WAN, Active yes.') }}</small>
+                    <small class="text-muted">{{ lang._('Resolve the domain and for each IP run birdcl show route for IP all. Active is the BIRD * route. If Network not found: peer N/A, instance N/A, interface WAN4/WAN6, Active yes.') }}</small>
                 </div>
             </div>
         </section>
@@ -209,7 +209,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
-                <h4 class="modal-title" id="domainsListModalTitle">{{ lang._('Domains') }}</h4>
+                <h4 class="modal-title" id="domainsListModalTitle">{{ lang._('Extra PROXY domains') }}</h4>
             </div>
             <div class="modal-body">
                 <input type="text" class="form-control input-sm" id="domainsListFilter"

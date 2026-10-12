@@ -36,6 +36,45 @@ function xray_domain_route_is_ip(string $s): bool
     return filter_var($s, FILTER_VALIDATE_IP) !== false;
 }
 
+function xray_domain_route_is_ip6(string $s): bool
+{
+    return filter_var($s, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false;
+}
+
+function xray_domain_route_general_if(string $key, string $default): string
+{
+    try {
+        if (class_exists('OPNsense\\Core\\Config')) {
+            $cfg = OPNsense\Core\Config::getInstance()->object();
+            $v   = trim((string)($cfg->OPNsense->xray->general->{$key} ?? ''));
+            if ($v !== '') {
+                return $v;
+            }
+        }
+    } catch (Throwable $e) {
+    }
+    return $default;
+}
+
+function xray_domain_route_if_label(string $dev, string $ip): string
+{
+    $v6    = xray_domain_route_is_ip6($ip);
+    $wan4  = xray_domain_route_general_if('bgp_if_wan4', 'igc3');
+    $wan6  = xray_domain_route_general_if('bgp_if_wan6', 'igc3');
+    $null4 = xray_domain_route_general_if('bgp_if_null4', 'lo0');
+    $null6 = xray_domain_route_general_if('bgp_if_null6', 'lo0');
+    if ($dev === $null4 || $dev === $null6 || $dev === 'lo0' || $dev === 'lo') {
+        return $v6 ? 'Null6' : 'Null4';
+    }
+    if ($dev === $wan6 && $v6) {
+        return 'WAN6';
+    }
+    if ($dev === $wan4 || $dev === $wan6) {
+        return $v6 ? 'WAN6' : 'WAN4';
+    }
+    return $dev;
+}
+
 function xray_domain_route_is_host(string $s): bool
 {
     if ($s === '' || strlen($s) > 253) {
@@ -203,14 +242,14 @@ foreach ($ips as $ip) {
             'ip'       => $ip,
             'peer'     => 'N/A',
             'instance' => 'N/A',
-            'dev'      => 'WAN',
+            'dev'      => xray_domain_route_is_ip6($ip) ? 'WAN6' : 'WAN4',
             'active'   => true,
         ];
         continue;
     }
     foreach ($paths as $p) {
         $dev = trim((string)($p['dev'] ?? ''));
-        $iface = $dev !== '' ? $dev : 'WAN';
+        $iface = $dev !== '' ? xray_domain_route_if_label($dev, $ip) : (xray_domain_route_is_ip6($ip) ? 'WAN6' : 'WAN4');
         $inst = 'N/A';
         if ($dev !== '' && isset($tunMap[$dev])) {
             $inst = $tunMap[$dev];

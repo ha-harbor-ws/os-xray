@@ -7,6 +7,74 @@ use OPNsense\Core\Config;
 
 class BgpFilter extends BaseModel
 {
+    /**
+     * @return list<array{community:string,tun_if:string}>
+     */
+    public static function parseBlocks($item): array
+    {
+        $community = '';
+        $tunIf     = '';
+        $raw       = '';
+        if (is_array($item)) {
+            $community = (string)($item['community'] ?? '');
+            $tunIf     = (string)($item['tun_if'] ?? '');
+            $raw       = (string)($item['blocks'] ?? '');
+        } elseif (is_object($item)) {
+            $community = (string)($item->community ?? '');
+            $tunIf     = (string)($item->tun_if ?? '');
+            $raw       = (string)($item->blocks ?? '');
+        }
+        $blocks = [];
+        $raw = trim($raw);
+        if ($raw !== '') {
+            $j = json_decode($raw, true);
+            if (is_array($j)) {
+                foreach ($j as $b) {
+                    if (!is_array($b)) {
+                        continue;
+                    }
+                    $blocks[] = [
+                        'community' => (string)($b['community'] ?? ''),
+                        'tun_if'    => (string)($b['tun_if'] ?? ''),
+                    ];
+                }
+            }
+        }
+        if ($blocks === []) {
+            $blocks[] = [
+                'community' => $community,
+                'tun_if'    => $tunIf,
+            ];
+        }
+        return $blocks;
+    }
+
+    public static function normalizeTunIf(string $tun, string $family = 'ipv4'): string
+    {
+        $tun = trim($tun);
+        $low = strtolower($tun);
+        $v6  = ($family === 'ipv6');
+        if ($tun === '' || $low === 'active_tun') {
+            return $v6 ? 'ACTIVE_TUN6_IF' : 'ACTIVE_TUN4_IF';
+        }
+        if ($low === 'wan' || $low === 'wan_if') {
+            return $v6 ? 'WAN6' : 'WAN4';
+        }
+        if ($low === 'wan4' || $low === 'wan4_if') {
+            return 'WAN4';
+        }
+        if ($low === 'wan6' || $low === 'wan6_if') {
+            return 'WAN6';
+        }
+        if ($low === 'null' || $low === 'null4' || $low === 'null4_if') {
+            return 'Null4';
+        }
+        if ($low === 'null6' || $low === 'null6_if') {
+            return 'Null6';
+        }
+        return $tun;
+    }
+
     public static function builtinFilterRows(): array
     {
         return [
@@ -172,16 +240,27 @@ class BgpFilter extends BaseModel
         }
         $changed = false;
         foreach ($this->filter->iterateItems() as $item) {
-            $tif = trim((string)$item->tun_if);
-            $low = strtolower($tif);
-            if ($low === 'wan' || $low === 'wan_if' || $low === 'wan6_if') {
-                if ($tif !== 'wan') {
-                    $item->tun_if = 'wan';
-                    $changed = true;
+            $fam = ((string)$item->family === 'ipv6') ? 'ipv6' : 'ipv4';
+            $tif = self::normalizeTunIf((string)$item->tun_if, $fam);
+            if ($tif !== (string)$item->tun_if) {
+                $item->tun_if = $tif;
+                $changed = true;
+            }
+            $blocks = self::parseBlocks($item);
+            $fixed  = [];
+            $bchg   = false;
+            foreach ($blocks as $b) {
+                $nt = self::normalizeTunIf((string)($b['tun_if'] ?? ''), $fam);
+                if ($nt !== (string)($b['tun_if'] ?? '')) {
+                    $bchg = true;
                 }
-            } elseif ($tif === '' || $low === 'active_tun') {
-                $fam = ((string)$item->family === 'ipv6') ? 'ACTIVE_TUN6_IF' : 'ACTIVE_TUN4_IF';
-                $item->tun_if = $fam;
+                $fixed[] = [
+                    'community' => (string)($b['community'] ?? ''),
+                    'tun_if'    => $nt,
+                ];
+            }
+            if ($bchg) {
+                $item->blocks = json_encode($fixed);
                 $changed = true;
             }
         }

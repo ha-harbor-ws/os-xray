@@ -21,6 +21,8 @@ class BgpfilterController extends ApiMutableModelControllerBase
             'name',
             'community',
             'family',
+            'tun_if',
+            'blocks',
         ]);
         if (!empty($response['rows'])) {
             $names = [];
@@ -31,10 +33,15 @@ class BgpfilterController extends ApiMutableModelControllerBase
                 }
             }
             foreach ($response['rows'] as &$row) {
-                $c = (string)($row['community'] ?? '');
-                if ($c !== '' && isset($names[$c])) {
-                    $row['community'] = $names[$c];
+                $shown = [];
+                foreach (\OPNsense\Xray\BgpFilter::parseBlocks($row) as $b) {
+                    $c = (string)($b['community'] ?? '');
+                    if ($c === '') {
+                        continue;
+                    }
+                    $shown[] = $names[$c] ?? $c;
                 }
+                $row['community'] = $shown !== [] ? implode(', ', $shown) : '';
             }
             unset($row);
         }

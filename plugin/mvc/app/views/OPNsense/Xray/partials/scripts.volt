@@ -323,8 +323,211 @@
             $(this).find('.selectpicker').selectpicker('refresh');
         });
 
+        var xrayFilterBlockSeq = 0;
+
+        function xrayFilterDlg() {
+            return $('#DialogBgpFilter');
+        }
+
+        function xrayFilterField($dlg, id) {
+            return $dlg.find('[id="' + id + '"]');
+        }
+
+        function xrayFilterRow($el) {
+            return $el.closest('tr');
+        }
+
+        function xrayFilterDefaultTun() {
+            var fam = String(xrayFilterField(xrayFilterDlg(), 'filter.family').val() || 'ipv4');
+            return fam === 'ipv6' ? 'ACTIVE_TUN6_IF' : 'ACTIVE_TUN4_IF';
+        }
+
+        function xrayFilterReadBlocks() {
+            var $dlg = xrayFilterDlg();
+            var blocks = [];
+            $dlg.find('[data-xray-block-field="community"]').each(function () {
+                var $comm = $(this);
+                var $tun = $comm.closest('tr').nextAll('tr').find('[data-xray-block-field="tun_if"]').first();
+                if (!$tun.length) {
+                    $tun = $comm.closest('.xray-filter-block').find('[data-xray-block-field="tun_if"]');
+                }
+                blocks.push({
+                    community: String($comm.val() || ''),
+                    tun_if: String($tun.val() || '')
+                });
+            });
+            return blocks;
+        }
+
+        function xrayFilterWriteBlocks() {
+            var $dlg = xrayFilterDlg();
+            var blocks = xrayFilterReadBlocks();
+            if (!blocks.length) {
+                blocks = [{
+                    community: String(xrayFilterField($dlg, 'filter.community').val() || ''),
+                    tun_if: String(xrayFilterField($dlg, 'filter.tun_if').val() || xrayFilterDefaultTun())
+                }];
+            }
+            var $hid = xrayFilterField($dlg, 'filter.blocks');
+            $hid.val(JSON.stringify(blocks));
+            if (blocks[0]) {
+                xrayFilterField($dlg, 'filter.community').val(blocks[0].community);
+                xrayFilterField($dlg, 'filter.tun_if').val(blocks[0].tun_if);
+            }
+        }
+
+        function xrayFilterParseStored() {
+            var $dlg = xrayFilterDlg();
+            var raw = String(xrayFilterField($dlg, 'filter.blocks').val() || '').trim();
+            var blocks = [];
+            if (raw !== '') {
+                try {
+                    var j = JSON.parse(raw);
+                    if ($.isArray(j)) {
+                        j.forEach(function (b) {
+                            if (!b || typeof b !== 'object') {
+                                return;
+                            }
+                            blocks.push({
+                                community: String(b.community || ''),
+                                tun_if: String(b.tun_if || '')
+                            });
+                        });
+                    }
+                } catch (e) {
+                    blocks = [];
+                }
+            }
+            if (!blocks.length) {
+                blocks.push({
+                    community: String(xrayFilterField($dlg, 'filter.community').val() || ''),
+                    tun_if: String(xrayFilterField($dlg, 'filter.tun_if').val() || xrayFilterDefaultTun())
+                });
+            }
+            return blocks;
+        }
+
+        function xrayFilterStripPicker($sel) {
+            if ($sel.parent().hasClass('bootstrap-select')) {
+                $sel.insertBefore($sel.parent());
+                $sel.prevAll('.bootstrap-select').add($sel.nextAll('.bootstrap-select')).remove();
+            }
+            $sel.removeClass('selectpicker').show();
+            return $sel;
+        }
+
+        function xrayFilterInitPicker($sel) {
+            $sel.addClass('selectpicker');
+            if ($.fn.selectpicker) {
+                try {
+                    $sel.selectpicker('destroy');
+                } catch (e) { /* not initialized */ }
+                $sel.selectpicker({size: 8});
+            }
+        }
+
+        function xrayFilterExtraBlock(community, tunIf) {
+            var $dlg = xrayFilterDlg();
+            var n = ++xrayFilterBlockSeq;
+            var $srcC = xrayFilterField($dlg, 'filter.community');
+            var $srcT = xrayFilterField($dlg, 'filter.tun_if');
+            var $rowC = xrayFilterRow($srcC).clone();
+            var $rowT = xrayFilterRow($srcT).clone();
+            $rowC.addClass('xray-filter-extra xray-filter-block-row xray-filter-block-start');
+            $rowT.addClass('xray-filter-extra xray-filter-block-row');
+            $rowC.find('.hidden, .show').filter('[data-for]').remove();
+            $rowT.find('.hidden, .show').filter('[data-for]').remove();
+            $rowC.find('a.xray-showhelp').remove();
+            $rowT.find('a.xray-showhelp').remove();
+            $rowC.add($rowT).find('.bootstrap-select').each(function () {
+                var $wrap = $(this);
+                var $sel = $wrap.find('select').first();
+                $sel.insertAfter($wrap);
+                $wrap.remove();
+            });
+
+            var $newC = $rowC.find('select').first();
+            var $newT = $rowT.find('select').first();
+            xrayFilterStripPicker($newC);
+            xrayFilterStripPicker($newT);
+            $newC.attr('id', 'xray_filter_comm_' + n).attr('name', '').attr('data-xray-block-field', 'community');
+            $newT.attr('id', 'xray_filter_tun_' + n).attr('name', '').attr('data-xray-block-field', 'tun_if');
+            $newC.find('option').prop('selected', false);
+            $newT.find('option').prop('selected', false);
+            if (community) {
+                $newC.val(community);
+            }
+            $newT.val(tunIf || xrayFilterDefaultTun());
+            $dlg.find('.xray-filter-block-actions').before($rowC, $rowT);
+            xrayFilterInitPicker($newC);
+            xrayFilterInitPicker($newT);
+        }
+
+        function xrayFilterDialogSetup() {
+            var $dlg = xrayFilterDlg();
+            var $comm = xrayFilterField($dlg, 'filter.community');
+            var $tun = xrayFilterField($dlg, 'filter.tun_if');
+            var $fam = xrayFilterField($dlg, 'filter.family');
+            var $blocks = xrayFilterField($dlg, 'filter.blocks');
+            if (!$comm.length || !$tun.length) {
+                return;
+            }
+            var $commRow = xrayFilterRow($comm);
+            var $tunRow = xrayFilterRow($tun);
+            var $famRow = xrayFilterRow($fam);
+            var $blocksRow = xrayFilterRow($blocks);
+            $blocksRow.hide();
+            if ($famRow.length && $commRow.length) {
+                $famRow.insertBefore($commRow);
+            }
+            $dlg.find('.xray-filter-extra').remove();
+            if (!$dlg.find('.xray-filter-block-actions').length) {
+                var $act = $('<tr class="xray-filter-block-actions"/>');
+                $act.append($('<td colspan="3"/>').append(
+                    $('<button type="button" class="btn btn-xs btn-primary xray-filter-block-add" title="{{ lang._("Add") }}"/>')
+                        .append($('<span class="fa fa-fw fa-plus"/>')),
+                    ' ',
+                    $('<button type="button" class="btn btn-xs btn-default xray-filter-block-del" title="{{ lang._("Remove") }}"/>')
+                        .append($('<span class="fa fa-fw fa-minus"/>'))
+                ));
+                $tunRow.after($act);
+            }
+            $comm.attr('data-xray-block-field', 'community');
+            $tun.attr('data-xray-block-field', 'tun_if');
+            $commRow.add($tunRow).addClass('xray-filter-block-row');
+            $commRow.addClass('xray-filter-block-start');
+            var stored = xrayFilterParseStored();
+            $comm.val(stored[0].community);
+            $tun.val(stored[0].tun_if || xrayFilterDefaultTun());
+            for (var i = 1; i < stored.length; i++) {
+                xrayFilterExtraBlock(stored[i].community, stored[i].tun_if);
+            }
+            $dlg.find('.selectpicker').selectpicker('refresh');
+            xrayFilterWriteBlocks();
+        }
+
         $('#DialogBgpFilter').on('shown.bs.modal', function () {
-            $(this).find('.selectpicker').selectpicker('refresh');
+            xrayFilterDialogSetup();
+        });
+        $(document).on('click', '#DialogBgpFilter .xray-filter-block-add', function (e) {
+            e.preventDefault();
+            xrayFilterExtraBlock('', xrayFilterDefaultTun());
+            xrayFilterWriteBlocks();
+        });
+        $(document).on('click', '#DialogBgpFilter .xray-filter-block-del', function (e) {
+            e.preventDefault();
+            var $dlg = xrayFilterDlg();
+            var $extras = $dlg.find('tr.xray-filter-extra');
+            if ($extras.length >= 2) {
+                $extras.slice(-2).remove();
+            }
+            xrayFilterWriteBlocks();
+        });
+        $(document).on('change', '#DialogBgpFilter [data-xray-block-field]', function () {
+            xrayFilterWriteBlocks();
+        });
+        $('#DialogBgpFilter').on('click', '.modal-footer .btn-primary', function () {
+            xrayFilterWriteBlocks();
         });
 
         $(document).ajaxSuccess(function (e, xhr, settings) {
@@ -865,12 +1068,14 @@
             $inp.val(d);
         }
 
-        function dnstapExtraRemove(kind) {
+        function dnstapExtraRemove(kind, domain) {
             var $inp = dnstapExtraInput(kind);
-            var d = dnstapNormalizeDomain($inp.val());
+            var d = domain ? dnstapNormalizeDomain(domain) : dnstapNormalizeDomain($inp.val());
             dnstapExtraSet(kind, dnstapExtraList(kind).filter(function (x) { return x !== d; }));
             dnstapExtrasDirty = true;
-            $inp.val('');
+            if ($inp.val() && dnstapNormalizeDomain($inp.val()) === d) {
+                $inp.val('');
+            }
         }
 
         function dnstapRenderDomainList(filter) {
@@ -885,6 +1090,16 @@
                 shown++;
                 var $tr = $('<tr/>').css('cursor', 'pointer');
                 $tr.append($('<td/>').text(d));
+                var $rm = $('<button type="button" class="btn btn-xs btn-default"/>')
+                    .attr('title', '{{ lang._("Remove") }}')
+                    .append($('<span class="fa fa-fw fa-minus"/>'));
+                $rm.on('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dnstapExtraRemove(domainsListKind, d);
+                    dnstapRenderDomainList($('#domainsListFilter').val());
+                });
+                $tr.append($('<td/>').css({'width': '2.5em', 'text-align': 'right', 'white-space': 'nowrap'}).append($rm));
                 $tr.on('click', function () {
                     dnstapExtraInput(domainsListKind).val(d);
                     $('#domainsListModal').modal('hide');
@@ -896,11 +1111,11 @@
 
         function dnstapOpenDomainList(kind) {
             domainsListKind = kind;
-            var title = '{{ lang._("PROXY domains") }}';
+            var title = '{{ lang._("Extra PROXY domains") }}';
             if (kind === 'direct') {
-                title = '{{ lang._("DIRECT domains") }}';
+                title = '{{ lang._("Extra DIRECT domains") }}';
             } else if (kind === 'block') {
-                title = '{{ lang._("BLOCK domains") }}';
+                title = '{{ lang._("Extra BLOCK domains") }}';
             }
             $('#domainsListModalTitle').text(title);
             $('#domainsListFilter').val('');
@@ -916,7 +1131,7 @@
                     + '<td>' + escAttr(r.ip || '') + '</td>'
                     + '<td>' + escAttr(r.peer || 'N/A') + '</td>'
                     + '<td>' + escAttr(r.instance || 'N/A') + '</td>'
-                    + '<td>' + escAttr(r.dev || 'WAN') + '</td>'
+                    + '<td>' + escAttr(r.dev || 'WAN4') + '</td>'
                     + '<td>' + (r.active ? '{{ lang._("yes") }}' : '{{ lang._("no") }}') + '</td></tr>'
                 );
             });

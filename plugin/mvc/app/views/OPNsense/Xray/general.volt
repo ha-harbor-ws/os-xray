@@ -1,3 +1,17 @@
+<style>
+    #DialogBgpFilter tr.xray-filter-block-row > td {
+        background-color: #f5f5f5;
+    }
+    #DialogBgpFilter tr.xray-filter-block-start > td {
+        border-top: 2px solid #ccc;
+        padding-top: 10px;
+    }
+    #DialogBgpFilter tr.xray-filter-block-actions > td {
+        background-color: #f5f5f5;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #ccc;
+    }
+</style>
 {{ partial('OPNsense/Xray/partials/scripts') }}
 
 <ul class="nav nav-tabs" data-tabs="tabs" id="maintabs">

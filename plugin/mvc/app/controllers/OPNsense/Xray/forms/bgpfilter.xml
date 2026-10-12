@@ -13,21 +13,26 @@
         <hint>NAME</hint>
     </field>
     <field>
-        <id>filter.community</id>
-        <label>Community</label>
-        <type>dropdown</type>
-        <help>Select one configured BGP community define. Leave as none for a filter without community match.</help>
-    </field>
-    <field>
         <id>filter.family</id>
         <label>Address family</label>
         <type>dropdown</type>
-        <help>IPv4 or IPv6. The filter always rejects the default route first (0.0.0.0/0 for IPv4, ::/0 for IPv6) before accepting other prefixes.</help>
+        <help>IPv4 or IPv6. Each community block rejects the default route first (0.0.0.0/0 for IPv4, ::/0 for IPv6) before accepting other prefixes.</help>
+    </field>
+    <field>
+        <id>filter.community</id>
+        <label>Community</label>
+        <type>dropdown</type>
+        <help>Match this BGP community define. Together with Interface this is one IF block in the BIRD filter.</help>
     </field>
     <field>
         <id>filter.tun_if</id>
         <label>Interface</label>
         <type>dropdown</type>
-        <help>BIRD ifname: ACTIVE_TUN4_IF, ACTIVE_TUN6_IF (auto-selected tun2socks) or WAN (OPNsense WAN device).</help>
+        <help>BIRD ifname for this community block: ACTIVE_TUN4_IF, ACTIVE_TUN6_IF, WAN4, WAN6, Null4 or Null6. Devices are set on General. Use + / − to add or remove blocks; they are written before reject.</help>
+    </field>
+    <field>
+        <id>filter.blocks</id>
+        <label>Blocks</label>
+        <type>textbox</type>
     </field>
 </form>
