@@ -1,15 +1,19 @@
 <style>
-    #DialogBgpFilter tr.xray-filter-block-row > td {
-        background-color: #f5f5f5;
-    }
     #DialogBgpFilter tr.xray-filter-block-start > td {
-        border-top: 2px solid #ccc;
-        padding-top: 10px;
+        border-top: 1px solid #bbb;
+        border-left: 1px solid #bbb;
+        border-right: 1px solid #bbb;
+        padding-top: 8px;
+    }
+    #DialogBgpFilter tr.xray-filter-block-end > td {
+        border-bottom: 1px solid #bbb;
+        border-left: 1px solid #bbb;
+        border-right: 1px solid #bbb;
+        padding-bottom: 8px;
     }
     #DialogBgpFilter tr.xray-filter-block-actions > td {
-        background-color: #f5f5f5;
-        padding-bottom: 10px;
-        border-bottom: 2px solid #ccc;
+        padding-top: 6px;
+        padding-bottom: 4px;
     }
 </style>
 {{ partial('OPNsense/Xray/partials/scripts') }}

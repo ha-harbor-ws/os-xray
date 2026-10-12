@@ -434,7 +434,7 @@
             var $rowC = xrayFilterRow($srcC).clone();
             var $rowT = xrayFilterRow($srcT).clone();
             $rowC.addClass('xray-filter-extra xray-filter-block-row xray-filter-block-start');
-            $rowT.addClass('xray-filter-extra xray-filter-block-row');
+            $rowT.addClass('xray-filter-extra xray-filter-block-row xray-filter-block-end');
             $rowC.find('.hidden, .show').filter('[data-for]').remove();
             $rowT.find('.hidden, .show').filter('[data-for]').remove();
             $rowC.find('a.xray-showhelp').remove();
@@ -496,6 +496,7 @@
             $tun.attr('data-xray-block-field', 'tun_if');
             $commRow.add($tunRow).addClass('xray-filter-block-row');
             $commRow.addClass('xray-filter-block-start');
+            $tunRow.addClass('xray-filter-block-end');
             var stored = xrayFilterParseStored();
             $comm.val(stored[0].community);
             $tun.val(stored[0].tun_if || xrayFilterDefaultTun());
