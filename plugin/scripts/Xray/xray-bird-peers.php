@@ -1196,6 +1196,15 @@ function xray_parse_birdc_protocols_all(string $text): array
             $channel = 'ipv4';
             continue;
         }
+        if (preg_match('/^\s+Table:\s+(\S+)/', $line, $tm)) {
+            $tbl = strtolower($tm[1]);
+            if (strpos($tbl, '6') !== false) {
+                $channel = 'ipv6';
+            } elseif (strpos($tbl, '4') !== false) {
+                $channel = 'ipv4';
+            }
+            continue;
+        }
         if (preg_match('/Routes:\s+(\d+)\s+imported/', $line, $rm)) {
             if ($channel === null) {
                 continue;
@@ -1261,13 +1270,20 @@ function xray_bgp_peers_runtime_status(): array
             $row['imported']  = $live[$proto]['imported'];
             $row['imported4'] = $live[$proto]['imported4'] ?? 0;
             $row['imported6'] = $live[$proto]['imported6'] ?? 0;
-            $n4 = xray_birdc_protocol_table_count($proto, 'master4');
-            $n6 = xray_birdc_protocol_table_count($proto, 'master6');
-            if ($n4 !== null) {
-                $row['imported4'] = $n4;
+            // table count — только запасной источник: после смены ACTIVE_TUN6_IF
+            // `show route table master6 protocol … count` может дать 0
+            // (недостижимый IPv6 via новый TUN), хотя Channel ipv6 imported > 0.
+            if ((int)$row['imported4'] === 0) {
+                $n4 = xray_birdc_protocol_table_count($proto, 'master4');
+                if ($n4 !== null && $n4 > 0) {
+                    $row['imported4'] = $n4;
+                }
             }
-            if ($n6 !== null) {
-                $row['imported6'] = $n6;
+            if ((int)$row['imported6'] === 0) {
+                $n6 = xray_birdc_protocol_table_count($proto, 'master6');
+                if ($n6 !== null && $n6 > 0) {
+                    $row['imported6'] = $n6;
+                }
             }
             $row['imported'] = $row['imported4'] + $row['imported6'];
         } else {

@@ -745,6 +745,7 @@ function do_status_all(): void
         $t2s  = proc_is_running(t2s_pid_path($inst_uuid));
         $result[$inst_uuid] = [
             'name'      => $c['name'],
+            'enabled'   => !empty($c['enabled']),
             'status'    => ($xray && $t2s) ? 'ok' : 'stopped',
             'xray_core' => $xray ? 'running' : 'stopped',
             'tun2socks' => $t2s  ? 'running' : 'stopped',
@@ -847,6 +848,11 @@ function xray_bird_hold(): void
 function xray_bird_sync(): void
 {
     xray_bird_write_peers();
+    $sel = xray_bird_select_and_write_active_tun();
+    if (!empty($sel['changed'])) {
+        xray_bird_active_tun_configure();
+        echo "bird sync: active tun changed — birdc configure + reload in all\n";
+    }
     if (!xray_bgp_enabled()) {
         xray_sysrc_bird_enable(false);
         xray_bird_service('stop');

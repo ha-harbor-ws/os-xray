@@ -118,6 +118,9 @@ class BgppeerController extends ApiMutableModelControllerBase
             return $map;
         }
         foreach ($mdl->instance->iterateItems() as $item) {
+            if ((string)$item->enabled !== '1') {
+                continue;
+            }
             $tun = trim((string)$item->tun_interface);
             if ($tun === '') {
                 continue;

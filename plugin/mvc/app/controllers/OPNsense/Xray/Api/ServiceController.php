@@ -315,6 +315,25 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
+     * POST /api/xray/service/birdactivetun — ручной one-shot Auto route
+     * (только enabled + живые процессы; без cron-интервала).
+     */
+    public function birdactivetunAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+        $output = trim((string)(new Backend())->configdRun('xray birdactivetun'));
+        $failed = $output === ''
+            || stripos($output, 'ERROR') !== false
+            || stripos($output, 'failed') !== false;
+        return [
+            'result'  => $failed ? 'failed' : 'ok',
+            'message' => $output !== '' ? $output : 'No response from configd',
+        ];
+    }
+
+    /**
      * GET /api/xray/service/dnstapconf — current dnstap-bgp files.
      */
     public function dnstapconfAction()

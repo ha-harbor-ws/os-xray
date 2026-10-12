@@ -34,7 +34,7 @@
                 <div style="width: 1px; height: 22px; background: #ddd;"></div>
 
                 <button id="btnTestConnect" class="btn btn-xs btn-default"
-                        title="{{ lang._('Test connectivity through all running instances') }}">
+                        title="{{ lang._('Test SOCKS of enabled running instances, then run Auto route once') }}">
                     <i class="fa fa-plug fa-fw"></i> {{ lang._('Test All') }}
                 </button>
                 <span id="testConnectResult" style="font-size: 12px;"></span>

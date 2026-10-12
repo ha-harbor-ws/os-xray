@@ -1,25 +1,7 @@
 <div id="dnstap" class="tab-pane fade">
     <style>
-        #dnstap table.table {
-            border: 1px solid;
-            margin-bottom: 0;
-            background-color: transparent;
-        }
-        #dnstap table.table > thead > tr > th,
-        #dnstap table.table > tbody > tr > th,
-        #dnstap table.table > tbody > tr > td,
-        #dnstap table.table > tfoot > tr > td {
-            border: 1px solid;
-            vertical-align: middle;
-            background-color: inherit;
-            color: inherit;
-        }
-        #dnstap table.table > thead > tr > th {
-            font-weight: 600;
-        }
         #dnstap td.dnstap-k {
             width: 22%;
-            font-weight: 600;
             white-space: nowrap;
         }
         #dnstap .dnstap-row-edit {
@@ -27,14 +9,10 @@
             align-items: center;
             gap: 6px;
         }
-        #dnstap .dnstap-row-edit .form-control {
+        #dnstap .dnstap-row-edit .form-control,
+        #dnstap #dnstapConfKv .form-control {
             flex: 1;
             min-width: 0;
-            height: 28px;
-            padding: 4px 8px;
-            font-size: 13px;
-        }
-        #dnstap #dnstapConfKv .form-control {
             height: 28px;
             padding: 4px 8px;
             font-size: 13px;
@@ -42,14 +20,12 @@
         #dnstap .dnstap-row-edit .btn {
             flex-shrink: 0;
         }
-        #dnstap .dnstap-section-wrap {
-            margin-top: 16px;
-        }
-        #dnstap .dnstap-section-wrap:first-child {
-            margin-top: 0;
+        #dnstap .xray-block {
+            margin-bottom: 8px;
         }
     </style>
-    <div class="row xray-bird-toolbar">
+
+    <div class="row">
         <section class="col-xs-12">
             <div style="padding: 8px 15px; border-bottom: 1px solid #ddd;
                         display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
@@ -57,19 +33,24 @@
                     <span class="xray-badge-dnstap label label-default">dnstap_bgp: ...</span>
                 </div>
                 <div style="width: 1px; height: 22px; background: #ddd;"></div>
-                <button type="button" class="btn btn-xs btn-primary" id="dnstapStart">
-                    <i class="fa fa-play fa-fw"></i> {{ lang._('Start') }}
-                </button>
-                <button type="button" class="btn btn-xs btn-default" id="dnstapStop">
-                    <i class="fa fa-stop fa-fw"></i> {{ lang._('Stop') }}
-                </button>
+                <div style="display: flex; gap: 4px;">
+                    <button type="button" class="btn btn-xs btn-success" id="dnstapStart"
+                            title="{{ lang._('Start dnstap-bgp') }}">
+                        <i class="fa fa-play fa-fw"></i> {{ lang._('Start') }}
+                    </button>
+                    <button type="button" class="btn btn-xs btn-danger" id="dnstapStop"
+                            title="{{ lang._('Stop dnstap-bgp') }}">
+                        <i class="fa fa-stop fa-fw"></i> {{ lang._('Stop') }}
+                    </button>
+                </div>
                 {{ partial('OPNsense/Xray/partials/help_toggle') }}
             </div>
         </section>
     </div>
+
     <div class="row">
         <section class="col-xs-12">
-            <div class="dnstap-section-wrap">
+            <div class="xray-block">
                 <table class="table table-condensed table-hover table-striped">
                     <thead>
                         <tr>
@@ -79,18 +60,17 @@
                                 </a>
                                 {{ lang._('Config') }}
                             </th>
-                            <th>
-                                {{ lang._('Value') }}
-                                <div class="hidden" data-for="help_for_dnstap_config">
-                                    <small>{{ lang._('If a name is in both lists, PROXY wins. Communities are applied on SIGHUP.') }}</small>
-                                </div>
-                            </th>
+                            <th>{{ lang._('Value') }}</th>
                         </tr>
                     </thead>
                     <tbody id="dnstapConfKv"></tbody>
                 </table>
+                <div class="hidden" data-for="help_for_dnstap_config" style="padding: 8px 0 0;">
+                    <small class="text-muted">{{ lang._('If a name is in both lists, PROXY wins. Communities are applied on SIGHUP.') }}</small>
+                </div>
             </div>
-            <div class="dnstap-section-wrap">
+
+            <div class="xray-block">
                 <table class="table table-condensed table-hover table-striped">
                     <thead>
                         <tr>
@@ -100,9 +80,6 @@
                                 </a>
                                 {{ lang._('PROXY domain list URLs') }}
                                 <span id="dnstapProxyCount" class="label label-info" style="font-size:11px; margin-left:8px; display:none;"></span>
-                                <div class="hidden" data-for="help_for_dnstap_proxy_urls">
-                                    <small>{{ lang._('HTTP(S) links to PROXY domain lists. Apply downloads them and writes a unique summarized file.') }}</small>
-                                </div>
                             </th>
                         </tr>
                     </thead>
@@ -110,20 +87,24 @@
                     <tfoot>
                         <tr>
                             <td>
-                                <div class="dnstap-row-edit">
-                                    <button type="button" class="btn btn-xs btn-primary dnstap-url-add" data-list="dnstapProxyUrlsKv">
-                                        <span class="fa fa-fw fa-plus"></span> {{ lang._('Add') }}
-                                    </button>
-                                    <button type="button" class="btn btn-xs btn-default dnstap-url-remove" data-list="dnstapProxyUrlsKv">
-                                        <span class="fa fa-fw fa-minus"></span> {{ lang._('Remove') }}
-                                    </button>
-                                </div>
+                                <button type="button" class="btn btn-xs btn-primary dnstap-url-add"
+                                        data-list="dnstapProxyUrlsKv" title="{{ lang._('Add') }}">
+                                    <span class="fa fa-fw fa-plus"></span>
+                                </button>
+                                <button type="button" class="btn btn-xs btn-default dnstap-url-remove"
+                                        data-list="dnstapProxyUrlsKv" title="{{ lang._('Remove') }}">
+                                    <span class="fa fa-fw fa-minus"></span>
+                                </button>
                             </td>
                         </tr>
                     </tfoot>
                 </table>
+                <div class="hidden" data-for="help_for_dnstap_proxy_urls" style="padding: 8px 0 0;">
+                    <small class="text-muted">{{ lang._('HTTP(S) links to PROXY domain lists. Apply downloads them and writes a unique summarized file.') }}</small>
+                </div>
             </div>
-            <div class="dnstap-section-wrap">
+
+            <div class="xray-block">
                 <table class="table table-condensed table-hover table-striped">
                     <thead>
                         <tr>
@@ -133,9 +114,6 @@
                                 </a>
                                 {{ lang._('DIRECT domain list URLs') }}
                                 <span id="dnstapDirectCount" class="label label-info" style="font-size:11px; margin-left:8px; display:none;"></span>
-                                <div class="hidden" data-for="help_for_dnstap_direct_urls">
-                                    <small>{{ lang._('HTTP(S) links to DIRECT domain lists. Names also present in BLOCK or PROXY are dropped.') }}</small>
-                                </div>
                             </th>
                         </tr>
                     </thead>
@@ -143,20 +121,24 @@
                     <tfoot>
                         <tr>
                             <td>
-                                <div class="dnstap-row-edit">
-                                    <button type="button" class="btn btn-xs btn-primary dnstap-url-add" data-list="dnstapDirectUrlsKv">
-                                        <span class="fa fa-fw fa-plus"></span> {{ lang._('Add') }}
-                                    </button>
-                                    <button type="button" class="btn btn-xs btn-default dnstap-url-remove" data-list="dnstapDirectUrlsKv">
-                                        <span class="fa fa-fw fa-minus"></span> {{ lang._('Remove') }}
-                                    </button>
-                                </div>
+                                <button type="button" class="btn btn-xs btn-primary dnstap-url-add"
+                                        data-list="dnstapDirectUrlsKv" title="{{ lang._('Add') }}">
+                                    <span class="fa fa-fw fa-plus"></span>
+                                </button>
+                                <button type="button" class="btn btn-xs btn-default dnstap-url-remove"
+                                        data-list="dnstapDirectUrlsKv" title="{{ lang._('Remove') }}">
+                                    <span class="fa fa-fw fa-minus"></span>
+                                </button>
                             </td>
                         </tr>
                     </tfoot>
                 </table>
+                <div class="hidden" data-for="help_for_dnstap_direct_urls" style="padding: 8px 0 0;">
+                    <small class="text-muted">{{ lang._('HTTP(S) links to DIRECT domain lists. Names also present in BLOCK or PROXY are dropped.') }}</small>
+                </div>
             </div>
-            <div class="dnstap-section-wrap">
+
+            <div class="xray-block">
                 <table class="table table-condensed table-hover table-striped">
                     <thead>
                         <tr>
@@ -166,9 +148,6 @@
                                 </a>
                                 {{ lang._('BLOCK domain list URLs') }}
                                 <span id="dnstapBlockCount" class="label label-info" style="font-size:11px; margin-left:8px; display:none;"></span>
-                                <div class="hidden" data-for="help_for_dnstap_block_urls">
-                                    <small>{{ lang._('HTTP(S) links to BLOCK domain lists. If a name is in several lists, BLOCK wins over PROXY and DIRECT.') }}</small>
-                                </div>
                             </th>
                         </tr>
                     </thead>
@@ -176,20 +155,24 @@
                     <tfoot>
                         <tr>
                             <td>
-                                <div class="dnstap-row-edit">
-                                    <button type="button" class="btn btn-xs btn-primary dnstap-url-add" data-list="dnstapBlockUrlsKv">
-                                        <span class="fa fa-fw fa-plus"></span> {{ lang._('Add') }}
-                                    </button>
-                                    <button type="button" class="btn btn-xs btn-default dnstap-url-remove" data-list="dnstapBlockUrlsKv">
-                                        <span class="fa fa-fw fa-minus"></span> {{ lang._('Remove') }}
-                                    </button>
-                                </div>
+                                <button type="button" class="btn btn-xs btn-primary dnstap-url-add"
+                                        data-list="dnstapBlockUrlsKv" title="{{ lang._('Add') }}">
+                                    <span class="fa fa-fw fa-plus"></span>
+                                </button>
+                                <button type="button" class="btn btn-xs btn-default dnstap-url-remove"
+                                        data-list="dnstapBlockUrlsKv" title="{{ lang._('Remove') }}">
+                                    <span class="fa fa-fw fa-minus"></span>
+                                </button>
                             </td>
                         </tr>
                     </tfoot>
                 </table>
+                <div class="hidden" data-for="help_for_dnstap_block_urls" style="padding: 8px 0 0;">
+                    <small class="text-muted">{{ lang._('HTTP(S) links to BLOCK domain lists. If a name is in several lists, BLOCK wins over PROXY and DIRECT.') }}</small>
+                </div>
             </div>
-            <div class="dnstap-section-wrap">
+
+            <div class="xray-block">
                 <table class="table table-condensed table-hover table-striped">
                     <thead>
                         <tr>
@@ -198,9 +181,6 @@
                                     <i class="fa fa-info-circle"></i>
                                 </a>
                                 {{ lang._('Geodat domain list URLs') }}
-                                <div class="hidden" data-for="help_for_dnstap_geodat_urls">
-                                    <small>{{ lang._('HTTP(S) links to geosite.dat. Category is unique per file: assign PROXY, DIRECT or BLOCK. Unassigned categories are ignored. Apply and daily fetch add only assigned domains.') }}</small>
-                                </div>
                             </th>
                         </tr>
                     </thead>
@@ -208,24 +188,28 @@
                     <tfoot>
                         <tr>
                             <td>
-                                <div class="dnstap-row-edit">
-                                    <button type="button" class="btn btn-xs btn-primary dnstap-url-add" data-list="dnstapGeodatUrlsKv">
-                                        <span class="fa fa-fw fa-plus"></span> {{ lang._('Add') }}
-                                    </button>
-                                    <button type="button" class="btn btn-xs btn-default dnstap-url-remove" data-list="dnstapGeodatUrlsKv">
-                                        <span class="fa fa-fw fa-minus"></span> {{ lang._('Remove') }}
-                                    </button>
-                                    <button type="button" class="btn btn-xs btn-default dnstap-geodat-category">
-                                        {{ lang._('Category') }}
-                                    </button>
-                                </div>
+                                <button type="button" class="btn btn-xs btn-primary dnstap-url-add"
+                                        data-list="dnstapGeodatUrlsKv" title="{{ lang._('Add') }}">
+                                    <span class="fa fa-fw fa-plus"></span>
+                                </button>
+                                <button type="button" class="btn btn-xs btn-default dnstap-url-remove"
+                                        data-list="dnstapGeodatUrlsKv" title="{{ lang._('Remove') }}">
+                                    <span class="fa fa-fw fa-minus"></span>
+                                </button>
+                                <button type="button" class="btn btn-xs btn-default dnstap-geodat-category">
+                                    {{ lang._('Category') }}
+                                </button>
                             </td>
                         </tr>
                     </tfoot>
                 </table>
+                <div class="hidden" data-for="help_for_dnstap_geodat_urls" style="padding: 8px 0 0;">
+                    <small class="text-muted">{{ lang._('HTTP(S) links to geosite.dat. Category is unique per file: assign PROXY, DIRECT or BLOCK. Unassigned categories are ignored. Apply and daily fetch add only assigned domains.') }}</small>
+                </div>
             </div>
         </section>
     </div>
+
     <div class="modal fade" id="dnstapGeodatModal" tabindex="-1" role="dialog">
         <div class="modal-dialog" role="document">
             <div class="modal-content">

@@ -280,6 +280,13 @@
             }
         });
 
+        function reloadBgpPeersGrid() {
+            var $grid = $('#grid-bgppeers');
+            if ($grid.length && $grid.data('bootgrid')) {
+                $grid.bootgrid('reload');
+            }
+        }
+
         $('#grid-bgppeers').on('loaded.rs.jquery.bootgrid', function () {
             var $tbody = $(this).find('tbody');
             $tbody.find('tr').each(function () {
@@ -1036,6 +1043,7 @@
                 return dfObj;
             },
             onAction: function () {
+                reloadBgpPeersGrid();
                 if (isBgpRoutingTab()) {
                     openRoutingPeersStatus();
                 }
@@ -1134,19 +1142,51 @@
 
             var uuids = [];
             $.each(instanceStatusCache, function (uuid, info) {
-                // TODO: check on enabled status
+                if (info.enabled === false || info.enabled === 0 || info.enabled === '0') {
+                    return;
+                }
                 if (info.xray_core === 'running') { uuids.push(uuid); }
             });
 
             if (!uuids.length) {
                 $res.removeClass('text-success').addClass('text-danger')
-                    .text("{{ lang._('No running instances.') }}");
+                    .text("{{ lang._('No enabled running instances.') }}");
                 $btn.prop('disabled', false);
                 return;
             }
 
             $res.removeClass('text-success text-danger').text("{{ lang._('Testing...') }}");
             var pending = uuids.length;
+
+            function runManualAutoRoute() {
+                $res.removeClass('text-success text-danger')
+                    .text("{{ lang._('Auto route...') }}");
+                $.ajax({
+                    url: '/api/xray/service/birdactivetun',
+                    type: 'POST',
+                    dataType: 'json',
+                    timeout: 180000,
+                    success: function (data) {
+                        var msg = (data && data.message) ? String(data.message) : '';
+                        var short = msg.split('\n').slice(0, 3).join(' ').trim();
+                        if (data && data.result === 'ok') {
+                            $res.removeClass('text-danger').addClass('text-success')
+                                .text(short !== '' ? short : "{{ lang._('Auto route done.') }}");
+                        } else {
+                            $res.removeClass('text-success').addClass('text-danger')
+                                .text(short !== '' ? short : "{{ lang._('Auto route failed.') }}");
+                        }
+                    },
+                    error: function () {
+                        $res.removeClass('text-success').addClass('text-danger')
+                            .text("{{ lang._('Auto route failed.') }}");
+                    },
+                    complete: function () {
+                        $btn.prop('disabled', false);
+                        reloadBgpPeersGrid();
+                    }
+                });
+            }
 
             $.each(uuids, function (_, uuid) {
                 $.ajax({
@@ -1159,8 +1199,7 @@
                     complete: function () {
                         pending--;
                         if (pending === 0) {
-                            $btn.prop('disabled', false);
-                            $res.removeClass('text-success text-danger').text('');
+                            runManualAutoRoute();
                         }
                     }
                 });
@@ -1503,7 +1542,7 @@
                     + "Date: " + new Date().toISOString() + "\n\n"
                     + "--- Diagnostics ---\n"
                     + JSON.stringify(diagData, null, 2) + "\n\n"
-                    + "--- Boot Log (last 150 lines) ---\n"
+                    + "--- Boot Log (last 300 lines) ---\n"
                     + bootLog + "\n\n"
                     + "--- Core Log (last 200 lines) ---\n"
                     + coreLog + "\n";

@@ -3,10 +3,12 @@
 /**
  * Выбор активного tun2socks для BIRD (ACTIVE_TUN4_IF / ACTIVE_TUN6_IF).
  *
- * Среди включённых инстансов с живыми xray-core и tun2socks:
+ * Среди включённых инстансов с живыми xray-core и tun2socks
+ * (флаги IPv4/IPv6 инстанса на выбор TUN не влияют — только на JSON xray-core):
  *   1. для IPv4 и IPv6 отдельно берётся больший Weight (weight_ipv4 / weight_ipv6);
- *   2. через SOCKS5 инстанса проверяется коннект (curl, как Test Connect);
- *   3. при равном весе побеждает меньшее «Время ответа» curl (time_total).
+ *   2. через SOCKS5 проверяется curl -4 и -6;
+ *   3. при равном весе побеждает меньшее «Время ответа»; если probe семьи пуст —
+ *      берётся любой remaining enabled TUN, файл не оставляется на disabled instance.
  *
  * Пишет:
  *   /usr/local/etc/bird/active_tun_v4.inc
@@ -16,6 +18,7 @@
  */
 
 require_once('config.inc');
+require_once(__DIR__ . '/xray-boot-log.inc.php');
 
 if (!defined('XRAY_BIRD_INC_DIR')) {
     define('XRAY_BIRD_INC_DIR', '/usr/local/etc/bird');
@@ -92,12 +95,21 @@ function xray_bird_active_tun_curl(string $listen, int $port, string $ipFlag): a
 
 function xray_bird_active_tun_configure(): void
 {
+    $birdc = '/usr/local/sbin/birdc';
     if (function_exists('xray_bird_reload_config')) {
         xray_bird_reload_config();
-    } elseif (is_executable('/usr/local/sbin/birdc')) {
-        exec('/usr/local/sbin/birdc configure 2>&1');
+    } elseif (is_executable($birdc)) {
+        exec($birdc . ' configure 2>&1');
     }
-    echo "bird: active tun changed — birdc configure\n";
+    // birdc configure updates ACTIVE_TUN*_IF, but ifname is already stored
+    // on imported BGP routes. reload in re-runs import filters so kernel
+    // export follows the new TUN.
+    if (is_executable($birdc)) {
+        exec($birdc . ' reload in all 2>&1', $out, $rc);
+        echo 'bird: reload in all rc=' . $rc
+            . ($out !== [] ? (' ' . implode('; ', $out)) : '') . "\n";
+    }
+    echo "bird: active tun changed — birdc configure + reload in all\n";
 }
 
 function xray_bird_active_tun_write(string $file, string $define, string $ifname): void
@@ -158,6 +170,38 @@ function xray_bird_active_tun_pick(array $rows, string $weightKey, bool $useWeig
     return $rows[0];
 }
 
+/**
+ * Если SOCKS-probe семьи пуст — всё равно выбрать TUN среди enabled+running.
+ */
+function xray_bird_active_tun_pick_or_fallback(
+    ?array $best,
+    array $cands,
+    string $weightKey,
+    bool $useWeight,
+    string $family
+): ?array {
+    if ($best !== null) {
+        return $best;
+    }
+    $rows = [];
+    foreach ($cands as $c) {
+        $rows[] = [
+            'uuid'      => $c['uuid'],
+            'name'      => $c['name'],
+            'tun'       => $c['tun'],
+            'weight_v4' => $c['weight_v4'],
+            'weight_v6' => $c['weight_v6'],
+            'time'      => 9999.0,
+        ];
+    }
+    $pick = xray_bird_active_tun_pick($rows, $weightKey, $useWeight);
+    if ($pick !== null) {
+        echo "active tun {$family}: no SOCKS for this family — fallback {$pick['tun']} ({$pick['name']})\n";
+    }
+    return $pick;
+}
+
+/** Кандидаты Auto route / one-shot: только instance.enabled=1 + живые PID. */
 function xray_bird_active_tun_candidates($ins): array
 {
     $out = [];
@@ -178,11 +222,6 @@ function xray_bird_active_tun_candidates($ins): array
         if (!xray_bird_active_tun_pid_alive('/var/run/tun2socks_' . $uuid . '.pid')) {
             continue;
         }
-        $use4 = (string)($inst->use_ipv4 ?? '1') === '1';
-        $use6 = (string)($inst->use_ipv6 ?? '0') === '1';
-        if (!$use4 && !$use6) {
-            continue;
-        }
         $tun = trim((string)($inst->tun_interface ?? ''));
         if ($tun === '') {
             $tun = 'proxytun2socks0';
@@ -196,8 +235,6 @@ function xray_bird_active_tun_candidates($ins): array
             'uuid'      => $uuid,
             'name'      => (string)($inst->name ?? $uuid),
             'tun'       => $tun,
-            'use4'      => $use4,
-            'use6'      => $use6,
             'listen'    => $listen,
             'port'      => $port,
             'weight_v4' => xray_bird_active_tun_weight($inst->weight_ipv4 ?? 1),
@@ -244,6 +281,9 @@ function xray_bird_active_tun_commit(?array $best4, ?array $best6, string $prev4
         echo "active tun v6: no working instance — file unchanged\n";
     }
     $ok = ($best4 !== null || $best6 !== null);
+    $sel4 = $best4['tun'] ?? ($prev4 !== '' ? $prev4 . ' (unchanged)' : 'none');
+    $sel6 = $best6['tun'] ?? ($prev6 !== '' ? $prev6 . ' (unchanged)' : 'none');
+    echo "active tun selected: IPv4={$sel4} IPv6={$sel6}\n";
     return ['ok' => $ok, 'changed' => $ok && $changed];
 }
 
@@ -299,7 +339,18 @@ function xray_bird_autoroute_finalize(array $state, $general, string $reason): v
     echo "auto route: finalize ({$reason})\n";
     $v4ok = [];
     $v6ok = [];
+    $cfg  = OPNsense\Core\Config::getInstance()->object();
+    $ins  = $cfg->OPNsense->xray->instances ?? null;
+    $live = [];
+    foreach (xray_bird_active_tun_candidates($ins) as $c) {
+        $live[$c['uuid']] = true;
+    }
     foreach ($state['samples'] as $uuid => $s) {
+        $uuid = (string)$uuid;
+        if (empty($live[$uuid])) {
+            echo "  skip {$uuid} — instance not enabled or not running\n";
+            continue;
+        }
         $avg4 = xray_bird_avg_times($s['v4'] ?? []);
         $avg6 = xray_bird_avg_times($s['v6'] ?? []);
         $n4   = count($s['v4'] ?? []);
@@ -309,7 +360,7 @@ function xray_bird_autoroute_finalize(array $state, $general, string $reason): v
             . " IPv6 samples=" . json_encode($s['v6'] ?? [])
             . " avg=" . xray_bird_autoroute_fmt($avg6) . " (n={$n6})\n";
         $base = [
-            'uuid'      => (string)$uuid,
+            'uuid'      => $uuid,
             'name'      => (string)($s['name'] ?? $uuid),
             'tun'       => (string)($s['tun'] ?? ''),
             'weight_v4' => (int)($s['weight_v4'] ?? 1),
@@ -322,15 +373,28 @@ function xray_bird_autoroute_finalize(array $state, $general, string $reason): v
             $v6ok[] = $base + ['time' => $avg6];
         }
     }
-    $best4 = xray_bird_active_tun_pick(
-        $v4ok,
+    $cands = xray_bird_active_tun_candidates($ins);
+    $best4 = xray_bird_active_tun_pick_or_fallback(
+        xray_bird_active_tun_pick(
+            $v4ok,
+            'weight_v4',
+            xray_bird_active_tun_weight_used($general, 'ipv4')
+        ),
+        $cands,
         'weight_v4',
-        xray_bird_active_tun_weight_used($general, 'ipv4')
+        xray_bird_active_tun_weight_used($general, 'ipv4'),
+        'v4'
     );
-    $best6 = xray_bird_active_tun_pick(
-        $v6ok,
+    $best6 = xray_bird_active_tun_pick_or_fallback(
+        xray_bird_active_tun_pick(
+            $v6ok,
+            'weight_v6',
+            xray_bird_active_tun_weight_used($general, 'ipv6')
+        ),
+        $cands,
         'weight_v6',
-        xray_bird_active_tun_weight_used($general, 'ipv6')
+        xray_bird_active_tun_weight_used($general, 'ipv6'),
+        'v6'
     );
     $prev4 = xray_bird_active_tun_current(XRAY_BIRD_INC_DIR . '/active_tun_v4.inc', 'ACTIVE_TUN4_IF');
     $prev6 = xray_bird_active_tun_current(XRAY_BIRD_INC_DIR . '/active_tun_v6.inc', 'ACTIVE_TUN6_IF');
@@ -382,8 +446,17 @@ function xray_bird_autoroute_tick(): void
     }
 
     $cands = xray_bird_active_tun_candidates($ins);
+    $live  = [];
+    foreach ($cands as $c) {
+        $live[$c['uuid']] = true;
+    }
+    foreach (array_keys($state['samples'] ?? []) as $sid) {
+        if (empty($live[$sid])) {
+            unset($state['samples'][$sid]);
+        }
+    }
     $round = (int)$state['polls_done'] + 1;
-    echo "auto route: poll {$round}/{$target} (interval {$interval} min)\n";
+    echo "auto route: poll {$round}/{$target} (interval {$interval} min, enabled instances only)\n";
 
     $ok4 = [];
     $ok6 = [];
@@ -402,21 +475,17 @@ function xray_bird_autoroute_tick(): void
         $state['samples'][$uuid]['v6']        = $state['samples'][$uuid]['v6'] ?? [];
 
         echo "  [{$c['name']}] {$c['tun']} socks {$c['listen']}:{$c['port']}\n";
-        if ($c['use4']) {
-            $p = xray_bird_active_tun_curl($c['listen'], $c['port'], '-4');
-            echo '    -4: ' . ($p['raw'] !== '' ? str_replace("\n", '; ', $p['raw']) : 'Код ответа: 0') . "\n";
-            if ($p['ok']) {
-                $state['samples'][$uuid]['v4'][] = $p['time'];
-                $ok4[$uuid] = true;
-            }
+        $p = xray_bird_active_tun_curl($c['listen'], $c['port'], '-4');
+        echo '    -4: ' . ($p['raw'] !== '' ? str_replace("\n", '; ', $p['raw']) : 'Код ответа: 0') . "\n";
+        if ($p['ok']) {
+            $state['samples'][$uuid]['v4'][] = $p['time'];
+            $ok4[$uuid] = true;
         }
-        if ($c['use6']) {
-            $p = xray_bird_active_tun_curl($c['listen'], $c['port'], '-6');
-            echo '    -6: ' . ($p['raw'] !== '' ? str_replace("\n", '; ', $p['raw']) : 'Код ответа: 0') . "\n";
-            if ($p['ok']) {
-                $state['samples'][$uuid]['v6'][] = $p['time'];
-                $ok6[$uuid] = true;
-            }
+        $p = xray_bird_active_tun_curl($c['listen'], $c['port'], '-6');
+        echo '    -6: ' . ($p['raw'] !== '' ? str_replace("\n", '; ', $p['raw']) : 'Код ответа: 0') . "\n";
+        if ($p['ok']) {
+            $state['samples'][$uuid]['v6'][] = $p['time'];
+            $ok6[$uuid] = true;
         }
         $a4 = xray_bird_avg_times($state['samples'][$uuid]['v4']);
         $a6 = xray_bird_avg_times($state['samples'][$uuid]['v6']);
@@ -427,19 +496,13 @@ function xray_bird_autoroute_tick(): void
     $abort = false;
     $prev4 = xray_bird_active_tun_current(XRAY_BIRD_INC_DIR . '/active_tun_v4.inc', 'ACTIVE_TUN4_IF');
     $prev6 = xray_bird_active_tun_current(XRAY_BIRD_INC_DIR . '/active_tun_v6.inc', 'ACTIVE_TUN6_IF');
-    if ($prev4 !== '') {
-        $active = $byTun[$prev4] ?? null;
-        if ($active === null || empty($active['use4']) || empty($ok4[$active['uuid']])) {
-            echo "auto route: no connect through active IPv4 tun {$prev4} — abort cycle\n";
-            $abort = true;
-        }
+    if ($prev4 !== '' && !isset($byTun[$prev4])) {
+        echo "auto route: active IPv4 tun {$prev4} is not enabled/running — abort cycle\n";
+        $abort = true;
     }
-    if ($prev6 !== '') {
-        $active = $byTun[$prev6] ?? null;
-        if ($active === null || empty($active['use6']) || empty($ok6[$active['uuid']])) {
-            echo "auto route: no connect through active IPv6 tun {$prev6} — abort cycle\n";
-            $abort = true;
-        }
+    if ($prev6 !== '' && !isset($byTun[$prev6])) {
+        echo "auto route: active IPv6 tun {$prev6} is not enabled/running — abort cycle\n";
+        $abort = true;
     }
 
     $state['polls_done']   = $round;
@@ -481,41 +544,16 @@ function xray_bird_select_and_write_active_tun(): array
     $useWeight6 = xray_bird_active_tun_weight_used($general, 'ipv6');
     $prev4        = xray_bird_active_tun_current(XRAY_BIRD_INC_DIR . '/active_tun_v4.inc', 'ACTIVE_TUN4_IF');
     $prev6        = xray_bird_active_tun_current(XRAY_BIRD_INC_DIR . '/active_tun_v6.inc', 'ACTIVE_TUN6_IF');
+    $cands        = xray_bird_active_tun_candidates($ins);
 
-    foreach ($ins->instance as $inst) {
-        $uuid = (string)$inst['uuid'];
-        if ($uuid === '' || (string)($inst->enabled ?? '1') !== '1') {
-            continue;
-        }
-        if (file_exists('/var/run/xray_stopped_' . $uuid . '.flag')) {
-            continue;
-        }
-        if (!xray_bird_active_tun_pid_alive('/var/run/xray_core_' . $uuid . '.pid')) {
-            continue;
-        }
-        if (!xray_bird_active_tun_pid_alive('/var/run/tun2socks_' . $uuid . '.pid')) {
-            continue;
-        }
-
-        $use4 = (string)($inst->use_ipv4 ?? '1') === '1';
-        $use6 = (string)($inst->use_ipv6 ?? '0') === '1';
-        if (!$use4 && !$use6) {
-            continue;
-        }
-
-        $tun = trim((string)($inst->tun_interface ?? ''));
-        if ($tun === '') {
-            $tun = 'proxytun2socks0';
-        }
-        if (!xray_bird_active_tun_valid_if($tun)) {
-            continue;
-        }
-
-        $name   = (string)($inst->name ?? $uuid);
-        $listen = (string)($inst->socks5_listen ?? '127.0.0.1') ?: '127.0.0.1';
-        $port   = (int)(string)($inst->socks5_port ?? 10808);
-        $w4     = xray_bird_active_tun_weight($inst->weight_ipv4 ?? 1);
-        $w6     = xray_bird_active_tun_weight($inst->weight_ipv6 ?? 1);
+    foreach ($cands as $c) {
+        $uuid   = $c['uuid'];
+        $name   = $c['name'];
+        $tun    = $c['tun'];
+        $listen = $c['listen'];
+        $port   = $c['port'];
+        $w4     = $c['weight_v4'];
+        $w6     = $c['weight_v6'];
 
         echo "active tun [{$name}] {$tun} socks {$listen}:{$port} weight4={$w4} weight6={$w6}\n";
 
@@ -526,30 +564,39 @@ function xray_bird_select_and_write_active_tun(): array
             'weight_v4' => $w4,
             'weight_v6' => $w6,
         ];
-        if ($use4) {
-            $probe4 = xray_bird_active_tun_curl($listen, $port, '-4');
-            echo "  -4: " . ($probe4['raw'] !== '' ? str_replace("\n", '; ', $probe4['raw']) : 'Код ответа: 0') . "\n";
-            if ($probe4['ok']) {
-                echo "  best -4: Код ответа: {$probe4['http']}; Время ответа: {$probe4['time']} сек\n";
-                $v4ok[] = $base + ['time' => $probe4['time']];
-            }
+        $probe4 = xray_bird_active_tun_curl($listen, $port, '-4');
+        echo "  -4: " . ($probe4['raw'] !== '' ? str_replace("\n", '; ', $probe4['raw']) : 'Код ответа: 0') . "\n";
+        if ($probe4['ok']) {
+            echo "  best -4: Код ответа: {$probe4['http']}; Время ответа: {$probe4['time']} сек\n";
+            $v4ok[] = $base + ['time' => $probe4['time']];
         }
-        if ($use6) {
-            $probe6 = xray_bird_active_tun_curl($listen, $port, '-6');
-            echo "  -6: " . ($probe6['raw'] !== '' ? str_replace("\n", '; ', $probe6['raw']) : 'Код ответа: 0') . "\n";
-            if ($probe6['ok']) {
-                echo "  best -6: Код ответа: {$probe6['http']}; Время ответа: {$probe6['time']} сек\n";
-                $v6ok[] = $base + ['time' => $probe6['time']];
-            }
+        $probe6 = xray_bird_active_tun_curl($listen, $port, '-6');
+        echo "  -6: " . ($probe6['raw'] !== '' ? str_replace("\n", '; ', $probe6['raw']) : 'Код ответа: 0') . "\n";
+        if ($probe6['ok']) {
+            echo "  best -6: Код ответа: {$probe6['http']}; Время ответа: {$probe6['time']} сек\n";
+            $v6ok[] = $base + ['time' => $probe6['time']];
         }
     }
 
-    $best4 = xray_bird_active_tun_pick($v4ok, 'weight_v4', $useWeight4);
-    $best6 = xray_bird_active_tun_pick($v6ok, 'weight_v6', $useWeight6);
+    $best4 = xray_bird_active_tun_pick_or_fallback(
+        xray_bird_active_tun_pick($v4ok, 'weight_v4', $useWeight4),
+        $cands,
+        'weight_v4',
+        $useWeight4,
+        'v4'
+    );
+    $best6 = xray_bird_active_tun_pick_or_fallback(
+        xray_bird_active_tun_pick($v6ok, 'weight_v6', $useWeight6),
+        $cands,
+        'weight_v6',
+        $useWeight6,
+        'v6'
+    );
     return xray_bird_active_tun_commit($best4, $best6, $prev4, $prev6);
 }
 
 if (count(debug_backtrace()) === 0) {
+    ob_start();
     $mode = $argv[1] ?? '';
     if ($mode === 'autoroute') {
         xray_bird_autoroute_tick();
@@ -558,5 +605,15 @@ if (count(debug_backtrace()) === 0) {
         if (!empty($sel['changed'])) {
             xray_bird_active_tun_configure();
         }
+    }
+    $buf = (string)ob_get_flush();
+    $idle = (bool)preg_match(
+        '/auto route: (next poll in |disabled\n|plugin or BGP disabled)/',
+        $buf
+    );
+    $work = (bool)preg_match('/\bpoll \d+\/|finalize|active tun \[|active tun selected:/', $buf);
+    if ($buf !== '' && (!$idle || $work)) {
+        $title = ($mode === 'autoroute') ? 'Auto route (cron)' : 'Auto route (manual / Test All)';
+        xray_boot_log_block($title, $buf);
     }
 }

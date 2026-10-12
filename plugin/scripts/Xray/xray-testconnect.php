@@ -12,6 +12,7 @@
  */
 
 require_once('config.inc');
+require_once(__DIR__ . '/xray-boot-log.inc.php');
 
 // UUID инстанса как первый аргумент (из actions_xray.conf %1)
 $instUuid = isset($argv[1]) ? preg_replace('/[^0-9a-fA-F\-]/', '', trim($argv[1])) : '';
@@ -55,7 +56,24 @@ exec(
     $rc
 );
 
-echo implode('', $out) . "\n";
+$code = implode('', $out);
+echo $code . "\n";
+
+$http = (int)$code;
+$ok   = ($http >= 200 && $http < 400);
+$name = $inst ? (string)($inst->name ?? $instUuid) : ($instUuid !== '' ? $instUuid : '(none)');
+$tun  = $inst ? trim((string)($inst->tun_interface ?? '')) : '';
+if ($tun === '') {
+    $tun = 'proxytun2socks0';
+}
+$en = $inst && (string)($inst->enabled ?? '1') === '1' ? '1' : '0';
+xray_boot_log_block(
+    'Test connect',
+    "instance={$name} uuid=" . ($instUuid !== '' ? $instUuid : '(first)') . "\n"
+    . "enabled={$en} tun={$tun} socks={$proxy}\n"
+    . "check: HTTP " . ($code !== '' ? $code : '0') . ($ok ? ' ok' : ' failed')
+    . " target={$target}"
+);
 
 // TODO return parsed result as now it done in ServiceController
 exit($rc);

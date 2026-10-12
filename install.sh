@@ -140,15 +140,32 @@ xray_migrate_dnstap_pkg() {
     _conf="$_dir/dnstap-bgp.conf"
     if [ -f "$_conf" ]; then
         sed -i '' \
-            -e 's/blocked_domains/proxy_domains/g' \
             -e 's/unblocked_domains/direct_domains/g' \
-            -e 's/blocked_communities/proxy_communities/g' \
+            -e 's/unproxy_domains/direct_domains/g' \
+            -e 's/blocked_domains/proxy_domains/g' \
             -e 's/unblocked_communities/direct_communities/g' \
-            -e 's|/blocked.txt|/proxy.txt|g' \
+            -e 's/unproxy_communities/direct_communities/g' \
+            -e 's/blocked_communities/proxy_communities/g' \
             -e 's|/unblocked.txt|/direct.txt|g' \
+            -e 's|/unproxy.txt|/direct.txt|g' \
+            -e 's|/blocked.txt|/proxy.txt|g' \
             "$_conf"
         if ! grep -qE '^[[:space:]]*block_domains[[:space:]]*=' "$_conf"; then
-            printf '\nblock_domains = "/usr/local/etc/dnstap-bgp/block.txt"\n' >> "$_conf"
+            _tmp="${_conf}.new"
+            awk '
+                /^\[/ && !ins {
+                    print "block_domains = \"/usr/local/etc/dnstap-bgp/block.txt\""
+                    print ""
+                    ins=1
+                }
+                { print }
+                END {
+                    if (!ins) {
+                        print ""
+                        print "block_domains = \"/usr/local/etc/dnstap-bgp/block.txt\""
+                    }
+                }
+            ' "$_conf" > "$_tmp" && mv "$_tmp" "$_conf"
             echo "[OK]  $_conf block_domains"
         fi
         echo "[OK]  $_conf keys for dnstap-bgp 1.5.0"
@@ -851,6 +868,7 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/opnsense/scripts/Xray/xray-ifstats.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-peers.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-active-tun.php
+    rm -f  /usr/local/opnsense/scripts/Xray/xray-boot-log.inc.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-log.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-log.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-loglevel.php

@@ -87,6 +87,9 @@ function xray_domain_route_tun_map(): array
             return $map;
         }
         foreach ($ins->instance as $inst) {
+            if ((string)($inst->enabled ?? '1') !== '1') {
+                continue;
+            }
             $tun = trim((string)($inst->tun_interface ?? ''));
             if ($tun === '') {
                 continue;

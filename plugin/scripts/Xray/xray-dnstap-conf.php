@@ -27,6 +27,10 @@ const XRAY_DNSTAP_CONF_HIDDEN = [
     'block_domains',
     'blocked_domains',
     'unblocked_domains',
+    'unproxy_domains',
+    'dnstap.block_domains',
+    'dnstap.unproxy_domains',
+    'bgp.block_domains',
     'cache',
     'dnstap.listen',
     'dnstap.perm',
@@ -323,7 +327,8 @@ function xray_dnstap_conf_merge_managed(array $guiRows): array
         if ($k === 'bgp.blocked_communities' || $k === 'blocked_communities') {
             $k = 'bgp.proxy_communities';
         }
-        if ($k === 'bgp.unblocked_communities' || $k === 'unblocked_communities') {
+        if ($k === 'bgp.unblocked_communities' || $k === 'unblocked_communities'
+            || $k === 'bgp.unproxy_communities' || $k === 'unproxy_communities') {
             $k = 'bgp.direct_communities';
         }
         if ($k === 'ipv6') {
@@ -354,19 +359,27 @@ function xray_dnstap_conf_for_ui(array $rows): array
     $rename = [
         'bgp.blocked_communities'   => 'bgp.proxy_communities',
         'bgp.unblocked_communities' => 'bgp.direct_communities',
+        'bgp.unproxy_communities'   => 'bgp.direct_communities',
         'blocked_communities'       => 'bgp.proxy_communities',
         'unblocked_communities'     => 'bgp.direct_communities',
+        'unproxy_communities'       => 'bgp.direct_communities',
+        'unproxy_domains'           => 'direct_domains',
+        'dnstap.unproxy_domains'    => 'direct_domains',
+        'dnstap.block_domains'      => 'block_domains',
+        'bgp.block_domains'         => 'block_domains',
     ];
     $out = [];
+    $seen = [];
     foreach ($rows as $row) {
         $k = trim((string)($row['key'] ?? ''));
         if (isset($rename[$k])) {
             $k = $rename[$k];
             $row['key'] = $k;
         }
-        if ($k === '' || xray_dnstap_conf_is_hidden($k)) {
+        if ($k === '' || xray_dnstap_conf_is_hidden($k) || !empty($seen[$k])) {
             continue;
         }
+        $seen[$k] = true;
         $out[] = $row;
     }
     return xray_dnstap_ensure_community_rows(xray_dnstap_ensure_ipv6_row($out));
