@@ -948,13 +948,6 @@ function xray_bird_render_filter(array $f): string
     }
     $fam    = ((string)($f['family'] ?? 'ipv4') === 'ipv6') ? 'ipv6' : 'ipv4';
     $defNet = ($fam === 'ipv6') ? '::/0' : '0.0.0.0/0';
-    $isDnstap = (bool)preg_match('/(^|_)dnstap(_|$)/i', $name);
-
-    $trace = '';
-    if ($isDnstap) {
-        $trace = "    # Выводим в лог комьюнити входящего маршрута для анализа\n"
-            . '    print "Processing net ", net, " with community: ", bgp_community;' . "\n";
-    }
 
     $ifs = [];
     foreach (xray_bird_filter_blocks($f) as $b) {
@@ -970,12 +963,12 @@ function xray_bird_render_filter(array $f): string
             . '    }';
     }
     if ($ifs !== []) {
-        return 'filter ' . $name . " {\n" . $trace
+        return 'filter ' . $name . " {\n"
             . implode("\n", $ifs) . "\n    reject;\n}\n";
     }
 
     $tun = xray_bird_filter_ifname((string)($f['tun_if'] ?? ''), $fam);
-    return 'filter ' . $name . " {\n" . $trace
+    return 'filter ' . $name . " {\n"
         . '    if net = ' . $defNet . " then reject;\n"
         . xray_bird_filter_then_lines($tun, '    ')
         . "    accept;\n}\n";

@@ -5,6 +5,7 @@
             <BgpPeers order="20" VisibleName="BGP peers" url="/ui/xray/#routing-peers"/>
             <BgpFilter order="30" VisibleName="BGP filter" url="/ui/xray/#routing-filters"/>
             <BgpCommunity order="40" VisibleName="BGP community" url="/ui/xray/#routing-communities"/>
+            <Static order="45" VisibleName="Static" url="/ui/xray/#routing-static"/>
             <DNStap order="50" VisibleName="DNStap" url="/ui/xray/#dnstap"/>
             <General order="60" VisibleName="General" url="/ui/xray/#general"/>
             <Domains order="70" VisibleName="Domains" url="/ui/xray/#domains"/>

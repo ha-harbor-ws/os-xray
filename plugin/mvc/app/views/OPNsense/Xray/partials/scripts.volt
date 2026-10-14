@@ -564,6 +564,38 @@
             return $('#routing-peers, #routing-filters, #routing-communities').filter('.active').length > 0;
         }
 
+        function staticUrlRow(key, value) {
+            var $tr = $('<tr/>');
+            var $inp = $('<input type="text" class="form-control"/>')
+                .attr('data-key', key)
+                .attr('placeholder', 'https://')
+                .val(value == null ? '' : String(value));
+            $tr.append($('<td/>').append($('<div class="static-row-edit"/>').append($inp)));
+            return $tr;
+        }
+
+        function staticEnsureUrlLists() {
+            ['#staticProxyUrlsKv', '#staticDirectUrlsKv', '#staticBlockUrlsKv', '#staticGeodatUrlsKv'].forEach(function (sel) {
+                var $tbody = $(sel);
+                if ($tbody.length && !$tbody.find('tr').length) {
+                    $tbody.append(staticUrlRow(String($tbody.attr('data-row-key') || 'url'), ''));
+                }
+            });
+        }
+
+        function staticFillGeodatUrlPick() {
+            var $pick = $('#staticGeodatUrlPick').empty();
+            $('#staticGeodatUrlsKv input').each(function () {
+                var u = String($(this).val() || '').trim();
+                if (u) {
+                    $pick.append($('<option/>').attr('value', u).text(u));
+                }
+            });
+            if (!$pick.find('option').length) {
+                $pick.append($('<option/>').attr('value', '').text('—'));
+            }
+        }
+
         function isDnstapTab() {
             return $('#dnstap').filter('.active').length > 0;
         }
@@ -845,6 +877,9 @@
         $('a[data-toggle="tab"][href="#domains"]').on('shown.bs.tab', function () {
             loadDnstapConf();
         });
+        $('a[data-toggle="tab"][href="#routing-static"]').on('shown.bs.tab', function () {
+            staticEnsureUrlLists();
+        });
 
         $(document).on('click', '.dnstap-url-add', function () {
             var $tbody = $('#' + $(this).attr('data-list'));
@@ -857,6 +892,31 @@
         $(document).on('click', '.dnstap-url-remove', function () {
             var $tbody = $('#' + $(this).attr('data-list'));
             $tbody.find('tr').last().remove();
+        });
+        $(document).on('click', '.static-url-add', function () {
+            var $tbody = $('#' + $(this).attr('data-list'));
+            if (!$tbody.length) {
+                return;
+            }
+            var key = String($tbody.attr('data-row-key') || 'url');
+            $tbody.append(staticUrlRow(key, ''));
+        });
+        $(document).on('click', '.static-url-remove', function () {
+            var $tbody = $('#' + $(this).attr('data-list'));
+            if (!$tbody.length) {
+                return;
+            }
+            if ($tbody.find('tr').length <= 1) {
+                $tbody.find('input').val('');
+                return;
+            }
+            $tbody.find('tr').last().remove();
+        });
+        $('#staticGeodatCategory').on('click', function () {
+            staticFillGeodatUrlPick();
+            $('#staticGeodatCats').empty();
+            $('#staticGeodatModalMsg').text("{{ lang._('Category download is not available yet.') }}");
+            $('#staticGeodatModal').modal('show');
         });
         function dnstapGeodatFillModal(categories) {
             var $tb = $('#dnstapGeodatCats').empty();

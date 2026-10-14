@@ -1549,6 +1549,19 @@ else
     echo "[SKIP] $BIRD_INC_DIR/active_tun_v6.inc already exists"
 fi
 
+for _static_inc in \
+    routes_static_v4_PROXY.inc routes_static_v4_DIRECT.inc routes_static_v4_BLOCK.inc \
+    routes_static_v6_PROXY.inc routes_static_v6_DIRECT.inc routes_static_v6_BLOCK.inc
+do
+    if [ ! -f "$BIRD_INC_DIR/$_static_inc" ]; then
+        printf '%s\n' '#' > "$BIRD_INC_DIR/$_static_inc"
+        chmod 0644 "$BIRD_INC_DIR/$_static_inc"
+        echo "[OK]  $BIRD_INC_DIR/$_static_inc"
+    else
+        echo "[SKIP] $BIRD_INC_DIR/$_static_inc already exists"
+    fi
+done
+
 if [ "$BINARIES_OK" = "0" ]; then
     echo ""
     warn "One or more binaries are missing. Plugin will be installed,"

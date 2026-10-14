@@ -28,6 +28,7 @@
             <li><a data-toggle="tab" href="#routing-peers">{{ lang._('BGP peers') }}</a></li>
             <li><a data-toggle="tab" href="#routing-filters">{{ lang._('BGP filter') }}</a></li>
             <li><a data-toggle="tab" href="#routing-communities">{{ lang._('BGP community') }}</a></li>
+            <li><a data-toggle="tab" href="#routing-static">{{ lang._('Static') }}</a></li>
         </ul>
     </li>
     <li><a data-toggle="tab" href="#dnstap">{{ lang._('DNStap') }}</a></li>
@@ -39,6 +40,7 @@
 <div class="tab-content content-box">
     {{ partial('OPNsense/Xray/partials/tab_instances') }}
     {{ partial('OPNsense/Xray/partials/tab_routing') }}
+    {{ partial('OPNsense/Xray/partials/tab_static') }}
     {{ partial('OPNsense/Xray/partials/tab_dnstap') }}
 
     <div id="general" class="tab-pane fade in">
