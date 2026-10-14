@@ -1775,15 +1775,30 @@
             });
         });
 
-        // ── Tab hash ────────────────────────────────────────────────
-        if (window.location.hash === '#routing') {
-            window.location.hash = '#routing-peers';
+        // ── Tab hash (left menu VPN→Xray uses /ui/xray/#…) ──────────
+        function xrayActivateHashTab() {
+            var hash = window.location.hash;
+            if (hash === '#routing') {
+                hash = '#routing-peers';
+                if (window.location.hash !== hash) {
+                    window.location.hash = hash;
+                    return;
+                }
+            }
+            if (!hash) {
+                return;
+            }
+            var $tab = $('#maintabs a[data-toggle="tab"][href="' + hash + '"]');
+            if ($tab.length) {
+                $tab.tab('show');
+            }
         }
-        if (window.location.hash !== "") {
-            $('a[href="' + window.location.hash + '"]').click();
-        }
+        xrayActivateHashTab();
+        $(window).on('hashchange', xrayActivateHashTab);
         $('.nav-tabs a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
-            history.pushState(null, null, e.target.hash);
+            if (e.target.hash && window.location.hash !== e.target.hash) {
+                history.replaceState(null, null, e.target.hash);
+            }
         });
     });
 </script>
