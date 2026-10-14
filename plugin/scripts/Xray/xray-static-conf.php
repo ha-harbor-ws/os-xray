@@ -1,7 +1,13 @@
 #!/usr/local/bin/php
 <?php
 /**
- * Static IP list URLs → BIRD routes_static_v{4,6}_{PROXY,DIRECT,BLOCK}.inc
+ * Static IP list URLs → intermediate prefix .inc → final routes_static_v{4,6}_apply.inc
+ *
+ * Sources (comma-separated prefixes, one per line):
+ *   routes_static_v{4,6}_{PROXY,DIRECT,BLOCK}.inc          — IP list URLs
+ *   routes_static_v{4,6}_{PROXY,DIRECT,BLOCK}_geodat.inc   — geoip.dat categories
+ * Final (route statements, included by bird.conf):
+ *   routes_static_v{4,6}_apply.inc
  *
  *   xray-static-conf.php get
  *   xray-static-conf.php write
@@ -22,16 +28,38 @@ const XRAY_STATIC_GEODAT_STAGED = '/tmp/xray_static_geodat.json';
 const XRAY_STATIC_MAX_BODY = 67108864;
 const XRAY_STATIC_BIRD_DIR = '/usr/local/etc/bird';
 const XRAY_STATIC_FILES = [
-    'proxy_urls'  => '/usr/local/etc/bird/static-proxy-urls.txt',
-    'direct_urls' => '/usr/local/etc/bird/static-direct-urls.txt',
-    'block_urls'  => '/usr/local/etc/bird/static-block-urls.txt',
-    'geodat_urls' => '/usr/local/etc/bird/static-geodat-urls.txt',
-    'v4_proxy'    => '/usr/local/etc/bird/routes_static_v4_PROXY.inc',
-    'v4_direct'   => '/usr/local/etc/bird/routes_static_v4_DIRECT.inc',
-    'v4_block'    => '/usr/local/etc/bird/routes_static_v4_BLOCK.inc',
-    'v6_proxy'    => '/usr/local/etc/bird/routes_static_v6_PROXY.inc',
-    'v6_direct'   => '/usr/local/etc/bird/routes_static_v6_DIRECT.inc',
-    'v6_block'    => '/usr/local/etc/bird/routes_static_v6_BLOCK.inc',
+    'proxy_urls'       => '/usr/local/etc/bird/static-proxy-urls.txt',
+    'direct_urls'      => '/usr/local/etc/bird/static-direct-urls.txt',
+    'block_urls'       => '/usr/local/etc/bird/static-block-urls.txt',
+    'geodat_urls'      => '/usr/local/etc/bird/static-geodat-urls.txt',
+    'v4_proxy'         => '/usr/local/etc/bird/routes_static_v4_PROXY.inc',
+    'v4_direct'        => '/usr/local/etc/bird/routes_static_v4_DIRECT.inc',
+    'v4_block'         => '/usr/local/etc/bird/routes_static_v4_BLOCK.inc',
+    'v6_proxy'         => '/usr/local/etc/bird/routes_static_v6_PROXY.inc',
+    'v6_direct'        => '/usr/local/etc/bird/routes_static_v6_DIRECT.inc',
+    'v6_block'         => '/usr/local/etc/bird/routes_static_v6_BLOCK.inc',
+    'v4_proxy_geodat'  => '/usr/local/etc/bird/routes_static_v4_PROXY_geodat.inc',
+    'v4_direct_geodat' => '/usr/local/etc/bird/routes_static_v4_DIRECT_geodat.inc',
+    'v4_block_geodat'  => '/usr/local/etc/bird/routes_static_v4_BLOCK_geodat.inc',
+    'v6_proxy_geodat'  => '/usr/local/etc/bird/routes_static_v6_PROXY_geodat.inc',
+    'v6_direct_geodat' => '/usr/local/etc/bird/routes_static_v6_DIRECT_geodat.inc',
+    'v6_block_geodat'  => '/usr/local/etc/bird/routes_static_v6_BLOCK_geodat.inc',
+    'v4_apply'         => '/usr/local/etc/bird/routes_static_v4_apply.inc',
+    'v6_apply'         => '/usr/local/etc/bird/routes_static_v6_apply.inc',
+];
+
+/** Intermediate prefix sources per family → keys in XRAY_STATIC_FILES */
+const XRAY_STATIC_SOURCE_KEYS = [
+    'ipv4' => [
+        'proxy'  => ['v4_proxy', 'v4_proxy_geodat'],
+        'direct' => ['v4_direct', 'v4_direct_geodat'],
+        'block'  => ['v4_block', 'v4_block_geodat'],
+    ],
+    'ipv6' => [
+        'proxy'  => ['v6_proxy', 'v6_proxy_geodat'],
+        'direct' => ['v6_direct', 'v6_direct_geodat'],
+        'block'  => ['v6_block', 'v6_block_geodat'],
+    ],
 ];
 
 function xray_static_read_file(string $path): string
@@ -232,7 +260,7 @@ function xray_static_parse_prefix_text(string $text): array
 }
 
 /**
- * One prefix per line; comma after each except the last. Empty → "#\n"
+ * Intermediate prefix list: one prefix per line, comma except last. Empty → "#\n"
  */
 function xray_static_render_prefix_list(array $cidrs): string
 {
@@ -256,6 +284,107 @@ function xray_static_render_prefix_list(array $cidrs): string
         $lines[] = ($i === $n - 1) ? $c : ($c . ',');
     }
     return implode("\n", $lines) . "\n";
+}
+
+/**
+ * Load prefixes from one intermediate source file.
+ *
+ * @return array<string,true>
+ */
+function xray_static_load_prefix_file(string $path): array
+{
+    $parsed = xray_static_parse_prefix_text(xray_static_read_file($path));
+    // parse_prefix_text returns both v4 and v6; callers pick by file family
+    return $parsed['v4'] + $parsed['v6'];
+}
+
+/**
+ * Merge intermediate sources for one family. Priority: BLOCK > PROXY > DIRECT.
+ *
+ * @return array{proxy:array<string,true>,direct:array<string,true>,block:array<string,true>}
+ */
+function xray_static_merge_sources(string $family): array
+{
+    $map = XRAY_STATIC_SOURCE_KEYS[$family] ?? null;
+    if ($map === null) {
+        return ['proxy' => [], 'direct' => [], 'block' => []];
+    }
+    $proxy = [];
+    $direct = [];
+    $block = [];
+    foreach ($map['proxy'] as $key) {
+        foreach (xray_static_load_prefix_file(XRAY_STATIC_FILES[$key]) as $c => $_) {
+            $proxy[$c] = true;
+        }
+    }
+    foreach ($map['direct'] as $key) {
+        foreach (xray_static_load_prefix_file(XRAY_STATIC_FILES[$key]) as $c => $_) {
+            $direct[$c] = true;
+        }
+    }
+    foreach ($map['block'] as $key) {
+        foreach (xray_static_load_prefix_file(XRAY_STATIC_FILES[$key]) as $c => $_) {
+            $block[$c] = true;
+        }
+    }
+    foreach ($block as $c => $_) {
+        unset($proxy[$c], $direct[$c]);
+    }
+    foreach ($proxy as $c => $_) {
+        unset($direct[$c]);
+    }
+    return ['proxy' => $proxy, 'direct' => $direct, 'block' => $block];
+}
+
+/**
+ * Final apply.inc: route statements from merged sources.
+ * PROXY → ACTIVE_TUN*_IF, DIRECT → IPv*_GATEWAY, BLOCK → blackhole.
+ */
+function xray_static_render_apply(string $family, array $proxy, array $direct, array $block): string
+{
+    $viaProxy  = ($family === 'ipv6') ? 'ACTIVE_TUN6_IF' : 'ACTIVE_TUN4_IF';
+    $viaDirect = ($family === 'ipv6') ? 'IPv6_GATEWAY' : 'IPv4_GATEWAY';
+    $lines = [
+        '# generated by os-xray from intermediate sources — do not edit; Static tab Apply',
+    ];
+    $emit = static function (array $cidrs, string $tail) use (&$lines): void {
+        $list = array_keys($cidrs);
+        sort($list, SORT_STRING);
+        foreach ($list as $c) {
+            $c = trim((string)$c);
+            if ($c === '') {
+                continue;
+            }
+            $lines[] = 'route ' . $c . ' ' . $tail;
+        }
+    };
+    $emit($proxy, 'via ' . $viaProxy . ';');
+    $emit($direct, 'via ' . $viaDirect . ';');
+    $emit($block, 'blackhole;');
+    if (count($lines) === 1) {
+        $lines[] = '#';
+    }
+    return implode("\n", $lines) . "\n";
+}
+
+/**
+ * Rebuild final *_apply.inc from all intermediate prefix sources.
+ *
+ * @return array{proxy:int,direct:int,block:int}
+ */
+function xray_static_build_apply(string $family): array
+{
+    $merged = xray_static_merge_sources($family);
+    $path = ($family === 'ipv6') ? XRAY_STATIC_FILES['v6_apply'] : XRAY_STATIC_FILES['v4_apply'];
+    xray_static_write_file(
+        $path,
+        xray_static_render_apply($family, $merged['proxy'], $merged['direct'], $merged['block'])
+    );
+    return [
+        'proxy'  => count($merged['proxy']),
+        'direct' => count($merged['direct']),
+        'block'  => count($merged['block']),
+    ];
 }
 
 function xray_static_geodat_id(string $url): string
@@ -393,6 +522,8 @@ function xray_static_bird_reload(): void
 }
 
 /**
+ * Fetch URL/geodat sources into intermediate .inc, then rebuild *_apply.inc.
+ *
  * @return array{wrote:bool,proxy4:int,proxy6:int,direct4:int,direct6:int,block4:int,block6:int,fetched:int,failed:string[]}
  */
 function xray_static_refresh(
@@ -410,66 +541,51 @@ function xray_static_refresh(
     $fetched += $proxy['fetched'] + $direct['fetched'] + $block['fetched'];
     $failed = array_merge($failed, $proxy['failed'], $direct['failed'], $block['failed']);
 
-    $p4 = $proxy['v4'];
-    $p6 = $proxy['v6'];
-    $d4 = $direct['v4'];
-    $d6 = $direct['v6'];
-    $b4 = $block['v4'];
-    $b6 = $block['v6'];
+    // Intermediate sources from IP list URLs
+    xray_static_write_file(XRAY_STATIC_FILES['v4_proxy'], xray_static_render_prefix_list(array_keys($proxy['v4'])));
+    xray_static_write_file(XRAY_STATIC_FILES['v6_proxy'], xray_static_render_prefix_list(array_keys($proxy['v6'])));
+    xray_static_write_file(XRAY_STATIC_FILES['v4_direct'], xray_static_render_prefix_list(array_keys($direct['v4'])));
+    xray_static_write_file(XRAY_STATIC_FILES['v6_direct'], xray_static_render_prefix_list(array_keys($direct['v6'])));
+    xray_static_write_file(XRAY_STATIC_FILES['v4_block'], xray_static_render_prefix_list(array_keys($block['v4'])));
+    xray_static_write_file(XRAY_STATIC_FILES['v6_block'], xray_static_render_prefix_list(array_keys($block['v6'])));
 
+    // Intermediate sources from geoip.dat categories
+    $g4p = [];
+    $g6p = [];
+    $g4d = [];
+    $g6d = [];
+    $g4b = [];
+    $g6b = [];
     if (xray_static_has_urls($geodatUrls) && xray_static_geodat_has_any_assign($geodatUrls)) {
         $geo = xray_static_geoip_sets($geodatUrls);
         $fetched += $geo['fetched'];
         $failed = array_merge($failed, $geo['failed']);
-        foreach ($geo['proxy4'] as $c) {
-            $p4[$c] = true;
-        }
-        foreach ($geo['proxy6'] as $c) {
-            $p6[$c] = true;
-        }
-        foreach ($geo['direct4'] as $c) {
-            $d4[$c] = true;
-        }
-        foreach ($geo['direct6'] as $c) {
-            $d6[$c] = true;
-        }
-        foreach ($geo['block4'] as $c) {
-            $b4[$c] = true;
-        }
-        foreach ($geo['block6'] as $c) {
-            $b6[$c] = true;
-        }
+        $g4p = $geo['proxy4'];
+        $g6p = $geo['proxy6'];
+        $g4d = $geo['direct4'];
+        $g6d = $geo['direct6'];
+        $g4b = $geo['block4'];
+        $g6b = $geo['block6'];
     }
+    xray_static_write_file(XRAY_STATIC_FILES['v4_proxy_geodat'], xray_static_render_prefix_list($g4p));
+    xray_static_write_file(XRAY_STATIC_FILES['v6_proxy_geodat'], xray_static_render_prefix_list($g6p));
+    xray_static_write_file(XRAY_STATIC_FILES['v4_direct_geodat'], xray_static_render_prefix_list($g4d));
+    xray_static_write_file(XRAY_STATIC_FILES['v6_direct_geodat'], xray_static_render_prefix_list($g6d));
+    xray_static_write_file(XRAY_STATIC_FILES['v4_block_geodat'], xray_static_render_prefix_list($g4b));
+    xray_static_write_file(XRAY_STATIC_FILES['v6_block_geodat'], xray_static_render_prefix_list($g6b));
 
-    // Priority: BLOCK > PROXY > DIRECT (drop overlaps)
-    foreach ($b4 as $c => $_) {
-        unset($p4[$c], $d4[$c]);
-    }
-    foreach ($b6 as $c => $_) {
-        unset($p6[$c], $d6[$c]);
-    }
-    foreach ($p4 as $c => $_) {
-        unset($d4[$c]);
-    }
-    foreach ($p6 as $c => $_) {
-        unset($d6[$c]);
-    }
-
-    xray_static_write_file(XRAY_STATIC_FILES['v4_proxy'], xray_static_render_prefix_list(array_keys($p4)));
-    xray_static_write_file(XRAY_STATIC_FILES['v6_proxy'], xray_static_render_prefix_list(array_keys($p6)));
-    xray_static_write_file(XRAY_STATIC_FILES['v4_direct'], xray_static_render_prefix_list(array_keys($d4)));
-    xray_static_write_file(XRAY_STATIC_FILES['v6_direct'], xray_static_render_prefix_list(array_keys($d6)));
-    xray_static_write_file(XRAY_STATIC_FILES['v4_block'], xray_static_render_prefix_list(array_keys($b4)));
-    xray_static_write_file(XRAY_STATIC_FILES['v6_block'], xray_static_render_prefix_list(array_keys($b6)));
+    // Final apply.inc from all intermediate sources
+    $a4 = xray_static_build_apply('ipv4');
+    $a6 = xray_static_build_apply('ipv6');
 
     return [
         'wrote'    => true,
-        'proxy4'   => count($p4),
-        'proxy6'   => count($p6),
-        'direct4'  => count($d4),
-        'direct6'  => count($d6),
-        'block4'   => count($b4),
-        'block6'   => count($b6),
+        'proxy4'   => $a4['proxy'],
+        'proxy6'   => $a6['proxy'],
+        'direct4'  => $a4['direct'],
+        'direct6'  => $a6['direct'],
+        'block4'   => $a4['block'],
+        'block6'   => $a6['block'],
         'fetched'  => $fetched,
         'failed'   => $failed,
     ];
@@ -607,6 +723,8 @@ $directUrls = xray_static_parse_urls(xray_static_read_file(XRAY_STATIC_FILES['di
 $blockUrls  = xray_static_parse_urls(xray_static_read_file(XRAY_STATIC_FILES['block_urls']));
 $geodatUrls = xray_static_parse_urls(xray_static_read_file(XRAY_STATIC_FILES['geodat_urls']));
 
+$m4 = xray_static_merge_sources('ipv4');
+$m6 = xray_static_merge_sources('ipv6');
 echo json_encode([
     'result'      => 'ok',
     'proxy_urls'  => $proxyUrls,
@@ -614,11 +732,11 @@ echo json_encode([
     'block_urls'  => $blockUrls,
     'geodat_urls' => $geodatUrls,
     'counts'      => [
-        'proxy4'  => xray_static_count_prefixes(xray_static_read_file(XRAY_STATIC_FILES['v4_proxy'])),
-        'proxy6'  => xray_static_count_prefixes(xray_static_read_file(XRAY_STATIC_FILES['v6_proxy'])),
-        'direct4' => xray_static_count_prefixes(xray_static_read_file(XRAY_STATIC_FILES['v4_direct'])),
-        'direct6' => xray_static_count_prefixes(xray_static_read_file(XRAY_STATIC_FILES['v6_direct'])),
-        'block4'  => xray_static_count_prefixes(xray_static_read_file(XRAY_STATIC_FILES['v4_block'])),
-        'block6'  => xray_static_count_prefixes(xray_static_read_file(XRAY_STATIC_FILES['v6_block'])),
+        'proxy4'  => count($m4['proxy']),
+        'proxy6'  => count($m6['proxy']),
+        'direct4' => count($m4['direct']),
+        'direct6' => count($m6['direct']),
+        'block4'  => count($m4['block']),
+        'block6'  => count($m6['block']),
     ],
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";

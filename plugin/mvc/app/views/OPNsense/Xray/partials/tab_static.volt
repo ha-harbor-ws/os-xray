@@ -58,7 +58,7 @@
                     </tfoot>
                 </table>
                 <div class="hidden" data-for="help_for_static_proxy_urls" style="padding: 8px 0 0;">
-                    <small class="text-muted">{{ lang._('HTTP(S) links to PROXY IP/CIDR lists. Apply downloads them; IPv4 → routes_static_v4_PROXY.inc, IPv6 → routes_static_v6_PROXY.inc (via ACTIVE_TUN*_IF).') }}</small>
+                    <small class="text-muted">{{ lang._('HTTP(S) links to PROXY IP/CIDR lists. Apply writes intermediate routes_static_v*_PROXY.inc and rebuilds *_apply.inc (via ACTIVE_TUN*_IF).') }}</small>
                 </div>
             </div>
 
@@ -92,7 +92,7 @@
                     </tfoot>
                 </table>
                 <div class="hidden" data-for="help_for_static_direct_urls" style="padding: 8px 0 0;">
-                    <small class="text-muted">{{ lang._('HTTP(S) links to DIRECT IP/CIDR lists. Apply downloads them; IPv4/IPv6 → routes_static_v*_DIRECT.inc (via IPv4_GATEWAY / IPv6_GATEWAY).') }}</small>
+                    <small class="text-muted">{{ lang._('HTTP(S) links to DIRECT IP/CIDR lists. Apply writes intermediate routes_static_v*_DIRECT.inc and rebuilds *_apply.inc (via IPv4_GATEWAY / IPv6_GATEWAY).') }}</small>
                 </div>
             </div>
 
@@ -126,7 +126,7 @@
                     </tfoot>
                 </table>
                 <div class="hidden" data-for="help_for_static_block_urls" style="padding: 8px 0 0;">
-                    <small class="text-muted">{{ lang._('HTTP(S) links to BLOCK IP/CIDR lists. Apply downloads them; IPv4/IPv6 → routes_static_v*_BLOCK.inc (blackhole).') }}</small>
+                    <small class="text-muted">{{ lang._('HTTP(S) links to BLOCK IP/CIDR lists. Apply writes intermediate routes_static_v*_BLOCK.inc and rebuilds *_apply.inc (blackhole).') }}</small>
                 </div>
             </div>
 
@@ -163,7 +163,7 @@
                     </tfoot>
                 </table>
                 <div class="hidden" data-for="help_for_static_geodat_urls" style="padding: 8px 0 0;">
-                    <small class="text-muted">{{ lang._('HTTP(S) links to geoip.dat. Assign categories to PROXY/DIRECT/BLOCK; Apply merges CIDRs into the matching static includes.') }}</small>
+                    <small class="text-muted">{{ lang._('HTTP(S) links to geoip.dat. Assign categories to PROXY/DIRECT/BLOCK; Apply writes *_geodat.inc sources and rebuilds *_apply.inc.') }}</small>
                 </div>
             </div>
         </section>

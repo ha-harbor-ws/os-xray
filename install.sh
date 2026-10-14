@@ -1554,6 +1554,9 @@ fi
 for _static_inc in \
     routes_static_v4_PROXY.inc routes_static_v4_DIRECT.inc routes_static_v4_BLOCK.inc \
     routes_static_v6_PROXY.inc routes_static_v6_DIRECT.inc routes_static_v6_BLOCK.inc \
+    routes_static_v4_PROXY_geodat.inc routes_static_v4_DIRECT_geodat.inc routes_static_v4_BLOCK_geodat.inc \
+    routes_static_v6_PROXY_geodat.inc routes_static_v6_DIRECT_geodat.inc routes_static_v6_BLOCK_geodat.inc \
+    routes_static_v4_apply.inc routes_static_v6_apply.inc \
     static-proxy-urls.txt static-direct-urls.txt static-block-urls.txt static-geodat-urls.txt
 do
     if [ ! -f "$BIRD_INC_DIR/$_static_inc" ]; then
@@ -1564,8 +1567,6 @@ do
         echo "[SKIP] $BIRD_INC_DIR/$_static_inc already exists"
     fi
 done
-# Legacy apply includes (routes built in bird.conf via define/for)
-rm -f "$BIRD_INC_DIR/routes_static_v4_apply.inc" "$BIRD_INC_DIR/routes_static_v6_apply.inc"
 install -d -m 0755 "$BIRD_INC_DIR/static-geodat-categories"
 
 
