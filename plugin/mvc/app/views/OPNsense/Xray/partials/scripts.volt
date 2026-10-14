@@ -564,6 +564,16 @@
             return $('#routing-peers, #routing-filters, #routing-communities').filter('.active').length > 0;
         }
 
+        function isStaticTab() {
+            return $('#routing-static').filter('.active').length > 0;
+        }
+
+        var staticProxyUrlsCache = [];
+        var staticDirectUrlsCache = [];
+        var staticBlockUrlsCache = [];
+        var staticGeodatUrlsCache = [];
+        var staticGeodatActiveUrl = '';
+
         function staticUrlRow(key, value) {
             var $tr = $('<tr/>');
             var $inp = $('<input type="text" class="form-control"/>')
@@ -572,6 +582,27 @@
                 .val(value == null ? '' : String(value));
             $tr.append($('<td/>').append($('<div class="static-row-edit"/>').append($inp)));
             return $tr;
+        }
+
+        function staticCollectKv($tbody) {
+            var rows = [];
+            $tbody.find('input').each(function () {
+                rows.push({
+                    key: String($(this).attr('data-key') || 'url'),
+                    value: String($(this).val() || '')
+                });
+            });
+            return rows;
+        }
+
+        function staticFillOrEmpty($tbody, rows, key) {
+            $tbody.empty();
+            (rows || []).forEach(function (row) {
+                $tbody.append(staticUrlRow(row.key || key, row.value || ''));
+            });
+            if (!$tbody.find('tr').length) {
+                $tbody.append(staticUrlRow(key, ''));
+            }
         }
 
         function staticEnsureUrlLists() {
@@ -583,10 +614,79 @@
             });
         }
 
-        function staticFillGeodatUrlPick() {
+        function staticWritePayload() {
+            var proxyUrls = staticCollectKv($('#staticProxyUrlsKv'));
+            if (!$('#staticProxyUrlsKv input').length && staticProxyUrlsCache.length) {
+                proxyUrls = staticProxyUrlsCache;
+            }
+            var directUrls = staticCollectKv($('#staticDirectUrlsKv'));
+            if (!$('#staticDirectUrlsKv input').length && staticDirectUrlsCache.length) {
+                directUrls = staticDirectUrlsCache;
+            }
+            var blockUrls = staticCollectKv($('#staticBlockUrlsKv'));
+            if (!$('#staticBlockUrlsKv input').length && staticBlockUrlsCache.length) {
+                blockUrls = staticBlockUrlsCache;
+            }
+            var geodatUrls = staticCollectKv($('#staticGeodatUrlsKv'));
+            if (!$('#staticGeodatUrlsKv input').length && staticGeodatUrlsCache.length) {
+                geodatUrls = staticGeodatUrlsCache;
+            }
+            return {
+                proxy_urls: JSON.stringify(proxyUrls),
+                direct_urls: JSON.stringify(directUrls),
+                block_urls: JSON.stringify(blockUrls),
+                geodat_urls: JSON.stringify(geodatUrls)
+            };
+        }
+
+        function staticSetCounts(counts) {
+            counts = counts || {};
+            function setLabel(id, n4, n6) {
+                var $el = $(id);
+                if (!$el.length) {
+                    return;
+                }
+                n4 = parseInt(n4, 10) || 0;
+                n6 = parseInt(n6, 10) || 0;
+                if (n4 + n6 > 0) {
+                    $el.text('v4:' + n4 + ' v6:' + n6).show();
+                } else {
+                    $el.hide().text('');
+                }
+            }
+            setLabel('#staticProxyCount', counts.proxy4, counts.proxy6);
+            setLabel('#staticDirectCount', counts.direct4, counts.direct6);
+            setLabel('#staticBlockCount', counts.block4, counts.block6);
+        }
+
+        function loadStaticConf() {
+            ajaxGet('/api/xray/service/staticconf', {}, function (data) {
+                if (!data || data.result === 'failed') {
+                    staticEnsureUrlLists();
+                    return;
+                }
+                staticFillOrEmpty($('#staticProxyUrlsKv'), data.proxy_urls, 'url');
+                staticFillOrEmpty($('#staticDirectUrlsKv'), data.direct_urls, 'url');
+                staticFillOrEmpty($('#staticBlockUrlsKv'), data.block_urls, 'url');
+                staticFillOrEmpty($('#staticGeodatUrlsKv'), data.geodat_urls, 'url');
+                staticProxyUrlsCache = staticCollectKv($('#staticProxyUrlsKv'));
+                staticDirectUrlsCache = staticCollectKv($('#staticDirectUrlsKv'));
+                staticBlockUrlsCache = staticCollectKv($('#staticBlockUrlsKv'));
+                staticGeodatUrlsCache = staticCollectKv($('#staticGeodatUrlsKv'));
+                staticSetCounts(data.counts);
+            });
+        }
+
+        function staticCollectGeodatUrls() {
+            return staticCollectKv($('#staticGeodatUrlsKv')).filter(function (r) {
+                return String(r.value || '').trim() !== '';
+            });
+        }
+
+        function staticFillGeodatUrlPick(selected) {
             var $pick = $('#staticGeodatUrlPick').empty();
-            $('#staticGeodatUrlsKv input').each(function () {
-                var u = String($(this).val() || '').trim();
+            staticCollectGeodatUrls().forEach(function (row) {
+                var u = String(row.value || '').trim();
                 if (u) {
                     $pick.append($('<option/>').attr('value', u).text(u));
                 }
@@ -594,6 +694,57 @@
             if (!$pick.find('option').length) {
                 $pick.append($('<option/>').attr('value', '').text('—'));
             }
+            if (selected) {
+                $pick.val(selected);
+            }
+        }
+
+        function staticGeodatFillModal(categories) {
+            var $tb = $('#staticGeodatCats').empty();
+            (categories || []).forEach(function (cat) {
+                var name = String(cat.name || cat.key || '');
+                if (!name) {
+                    return;
+                }
+                var action = String(cat.action || cat.value || '');
+                var $sel = $('<select class="form-control input-sm static-geodat-action"/>')
+                    .attr('data-cat', name);
+                [
+                    {v: '', t: '—'},
+                    {v: 'proxy', t: '{{ lang._("PROXY") }}'},
+                    {v: 'direct', t: '{{ lang._("DIRECT") }}'},
+                    {v: 'block', t: '{{ lang._("BLOCK") }}'}
+                ].forEach(function (opt) {
+                    $sel.append($('<option/>').attr('value', opt.v).text(opt.t));
+                });
+                $sel.val(action === 'proxy' || action === 'direct' || action === 'block' ? action : '');
+                var $tr = $('<tr/>');
+                $tr.append($('<td/>').text(name));
+                $tr.append($('<td/>').text(String(cat.count != null ? cat.count : '')));
+                $tr.append($('<td/>').append($sel));
+                $tb.append($tr);
+            });
+            staticGeodatApplyFilter();
+        }
+
+        function staticGeodatApplyFilter() {
+            var q = String($('#staticGeodatFilter').val() || '').toLowerCase();
+            $('#staticGeodatCats tr').each(function () {
+                var name = $(this).children('td').first().text().toLowerCase();
+                $(this).toggle(!q || name.indexOf(q) !== -1);
+            });
+        }
+
+        function staticGeodatCollectCats() {
+            var rows = [];
+            $('#staticGeodatCats select').each(function () {
+                var name = String($(this).attr('data-cat') || '');
+                var action = String($(this).val() || '');
+                if (name && (action === 'proxy' || action === 'direct' || action === 'block')) {
+                    rows.push({key: name, value: action});
+                }
+            });
+            return rows;
         }
 
         function isDnstapTab() {
@@ -849,6 +1000,8 @@
             var endpoint = '/api/xray/service/reconfigure';
             if (isBgpRoutingTab()) {
                 endpoint = '/api/xray/service/bgpwrite';
+            } else if (isStaticTab()) {
+                endpoint = '/api/xray/service/staticwrite';
             } else if (isDnstapTab() || isDomainsTab()) {
                 endpoint = '/api/xray/service/dnstapwrite';
             }
@@ -878,7 +1031,37 @@
             loadDnstapConf();
         });
         $('a[data-toggle="tab"][href="#routing-static"]').on('shown.bs.tab', function () {
-            staticEnsureUrlLists();
+            loadStaticConf();
+        });
+        $(document).on('input', '#staticGeodatFilter', staticGeodatApplyFilter);
+        $(document).on('change', '#staticGeodatUrlPick', function () {
+            var url = String($(this).val() || '');
+            if (!url) {
+                return;
+            }
+            staticGeodatActiveUrl = url;
+            $('#staticGeodatModalMsg').text("{{ lang._('Loading categories…') }}");
+            $('#staticGeodatCats').empty();
+            $.ajax({
+                url: '/api/xray/service/staticgeodat',
+                type: 'POST',
+                dataType: 'json',
+                data: {
+                    geodat_urls: JSON.stringify(staticCollectGeodatUrls()),
+                    geodat_url: url
+                },
+                success: function (data) {
+                    if (!data || data.result === 'failed') {
+                        $('#staticGeodatModalMsg').text((data && data.message) || 'failed');
+                        return;
+                    }
+                    $('#staticGeodatModalMsg').text(data.message || '');
+                    staticGeodatFillModal(data.categories || []);
+                },
+                error: function (xhr) {
+                    $('#staticGeodatModalMsg').text("{{ lang._('HTTP error:') }} " + xhr.status);
+                }
+            });
         });
 
         $(document).on('click', '.dnstap-url-add', function () {
@@ -913,10 +1096,50 @@
             $tbody.find('tr').last().remove();
         });
         $('#staticGeodatCategory').on('click', function () {
-            staticFillGeodatUrlPick();
+            var urls = staticCollectGeodatUrls();
+            if (!urls.length) {
+                BootstrapDialog.show({
+                    type: BootstrapDialog.TYPE_WARNING,
+                    title: "{{ lang._('Geodat') }}",
+                    message: "{{ lang._('Add at least one Geodat URL first.') }}"
+                });
+                return;
+            }
+            staticFillGeodatUrlPick(staticGeodatActiveUrl || urls[0].value);
             $('#staticGeodatCats').empty();
-            $('#staticGeodatModalMsg').text("{{ lang._('Category download is not available yet.') }}");
+            $('#staticGeodatModalMsg').text("{{ lang._('Loading categories…') }}");
             $('#staticGeodatModal').modal('show');
+            $('#staticGeodatUrlPick').trigger('change');
+        });
+        $('#staticGeodatModal').on('click', '.static-geodat-save', function () {
+            var url = String($('#staticGeodatUrlPick').val() || '');
+            if (!url) {
+                return;
+            }
+            var cats = staticGeodatCollectCats();
+            $('#staticGeodatModalMsg').text("{{ lang._('Saving…') }}");
+            $.ajax({
+                url: '/api/xray/service/staticgeodat',
+                type: 'POST',
+                dataType: 'json',
+                data: {
+                    geodat_urls: JSON.stringify(staticCollectGeodatUrls()),
+                    geodat_url: url,
+                    geodat_categories: JSON.stringify(cats)
+                },
+                success: function (data) {
+                    if (!data || data.result === 'failed') {
+                        $('#staticGeodatModalMsg').text((data && data.message) || 'failed');
+                        return;
+                    }
+                    staticGeodatActiveUrl = url;
+                    $('#staticGeodatModalMsg').text(data.message || "{{ lang._('Saved.') }}");
+                    staticGeodatFillModal(data.categories || []);
+                },
+                error: function (xhr) {
+                    $('#staticGeodatModalMsg').text("{{ lang._('HTTP error:') }} " + xhr.status);
+                }
+            });
         });
         function dnstapGeodatFillModal(categories) {
             var $tb = $('#dnstapGeodatCats').empty();
@@ -1289,6 +1512,29 @@
                     dfObj.resolve();
                     return dfObj;
                 }
+                if (isStaticTab()) {
+                    $.ajax({
+                        url: '/api/xray/service/staticwrite',
+                        type: 'POST',
+                        dataType: 'json',
+                        data: staticWritePayload(),
+                        success: function (data) {
+                            if (data && data.result === 'failed') {
+                                alert('{{ lang._("Failed to write Static IP lists:") }} '
+                                    + (data.message || 'unknown error'));
+                                dfObj.reject();
+                                return;
+                            }
+                            loadStaticConf();
+                            dfObj.resolve();
+                        },
+                        error: function (xhr) {
+                            alert('{{ lang._("HTTP error:") }} ' + xhr.status);
+                            dfObj.reject();
+                        }
+                    });
+                    return dfObj;
+                }
                 if (isDnstapTab() || isDomainsTab()) {
                     $.ajax({
                         url: '/api/xray/service/dnstapwrite',
@@ -1322,6 +1568,9 @@
                 reloadBgpPeersGrid();
                 if (isBgpRoutingTab()) {
                     openRoutingPeersStatus();
+                }
+                if (isStaticTab()) {
+                    loadStaticConf();
                 }
                 if (isDnstapTab() || isDomainsTab()) {
                     loadDnstapConf();
@@ -1835,29 +2084,78 @@
             });
         });
 
-        // ── Tab hash (left menu VPN→Xray uses /ui/xray/#…) ──────────
-        function xrayActivateHashTab() {
-            var hash = window.location.hash;
-            if (hash === '#routing') {
-                hash = '#routing-peers';
-                if (window.location.hash !== hash) {
-                    window.location.hash = hash;
-                    return;
+        // ── Tab selection (left menu uses /ui/xray/?tab=…; in-page uses #…) ──
+        // Hash-only menu URLs all match the same path server-side (hash stripped),
+        // so every L3 item got .active (theme brand red/orange). Use ?tab= instead.
+        function xrayTabFromLocation() {
+            try {
+                var q = new URLSearchParams(window.location.search || '');
+                var tab = String(q.get('tab') || '').replace(/^#/, '');
+                if (tab) {
+                    return tab;
                 }
+            } catch (e) {}
+            var hash = String(window.location.hash || '').replace(/^#/, '');
+            if (hash === 'routing') {
+                return 'routing-peers';
             }
-            if (!hash) {
+            return hash || 'instances';
+        }
+
+        function xraySyncLeftMenu(tab) {
+            tab = String(tab || '').replace(/^#/, '');
+            $('#mainmenu a.list-group-item[href*="/ui/xray"]').each(function () {
+                var href = String($(this).attr('href') || '');
+                var item = '';
+                var m = href.match(/[?&]tab=([^&#]+)/);
+                if (m) {
+                    item = decodeURIComponent(m[1]);
+                } else {
+                    m = href.match(/#([^?]+)/);
+                    if (m) {
+                        item = m[1];
+                    }
+                }
+                $(this).toggleClass('active', item !== '' && item === tab);
+            });
+        }
+
+        function xrayActivateTab(tab) {
+            tab = String(tab || '').replace(/^#/, '');
+            if (!tab) {
                 return;
             }
-            var $tab = $('#maintabs a[data-toggle="tab"][href="' + hash + '"]');
+            var $tab = $('#maintabs a[data-toggle="tab"][href="#' + tab + '"]');
             if ($tab.length) {
                 $tab.tab('show');
             }
+            xraySyncLeftMenu(tab);
         }
-        xrayActivateHashTab();
-        $(window).on('hashchange', xrayActivateHashTab);
+
+        function xrayReplaceTabUrl(tab) {
+            tab = String(tab || '').replace(/^#/, '');
+            if (!tab || !window.history || !window.history.replaceState) {
+                return;
+            }
+            try {
+                var url = new URL(window.location.href);
+                url.searchParams.set('tab', tab);
+                url.hash = '';
+                history.replaceState(null, null, url.pathname + url.search);
+            } catch (e) {
+                history.replaceState(null, null, '?tab=' + encodeURIComponent(tab));
+            }
+        }
+
+        xrayActivateTab(xrayTabFromLocation());
+        $(window).on('hashchange', function () {
+            xrayActivateTab(xrayTabFromLocation());
+        });
         $('.nav-tabs a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
-            if (e.target.hash && window.location.hash !== e.target.hash) {
-                history.replaceState(null, null, e.target.hash);
+            var tab = String(e.target.hash || '').replace(/^#/, '');
+            if (tab) {
+                xrayReplaceTabUrl(tab);
+                xraySyncLeftMenu(tab);
             }
         });
     });

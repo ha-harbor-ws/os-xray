@@ -36,7 +36,8 @@
                                 <a href="#" class="xray-showhelp" id="help_for_static_proxy_urls">
                                     <i class="fa fa-info-circle"></i>
                                 </a>
-                                {{ lang._('PROXY list URLs') }}
+                                {{ lang._('PROXY IP list URLs') }}
+                                <span id="staticProxyCount" class="label label-info" style="font-size:11px; margin-left:8px; display:none;"></span>
                             </th>
                         </tr>
                     </thead>
@@ -57,7 +58,7 @@
                     </tfoot>
                 </table>
                 <div class="hidden" data-for="help_for_static_proxy_urls" style="padding: 8px 0 0;">
-                    <small class="text-muted">{{ lang._('HTTP(S) links to PROXY prefix or domain lists for static routes. Download and apply are not wired yet.') }}</small>
+                    <small class="text-muted">{{ lang._('HTTP(S) links to PROXY IP/CIDR lists. Apply downloads them; IPv4 → routes_static_v4_PROXY.inc, IPv6 → routes_static_v6_PROXY.inc (via ACTIVE_TUN*_IF).') }}</small>
                 </div>
             </div>
 
@@ -69,7 +70,8 @@
                                 <a href="#" class="xray-showhelp" id="help_for_static_direct_urls">
                                     <i class="fa fa-info-circle"></i>
                                 </a>
-                                {{ lang._('DIRECT list URLs') }}
+                                {{ lang._('DIRECT IP list URLs') }}
+                                <span id="staticDirectCount" class="label label-info" style="font-size:11px; margin-left:8px; display:none;"></span>
                             </th>
                         </tr>
                     </thead>
@@ -90,7 +92,7 @@
                     </tfoot>
                 </table>
                 <div class="hidden" data-for="help_for_static_direct_urls" style="padding: 8px 0 0;">
-                    <small class="text-muted">{{ lang._('HTTP(S) links to DIRECT prefix or domain lists for static routes. Download and apply are not wired yet.') }}</small>
+                    <small class="text-muted">{{ lang._('HTTP(S) links to DIRECT IP/CIDR lists. Apply downloads them; IPv4/IPv6 → routes_static_v*_DIRECT.inc (via IPv4_GATEWAY / IPv6_GATEWAY).') }}</small>
                 </div>
             </div>
 
@@ -102,7 +104,8 @@
                                 <a href="#" class="xray-showhelp" id="help_for_static_block_urls">
                                     <i class="fa fa-info-circle"></i>
                                 </a>
-                                {{ lang._('BLOCK list URLs') }}
+                                {{ lang._('BLOCK IP list URLs') }}
+                                <span id="staticBlockCount" class="label label-info" style="font-size:11px; margin-left:8px; display:none;"></span>
                             </th>
                         </tr>
                     </thead>
@@ -123,7 +126,7 @@
                     </tfoot>
                 </table>
                 <div class="hidden" data-for="help_for_static_block_urls" style="padding: 8px 0 0;">
-                    <small class="text-muted">{{ lang._('HTTP(S) links to BLOCK prefix or domain lists for static routes. Download and apply are not wired yet.') }}</small>
+                    <small class="text-muted">{{ lang._('HTTP(S) links to BLOCK IP/CIDR lists. Apply downloads them; IPv4/IPv6 → routes_static_v*_BLOCK.inc (blackhole).') }}</small>
                 </div>
             </div>
 
@@ -135,7 +138,7 @@
                                 <a href="#" class="xray-showhelp" id="help_for_static_geodat_urls">
                                     <i class="fa fa-info-circle"></i>
                                 </a>
-                                {{ lang._('Geodat list URLs') }}
+                                {{ lang._('Geodat IP list URLs') }}
                             </th>
                         </tr>
                     </thead>
@@ -160,7 +163,7 @@
                     </tfoot>
                 </table>
                 <div class="hidden" data-for="help_for_static_geodat_urls" style="padding: 8px 0 0;">
-                    <small class="text-muted">{{ lang._('HTTP(S) links to geosite.dat. Category assignment and download are not wired yet.') }}</small>
+                    <small class="text-muted">{{ lang._('HTTP(S) links to geoip.dat. Assign categories to PROXY/DIRECT/BLOCK; Apply merges CIDRs into the matching static includes.') }}</small>
                 </div>
             </div>
         </section>
@@ -174,9 +177,7 @@
                     <h4 class="modal-title">{{ lang._('Geodat categories') }}</h4>
                 </div>
                 <div class="modal-body">
-                    <p class="text-muted" id="staticGeodatModalMsg">
-                        {{ lang._('Category download is not available yet.') }}
-                    </p>
+                    <p class="text-muted" id="staticGeodatModalMsg"></p>
                     <div class="form-group" style="margin-bottom: 8px;">
                         <label for="staticGeodatUrlPick">{{ lang._('Geodat URL') }}</label>
                         <select id="staticGeodatUrlPick" class="form-control input-sm"></select>
@@ -197,6 +198,7 @@
                     </table>
                 </div>
                 <div class="modal-footer">
+                    <button type="button" class="btn btn-primary static-geodat-save">{{ lang._('Save') }}</button>
                     <button type="button" class="btn btn-default" data-dismiss="modal">{{ lang._('Close') }}</button>
                 </div>
             </div>

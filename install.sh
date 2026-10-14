@@ -876,6 +876,8 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-conf.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-unbound.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-geosite.php
+    rm -f  /usr/local/opnsense/scripts/Xray/xray-static-conf.php
+    rm -f  /usr/local/opnsense/scripts/Xray/xray-static-geoip.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-domain-route.php
     rmdir  /usr/local/opnsense/scripts/Xray 2>/dev/null || true
     # BUG-11: удаляем конфиг ротации логов newsyslog
@@ -1551,7 +1553,8 @@ fi
 
 for _static_inc in \
     routes_static_v4_PROXY.inc routes_static_v4_DIRECT.inc routes_static_v4_BLOCK.inc \
-    routes_static_v6_PROXY.inc routes_static_v6_DIRECT.inc routes_static_v6_BLOCK.inc
+    routes_static_v6_PROXY.inc routes_static_v6_DIRECT.inc routes_static_v6_BLOCK.inc \
+    static-proxy-urls.txt static-direct-urls.txt static-block-urls.txt static-geodat-urls.txt
 do
     if [ ! -f "$BIRD_INC_DIR/$_static_inc" ]; then
         printf '%s\n' '#' > "$BIRD_INC_DIR/$_static_inc"
@@ -1561,6 +1564,10 @@ do
         echo "[SKIP] $BIRD_INC_DIR/$_static_inc already exists"
     fi
 done
+# Legacy apply includes (routes built in bird.conf via define/for)
+rm -f "$BIRD_INC_DIR/routes_static_v4_apply.inc" "$BIRD_INC_DIR/routes_static_v6_apply.inc"
+install -d -m 0755 "$BIRD_INC_DIR/static-geodat-categories"
+
 
 if [ "$BINARIES_OK" = "0" ]; then
     echo ""

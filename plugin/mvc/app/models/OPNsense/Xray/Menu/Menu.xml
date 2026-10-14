@@ -1,15 +1,15 @@
 <menu>
     <VPN>
         <Xray cssClass="fa fa-rocket fa-fw">
-            <Instances order="10" VisibleName="Instances" url="/ui/xray/#instances"/>
-            <BgpPeers order="20" VisibleName="BGP peers" url="/ui/xray/#routing-peers"/>
-            <BgpFilter order="30" VisibleName="BGP filter" url="/ui/xray/#routing-filters"/>
-            <BgpCommunity order="40" VisibleName="BGP community" url="/ui/xray/#routing-communities"/>
-            <Static order="45" VisibleName="Static" url="/ui/xray/#routing-static"/>
-            <DNStap order="50" VisibleName="DNStap" url="/ui/xray/#dnstap"/>
-            <General order="60" VisibleName="General" url="/ui/xray/#general"/>
-            <Domains order="70" VisibleName="Domains" url="/ui/xray/#domains"/>
-            <Log order="80" VisibleName="Log" url="/ui/xray/#logs"/>
+            <Instances order="10" VisibleName="Instances" url="/ui/xray/?tab=instances"/>
+            <BgpPeers order="20" VisibleName="BGP peers" url="/ui/xray/?tab=routing-peers"/>
+            <BgpFilter order="30" VisibleName="BGP filter" url="/ui/xray/?tab=routing-filters"/>
+            <BgpCommunity order="40" VisibleName="BGP community" url="/ui/xray/?tab=routing-communities"/>
+            <Static order="45" VisibleName="Static" url="/ui/xray/?tab=routing-static"/>
+            <DNStap order="50" VisibleName="DNStap" url="/ui/xray/?tab=dnstap"/>
+            <General order="60" VisibleName="General" url="/ui/xray/?tab=general"/>
+            <Domains order="70" VisibleName="Domains" url="/ui/xray/?tab=domains"/>
+            <Log order="80" VisibleName="Log" url="/ui/xray/?tab=logs"/>
         </Xray>
     </VPN>
 </menu>

@@ -521,6 +521,146 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
+     * GET /api/xray/service/staticconf — Static IP list URLs and prefix counts.
+     */
+    public function staticconfAction()
+    {
+        $raw = trim((string)(new Backend())->configdRun('xray staticconf'));
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+        return ['result' => 'failed', 'message' => $raw !== '' ? $raw : 'No response from configd'];
+    }
+
+    /**
+     * POST /api/xray/service/staticwrite — download IP lists and write BIRD static includes.
+     */
+    public function staticwriteAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+
+        $proxyUrls  = $this->request->getPost('proxy_urls');
+        $directUrls = $this->request->getPost('direct_urls');
+        $blockUrls  = $this->request->getPost('block_urls');
+        $geodatUrls = $this->request->getPost('geodat_urls');
+        if ($proxyUrls === null && $directUrls === null && $blockUrls === null && $geodatUrls === null) {
+            $json = $this->request->getJsonRawBody();
+            if (is_object($json)) {
+                $proxyUrls  = $json->proxy_urls ?? null;
+                $directUrls = $json->direct_urls ?? null;
+                $blockUrls  = $json->block_urls ?? null;
+                $geodatUrls = $json->geodat_urls ?? null;
+            } elseif (is_array($json)) {
+                $proxyUrls  = $json['proxy_urls'] ?? null;
+                $directUrls = $json['direct_urls'] ?? null;
+                $blockUrls  = $json['block_urls'] ?? null;
+                $geodatUrls = $json['geodat_urls'] ?? null;
+            }
+        }
+
+        // SimpleActionButton may call this endpoint again after onPreAction with an empty body.
+        if ($proxyUrls === null && $directUrls === null && $blockUrls === null && $geodatUrls === null) {
+            return ['result' => 'ok', 'message' => 'Nothing to write'];
+        }
+
+        $decodeRows = static function ($raw): array {
+            if (is_array($raw)) {
+                return $raw;
+            }
+            if (is_string($raw) && $raw !== '') {
+                $j = json_decode($raw, true);
+                return is_array($j) ? $j : [];
+            }
+            return [];
+        };
+
+        $staged = '/tmp/xray_static_write.json';
+        $payload = json_encode([
+            'proxy_urls'  => $decodeRows($proxyUrls),
+            'direct_urls' => $decodeRows($directUrls),
+            'block_urls'  => $decodeRows($blockUrls),
+            'geodat_urls' => $decodeRows($geodatUrls),
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($payload === false || file_put_contents($staged, $payload) === false) {
+            return ['result' => 'failed', 'message' => 'Cannot stage static write'];
+        }
+        @chmod($staged, 0600);
+
+        $output = trim((string)(new Backend())->configdRun('xray staticwrite'));
+        $failed = $output === ''
+            || stripos($output, 'ERROR') !== false
+            || (stripos($output, 'failed') !== false && stripos($output, 'OK:') === false);
+        return [
+            'result'  => $failed ? 'failed' : 'ok',
+            'message' => $output !== '' ? $output : 'No response from configd',
+        ];
+    }
+
+    /**
+     * POST /api/xray/service/staticgeodat — download geoip.dat and list/save categories.
+     */
+    public function staticgeodatAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+
+        $geodatUrls = $this->request->getPost('geodat_urls');
+        $geodatUrl  = $this->request->getPost('geodat_url');
+        $geodatCats = $this->request->getPost('geodat_categories');
+        if ($geodatUrls === null && $geodatCats === null && $geodatUrl === null) {
+            $json = $this->request->getJsonRawBody();
+            if (is_object($json)) {
+                $geodatUrls = $json->geodat_urls ?? null;
+                $geodatUrl  = $json->geodat_url ?? null;
+                $geodatCats = $json->geodat_categories ?? null;
+            } elseif (is_array($json)) {
+                $geodatUrls = $json['geodat_urls'] ?? null;
+                $geodatUrl  = $json['geodat_url'] ?? null;
+                $geodatCats = $json['geodat_categories'] ?? null;
+            }
+        }
+
+        $decodeRows = static function ($raw): array {
+            if (is_array($raw)) {
+                return $raw;
+            }
+            if (is_string($raw) && $raw !== '') {
+                $j = json_decode($raw, true);
+                return is_array($j) ? $j : [];
+            }
+            return [];
+        };
+
+        $payload = [
+            'geodat_urls' => $decodeRows($geodatUrls),
+            'geodat_url'  => is_string($geodatUrl) ? $geodatUrl : (string)$geodatUrl,
+        ];
+        if ($geodatCats !== null) {
+            $payload['geodat_categories'] = $decodeRows($geodatCats);
+        }
+        $staged = '/tmp/xray_static_geodat.json';
+        $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($json === false || file_put_contents($staged, $json) === false) {
+            return ['result' => 'failed', 'message' => 'Cannot stage static geodat request'];
+        }
+        @chmod($staged, 0600);
+
+        $output = trim((string)(new Backend())->configdRun('xray staticgeodat'));
+        $decoded = json_decode($output, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+        return [
+            'result'  => 'failed',
+            'message' => $output !== '' ? $output : 'No response from configd',
+        ];
+    }
+
+    /**
      * POST /api/xray/service/dnstapstart — Unbound include + start dnstap-bgp.
      */
     public function dnstapstartAction()

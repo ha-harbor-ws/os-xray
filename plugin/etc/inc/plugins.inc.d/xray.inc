@@ -152,6 +152,12 @@ function xray_configure_do(bool $verbose = false): void
  */
 function xray_services()
 {
+    // Do not register services when the plugin is disabled — otherwise OPNsense
+    // shows them as stopped and the left menu / services widget stay red.
+    if (!xray_enabled()) {
+        return [];
+    }
+
     $services  = [];
     $cfg       = OPNsense\Core\Config::getInstance()->object();
     $instances = $cfg->OPNsense->xray->instances ?? null;
