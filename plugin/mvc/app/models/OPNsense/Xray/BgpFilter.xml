@@ -49,8 +49,7 @@
                     <ACTIVE_TUN6_IF>ACTIVE_TUN6_IF</ACTIVE_TUN6_IF>
                     <WAN4>WAN4</WAN4>
                     <WAN6>WAN6</WAN6>
-                    <Null4>Null4</Null4>
-                    <Null6>Null6</Null6>
+                    <Null>Null</Null>
                 </OptionValues>
             </tun_if>
             <blocks type="TextField">

@@ -28,7 +28,7 @@
         <id>filter.tun_if</id>
         <label>Interface</label>
         <type>dropdown</type>
-        <help>BIRD ifname for this community block: ACTIVE_TUN4_IF, ACTIVE_TUN6_IF, WAN4, WAN6, Null4 or Null6. Devices are set on General. Use + / − to add or remove blocks; they are written before reject.</help>
+        <help>Outgoing interface for this community block: ACTIVE_TUN4_IF, ACTIVE_TUN6_IF, WAN4, WAN6 or Null. WAN devices are set on General. Null writes dest = RTD_BLACKHOLE (no ifname). Use + / − to add or remove blocks; they are written before reject.</help>
     </field>
     <field>
         <id>filter.blocks</id>

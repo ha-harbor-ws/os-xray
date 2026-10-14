@@ -47,17 +47,105 @@ function xray_bgp_template_names(): array
     return ['refilter', 'antifilter_download', 'antifilter_network'];
 }
 
-function xray_route_default_if(string $family = 'inet'): string
+/**
+ * @return array{gw:string,if:string}
+ */
+function xray_route_default_info(string $family = 'inet'): array
 {
     $flag = ($family === 'inet6') ? '-inet6' : '-inet';
     $out  = [];
     exec('/sbin/route -n get ' . $flag . ' default 2>/dev/null', $out);
+    $gw = '';
+    $if = '';
     foreach ($out as $line) {
+        if (preg_match('/^\s*gateway:\s+(\S+)/', $line, $m)) {
+            $gw = explode('%', $m[1])[0];
+        }
         if (preg_match('/^\s*interface:\s+(\S+)/', $line, $m)) {
-            return $m[1];
+            $if = $m[1];
         }
     }
-    return '';
+    return ['gw' => $gw, 'if' => $if];
+}
+
+function xray_route_default_if(string $family = 'inet'): string
+{
+    return xray_route_default_info($family)['if'];
+}
+
+function xray_is_gateway_ip(string $ip, bool $v6): bool
+{
+    $ip = explode('%', $ip)[0];
+    if ($ip === '') {
+        return false;
+    }
+    if ($v6) {
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) === false) {
+            return false;
+        }
+        return $ip !== '::1' && $ip !== '::';
+    }
+    return xray_is_ipv4_addr($ip);
+}
+
+function xray_wan_default_gateway4(): string
+{
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+    $cached = '';
+    if (function_exists('get_interface_gateway')) {
+        try {
+            $ip = trim((string)get_interface_gateway('wan'));
+            if (xray_is_gateway_ip($ip, false)) {
+                $cached = $ip;
+                return $cached;
+            }
+        } catch (\Throwable $e) {
+        }
+    }
+    $info = xray_route_default_info('inet');
+    $want = function_exists('xray_bird_wan4_dev') ? xray_bird_wan4_dev() : '';
+    if (xray_is_gateway_ip($info['gw'], false)
+        && ($want === '' || $info['if'] === '' || strcasecmp($info['if'], $want) === 0)) {
+        $cached = $info['gw'];
+        return $cached;
+    }
+    if (xray_is_gateway_ip($info['gw'], false)) {
+        $cached = $info['gw'];
+    }
+    return $cached;
+}
+
+function xray_wan_default_gateway6(): string
+{
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+    $cached = '';
+    if (function_exists('get_interface_gatewayv6')) {
+        try {
+            $ip = explode('%', trim((string)get_interface_gatewayv6('wan')))[0];
+            if (xray_is_gateway_ip($ip, true)) {
+                $cached = $ip;
+                return $cached;
+            }
+        } catch (\Throwable $e) {
+        }
+    }
+    $info = xray_route_default_info('inet6');
+    $want = function_exists('xray_bird_wan6_dev') ? xray_bird_wan6_dev() : '';
+    if (xray_is_gateway_ip($info['gw'], true)
+        && ($want === '' || $info['if'] === '' || strcasecmp($info['if'], $want) === 0)) {
+        $cached = $info['gw'];
+        return $cached;
+    }
+    if (xray_is_gateway_ip($info['gw'], true)) {
+        $cached = $info['gw'];
+    }
+    return $cached;
 }
 
 function xray_wan_devices(): array
@@ -306,25 +394,15 @@ function xray_bird_wan6_dev(): string
     return xray_bird_general_device('bgp_if_wan6', 'igc3');
 }
 
-function xray_bird_null4_dev(): string
-{
-    return xray_bird_general_device('bgp_if_null4', 'lo0');
-}
-
-function xray_bird_null6_dev(): string
-{
-    return xray_bird_general_device('bgp_if_null6', 'lo0');
-}
-
 function xray_bird_active_tun_ifaces(): array
 {
     $names = [];
-    foreach ([xray_bird_wan4_dev(), xray_bird_wan6_dev(), xray_bird_null4_dev(), xray_bird_null6_dev(), 'lo0'] as $if) {
+    foreach ([xray_bird_wan4_dev(), xray_bird_wan6_dev(), 'lo0'] as $if) {
         if ($if !== '') {
             $names[$if] = true;
         }
     }
-    // BIRD protocol direct: loopback as "lo" (FreeBSD device is lo0 / NULL*_IF).
+    // BIRD protocol direct: loopback as "lo" (FreeBSD device is lo0).
     $names['lo'] = true;
     try {
         if (!class_exists('OPNsense\\Core\\Config')) {
@@ -760,12 +838,11 @@ function xray_bird_filter_ifname(string $tun, string $fam): string
         || strcasecmp($tun, 'WAN4_IF') === 0 || strcasecmp($tun, 'WAN_IF') === 0) {
         return ($fam === 'ipv6' && ($low === 'wan' || $low === 'wan_if')) ? 'WAN6_IF' : 'WAN4_IF';
     }
-    if ($low === 'null6' || $low === 'null6_if' || strcasecmp($tun, 'NULL6_IF') === 0) {
-        return 'NULL6_IF';
-    }
-    if ($low === 'null' || $low === 'null4' || $low === 'null4_if'
-        || strcasecmp($tun, 'NULL4_IF') === 0) {
-        return ($fam === 'ipv6' && $low === 'null') ? 'NULL6_IF' : 'NULL4_IF';
+    if ($low === 'null' || $low === 'null4' || $low === 'null6'
+        || $low === 'null4_if' || $low === 'null6_if' || $low === 'null_if'
+        || strcasecmp($tun, 'NULL4_IF') === 0 || strcasecmp($tun, 'NULL6_IF') === 0
+        || strcasecmp($tun, 'NULL_IF') === 0) {
+        return 'NULL';
     }
     if (strcasecmp($tun, 'ACTIVE_TUN6_IF') === 0) {
         return 'ACTIVE_TUN6_IF';
@@ -790,14 +867,22 @@ function xray_bird_write_wan_if(): void
     }
     $wan4  = xray_bird_wan4_dev();
     $wan6  = xray_bird_wan6_dev();
-    $null4 = xray_bird_null4_dev();
-    $null6 = xray_bird_null6_dev();
-    $body = "# generated by os-xray — WAN4/WAN6/Null4/Null6 devices (General tab)\n"
+    $gw4 = xray_wan_default_gateway4();
+    $gw6 = xray_wan_default_gateway6();
+    $body = "# generated by os-xray — WAN4/WAN6 devices (General tab)\n"
         . 'define WAN4_IF = "' . $wan4 . '";' . "\n"
         . 'define WAN6_IF = "' . $wan6 . '";' . "\n"
-        . 'define NULL4_IF = "' . $null4 . '";' . "\n"
-        . 'define NULL6_IF = "' . $null6 . '";' . "\n"
         . 'define WAN_IF = "' . $wan4 . '";' . "\n";
+    if ($gw4 !== '') {
+        $body .= 'define IPv4_GATEWAY = ' . $gw4 . ";\n";
+    } else {
+        $body .= "# IPv4_GATEWAY: WAN default gateway not found\n";
+    }
+    if ($gw6 !== '') {
+        $body .= 'define IPv6_GATEWAY = ' . $gw6 . ";\n";
+    } else {
+        $body .= "# IPv6_GATEWAY: WAN default gateway not found\n";
+    }
     $file = $dir . '/wan_if.inc';
     @file_put_contents($file, $body);
     @chmod($file, 0644);
@@ -822,6 +907,25 @@ function xray_bird_ensure_wan_if_include(): void
         $text = $line . "\n" . $text;
     }
     @file_put_contents($conf, $text);
+}
+
+function xray_bird_filter_gw_line(string $birdIf, string $pad): string
+{
+    if ($birdIf === 'WAN4_IF') {
+        return xray_wan_default_gateway4() === '' ? '' : $pad . "gw = IPv4_GATEWAY;\n";
+    }
+    if ($birdIf === 'WAN6_IF') {
+        return xray_wan_default_gateway6() === '' ? '' : $pad . "gw = IPv6_GATEWAY;\n";
+    }
+    return '';
+}
+
+function xray_bird_filter_then_lines(string $tun, string $pad): string
+{
+    if ($tun === 'NULL') {
+        return $pad . "dest = RTD_BLACKHOLE;\n";
+    }
+    return $pad . 'ifname = ' . $tun . ";\n" . xray_bird_filter_gw_line($tun, $pad);
 }
 
 function xray_bird_filter_blocks(array $f): array
@@ -861,7 +965,7 @@ function xray_bird_render_filter(array $f): string
         $tun = xray_bird_filter_ifname((string)($b['tun_if'] ?? ''), $fam);
         $ifs[] = '    if bgp_community ~ ' . $comm . " then {\n"
             . '       if net = ' . $defNet . " then reject;\n"
-            . '       ifname = ' . $tun . ";\n"
+            . xray_bird_filter_then_lines($tun, '       ')
             . "       accept;\n"
             . '    }';
     }
@@ -873,7 +977,7 @@ function xray_bird_render_filter(array $f): string
     $tun = xray_bird_filter_ifname((string)($f['tun_if'] ?? ''), $fam);
     return 'filter ' . $name . " {\n" . $trace
         . '    if net = ' . $defNet . " then reject;\n"
-        . '    ifname = ' . $tun . ";\n"
+        . xray_bird_filter_then_lines($tun, '    ')
         . "    accept;\n}\n";
 }
 

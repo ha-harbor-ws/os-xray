@@ -32,20 +32,6 @@
         <hint>igc3</hint>
     </field>
     <field>
-        <id>general.bgp_if_null4</id>
-        <label>Interface Null4</label>
-        <type>text</type>
-        <help>FreeBSD device for BIRD NULL4_IF (IPv4 blackhole / discard). Default lo0. Used when a BGP filter sets Interface to Null4.</help>
-        <hint>lo0</hint>
-    </field>
-    <field>
-        <id>general.bgp_if_null6</id>
-        <label>Interface Null6</label>
-        <type>text</type>
-        <help>FreeBSD device for BIRD NULL6_IF (IPv6 blackhole / discard). Default lo0. Used when a BGP filter sets Interface to Null6.</help>
-        <hint>lo0</hint>
-    </field>
-    <field>
         <id>general.dnstap_bgp_enabled</id>
         <label>Enable DNStap BGP</label>
         <type>checkbox</type>

@@ -61,10 +61,9 @@ function xray_domain_route_if_label(string $dev, string $ip): string
     $v6    = xray_domain_route_is_ip6($ip);
     $wan4  = xray_domain_route_general_if('bgp_if_wan4', 'igc3');
     $wan6  = xray_domain_route_general_if('bgp_if_wan6', 'igc3');
-    $null4 = xray_domain_route_general_if('bgp_if_null4', 'lo0');
-    $null6 = xray_domain_route_general_if('bgp_if_null6', 'lo0');
-    if ($dev === $null4 || $dev === $null6 || $dev === 'lo0' || $dev === 'lo') {
-        return $v6 ? 'Null6' : 'Null4';
+    $low   = strtolower($dev);
+    if ($low === 'lo0' || $low === 'lo' || $low === 'blackhole' || strncmp($low, 'blackhole', 9) === 0) {
+        return 'Null';
     }
     if ($dev === $wan6 && $v6) {
         return 'WAN6';
@@ -176,22 +175,22 @@ function xray_domain_route_parse(string $text, string $ip): array
         $cur = null;
     };
     foreach (preg_split("/\r\n|\n|\r/", $text) as $line) {
-        if (preg_match('/^([0-9a-fA-F:.]+\/\d+)\s+unicast\s+\[(\S+)/', $line, $m)) {
+        if (preg_match('/^([0-9a-fA-F:.]+\/\d+)\s+(unicast|blackhole)\s+\[(\S+)/', $line, $m)) {
             $flush();
             $cur = [
                 'prefix' => $m[1],
-                'peer'   => $m[2],
-                'dev'    => '',
+                'peer'   => $m[3],
+                'dev'    => ($m[2] === 'blackhole') ? 'blackhole' : '',
                 'active' => xray_domain_route_line_active($line),
             ];
             continue;
         }
-        if (preg_match('/^\s+unicast\s+\[(\S+)/', $line, $m)) {
+        if (preg_match('/^\s+(unicast|blackhole)\s+\[(\S+)/', $line, $m)) {
             $flush();
             $cur = [
                 'prefix' => $ip,
-                'peer'   => $m[1],
-                'dev'    => '',
+                'peer'   => $m[2],
+                'dev'    => ($m[1] === 'blackhole') ? 'blackhole' : '',
                 'active' => xray_domain_route_line_active($line),
             ];
             continue;

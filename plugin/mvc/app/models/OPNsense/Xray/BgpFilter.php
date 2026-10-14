@@ -66,11 +66,9 @@ class BgpFilter extends BaseModel
         if ($low === 'wan6' || $low === 'wan6_if') {
             return 'WAN6';
         }
-        if ($low === 'null' || $low === 'null4' || $low === 'null4_if') {
-            return 'Null4';
-        }
-        if ($low === 'null6' || $low === 'null6_if') {
-            return 'Null6';
+        if ($low === 'null' || $low === 'null4' || $low === 'null6'
+            || $low === 'null4_if' || $low === 'null6_if' || $low === 'null_if') {
+            return 'Null';
         }
         return $tun;
     }

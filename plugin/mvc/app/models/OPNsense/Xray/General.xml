@@ -2,7 +2,7 @@
 <model>
     <mount>//OPNsense/xray/general</mount>
     <description>Xray General Settings</description>
-    <version>1.0.7</version>
+    <version>1.0.8</version>
     <items>
         <enabled type="BooleanField">
             <default>0</default>
@@ -29,18 +29,6 @@
             <Mask>/^[A-Za-z][A-Za-z0-9._-]*$/</Mask>
             <ValidationMessage>WAN6 must be a FreeBSD interface name (e.g. igc3).</ValidationMessage>
         </bgp_if_wan6>
-        <bgp_if_null4 type="TextField">
-            <Default>lo0</Default>
-            <Required>Y</Required>
-            <Mask>/^[A-Za-z][A-Za-z0-9._-]*$/</Mask>
-            <ValidationMessage>Null4 must be a FreeBSD interface name (e.g. lo0).</ValidationMessage>
-        </bgp_if_null4>
-        <bgp_if_null6 type="TextField">
-            <Default>lo0</Default>
-            <Required>Y</Required>
-            <Mask>/^[A-Za-z][A-Za-z0-9._-]*$/</Mask>
-            <ValidationMessage>Null6 must be a FreeBSD interface name (e.g. lo0).</ValidationMessage>
-        </bgp_if_null6>
         <dnstap_bgp_enabled type="BooleanField">
             <default>0</default>
             <Required>N</Required>
