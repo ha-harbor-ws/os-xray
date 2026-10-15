@@ -3,7 +3,6 @@
 namespace OPNsense\Xray\Api;
 
 use OPNsense\Base\ApiMutableModelControllerBase;
-use OPNsense\Core\Backend;
 
 class InstanceController extends ApiMutableModelControllerBase
 {
@@ -49,10 +48,19 @@ class InstanceController extends ApiMutableModelControllerBase
     public function delItemAction($uuid)
     {
         $uuid = preg_replace('/[^0-9a-fA-F\-]/', '', (string)$uuid);
-        if (strlen($uuid) >= 36 && $this->request->isPost()) {
-            $backend = new Backend();
-            $backend->configdRun('xray delete ' . $uuid);
+        // Config first: waiting on configd/BIRD caused HTTP 504 and delBase never ran,
+        // so the row stayed in the grid.
+        $result = $this->delBase('instance', $uuid);
+        if (($result['result'] ?? '') === 'deleted' && strlen($uuid) >= 36) {
+            $php    = is_executable('/usr/local/bin/php') ? '/usr/local/bin/php' : 'php';
+            $script = '/usr/local/opnsense/scripts/Xray/xray-service-control.php';
+            if (is_file($script)) {
+                exec(
+                    escapeshellarg($php) . ' ' . escapeshellarg($script)
+                    . ' delete ' . escapeshellarg($uuid) . ' >/dev/null 2>&1 &'
+                );
+            }
         }
-        return $this->delBase('instance', $uuid);
+        return $result;
     }
 }

@@ -1113,6 +1113,82 @@ check_port() {
     return 0
 }
 
+# Remove empty placeholder instances (name "default"/empty, no usable server/outbound).
+# Safe when other real instances exist. Returns via stdout: OK:N | SKIP | ERR:...
+xray_purge_placeholder_instances() {
+    php << 'PHPEOF'
+<?php
+set_include_path('/usr/local/etc/inc' . PATH_SEPARATOR . get_include_path());
+require_once('config.inc');
+
+function xray_inst_has_endpoint($inst): bool
+{
+    $server = trim((string)($inst->server_address ?? ''));
+    $vless  = trim((string)($inst->vless_uuid ?? ''));
+    if ($server !== '' || $vless !== '') {
+        return true;
+    }
+    foreach (['outbound_config', 'custom_config'] as $field) {
+        $raw = trim((string)($inst->{$field} ?? ''));
+        if ($raw === '' || $raw === '{}' || $raw === 'null' || $raw === '[]') {
+            continue;
+        }
+        $j = json_decode($raw, true);
+        if (!is_array($j)) {
+            // Non-JSON blob — treat as configured
+            return true;
+        }
+        $addr = $j['settings']['vnext'][0]['address']
+            ?? $j['settings']['servers'][0]['address']
+            ?? '';
+        if (trim((string)$addr) !== '') {
+            return true;
+        }
+        // Outbound without address (broken/placeholder JSON) → not an endpoint
+    }
+    return false;
+}
+
+try {
+    $cfg = OPNsense\Core\Config::getInstance();
+    $obj = $cfg->object();
+    $instances = $obj->OPNsense->xray->instances ?? null;
+    if (!$instances || !isset($instances->instance)) {
+        echo "SKIP";
+        exit(0);
+    }
+    $toRemove = [];
+    foreach ($instances->instance as $inst) {
+        $name = trim((string)($inst->name ?? ''));
+        $isDefaultName = ($name === '' || strcasecmp($name, 'default') === 0);
+        if ($isDefaultName && !xray_inst_has_endpoint($inst)) {
+            $toRemove[] = $inst;
+        }
+    }
+    if (empty($toRemove)) {
+        echo "SKIP";
+        exit(0);
+    }
+    $removed = 0;
+    foreach ($toRemove as $inst) {
+        $dom = dom_import_simplexml($inst);
+        if ($dom && $dom->parentNode) {
+            $dom->parentNode->removeChild($dom);
+            $removed++;
+        }
+    }
+    if ($removed === 0) {
+        echo "SKIP";
+        exit(0);
+    }
+    $cfg->save();
+    echo "OK:$removed";
+} catch (Throwable $e) {
+    echo "ERR:" . $e->getMessage();
+}
+PHPEOF
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # IMPORT EXISTING CONFIG INTO OPNsense config.xml
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1785,49 +1861,13 @@ else
     echo "[SKIP] No existing config to import."
 fi
 
-# Drop empty placeholder "default" instances left by older installers (no server / UUID / outbound).
-echo "==> Removing empty placeholder instance named default (if any)..."
-_PURGE_DEFAULT=$(php << 'PHPEOF'
-<?php
-set_include_path('/usr/local/etc/inc' . PATH_SEPARATOR . get_include_path());
-require_once('config.inc');
-$cfg = OPNsense\Core\Config::getInstance();
-$obj = $cfg->object();
-$instances = $obj->OPNsense->xray->instances ?? null;
-if (!$instances || !isset($instances->instance)) {
-    echo "SKIP";
-    exit(0);
-}
-$removed = 0;
-$toRemove = [];
-foreach ($instances->instance as $inst) {
-    $name = trim((string)($inst->name ?? ''));
-    $server = trim((string)($inst->server_address ?? ''));
-    $vless = trim((string)($inst->vless_uuid ?? ''));
-    $outb = trim((string)($inst->outbound_config ?? ''));
-    $custom = trim((string)($inst->custom_config ?? ''));
-    $empty = ($server === '' && $vless === '' && $outb === '' && $custom === '');
-    if (strcasecmp($name, 'default') === 0 && $empty) {
-        $toRemove[] = $inst;
-    }
-}
-foreach ($toRemove as $inst) {
-    $dom = dom_import_simplexml($inst);
-    if ($dom && $dom->parentNode) {
-        $dom->parentNode->removeChild($dom);
-        $removed++;
-    }
-}
-if ($removed === 0) {
-    echo "SKIP";
-    exit(0);
-}
-$cfg->save();
-echo "OK:$removed";
-PHPEOF
-) || true
+# Drop empty placeholder "default"/unnamed instances left by older installers.
+echo "==> Removing empty placeholder instances (default / empty name)..."
+_PURGE_DEFAULT=$(xray_purge_placeholder_instances 2>/dev/null) || true
 if echo "$_PURGE_DEFAULT" | grep -q '^OK:'; then
     echo "[OK]  Removed empty placeholder instance(s): ${_PURGE_DEFAULT#OK:}"
+elif echo "$_PURGE_DEFAULT" | grep -q '^ERR:'; then
+    echo "[WARN] Placeholder purge failed: ${_PURGE_DEFAULT#ERR:}"
 else
     echo "[SKIP] No empty default placeholder instance"
 fi
@@ -2275,10 +2315,20 @@ echo "==> Step 6: Clearing cache..."
 rm -f /var/lib/php/tmp/opnsense_menu_cache.xml
 rm -f /var/lib/php/tmp/PHP_errors.log
 
-# ── Шаг 7: Автостарт enabled-инстансов после переустановки ───────────────────
+# ── Шаг 7: Повторный purge placeholder (после миграций/seed) ─────────────────
+echo ""
+echo "==> Step 7: Re-check empty placeholder instances..."
+_PURGE_DEFAULT2=$(xray_purge_placeholder_instances 2>/dev/null) || true
+if echo "$_PURGE_DEFAULT2" | grep -q '^OK:'; then
+    echo "[OK]  Removed empty placeholder instance(s): ${_PURGE_DEFAULT2#OK:}"
+else
+    echo "[SKIP] No empty placeholder left"
+fi
+
+# ── Шаг 8: Автостарт enabled-инстансов после переустановки ───────────────────
 # Раньше после reinstall сервисы не поднимались, пока не нажмут Start All / Apply.
 echo ""
-echo "==> Step 7: Auto-start enabled instances (if Enable Xray is on)..."
+echo "==> Step 8: Auto-start enabled instances (if Enable Xray is on)..."
 _XRAY_EN=$(php -r '
 set_include_path("/usr/local/etc/inc" . PATH_SEPARATOR . get_include_path());
 require_once("config.inc");

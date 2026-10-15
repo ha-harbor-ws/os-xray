@@ -664,18 +664,21 @@ function do_start(array $c): bool
 
 /**
  * do_delete() — останавливает instance, удаляет TUN и per-instance runtime-файлы.
- * Вызывается перед удалением записи из config.xml (delItem).
+ * Может вызываться после delBase (записи в config.xml уже нет) — тогда TUN берём из yaml.
  */
 function do_delete(string $inst_uuid): bool
 {
-    $c = xray_get_config($inst_uuid);
-    if (empty($c)) {
-        echo "ERROR: Instance {$inst_uuid} not found\n";
-        return false;
+    $c        = xray_get_config($inst_uuid);
+    $tunIface = 'proxytun2socks0';
+    if (!empty($c['tun_iface'])) {
+        $tunIface = $c['tun_iface'];
+    } else {
+        $yaml = @file_get_contents(t2s_conf_path($inst_uuid));
+        if (is_string($yaml) && preg_match('/^device:\s*(\S+)/m', $yaml, $m)) {
+            $tunIface = $m[1];
+        }
     }
-
-    $tunIface = $c['tun_iface'] ?? 'proxytun2socks0';
-    $name     = $c['name'] ?? $inst_uuid;
+    $name = $c['name'] ?? $inst_uuid;
 
     echo "Removing instance {$name} ({$inst_uuid})...\n";
 
@@ -1039,7 +1042,22 @@ switch ($action) {
         break;
 
     case 'reconfigure':
-        // B10: возвращаем реальный статус
+        // Fast path for GUI Apply: stop/start all instances can exceed nginx 60s → HTTP 504.
+        // Schedule the real work and return OK immediately so the Apply banner clears.
+        $php = (defined('PHP_BINARY') && PHP_BINARY !== '') ? PHP_BINARY : '/usr/local/bin/php';
+        if (!is_executable($php)) {
+            $php = '/usr/local/bin/php';
+        }
+        $cmd = escapeshellarg($php) . ' ' . escapeshellarg(__FILE__) . ' reconfigure_sync';
+        if ($inst_uuid !== '') {
+            $cmd .= ' ' . escapeshellarg($inst_uuid);
+        }
+        exec($cmd . ' >>/tmp/xray_reconfigure.log 2>&1 &');
+        echo "OK\n";
+        exit(0);
+
+    case 'reconfigure_sync':
+        // Actual stop/start (called in background from reconfigure, or manually).
         $exitCode = 0;
         if ($inst_uuid !== '') {
             $c        = xray_get_config($inst_uuid);
@@ -1059,8 +1077,7 @@ switch ($action) {
             xray_bird_sync_async();
             exit($exitCode);
         }
-        // Без UUID: рекофигурируем все инстансы
-        $all       = xray_get_all_instances();
+        $all        = xray_get_all_instances();
         $allStopped = [];
         foreach ($all as $uuid => $c) {
             $tunIface = $c['tun_iface'] ?? 'proxytun2socks0';
@@ -1166,7 +1183,7 @@ switch ($action) {
             exit(1);
         }
         $ok = do_delete($inst_uuid);
-        xray_bird_sync();
+        xray_bird_sync_async();
         exit($ok ? 0 : 1);
 
     case 'version':

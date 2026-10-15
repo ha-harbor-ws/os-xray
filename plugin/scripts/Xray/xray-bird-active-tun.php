@@ -76,7 +76,8 @@ function xray_bird_active_tun_curl(string $listen, int $port, string $ipFlag): a
         . ' -s -L -o /dev/null'
         . ' -w ' . escapeshellarg("Код ответа: %{http_code}\nВремя ответа: %{time_total} сек\n")
         . ' ' . escapeshellarg('https://google.com')
-        . ' --max-time 10',
+        // Keep probes short: Test All × N instances × IPv4/IPv6 must finish under gateway timeout
+        . ' --max-time 5',
         $out,
         $rc
     );
@@ -598,14 +599,28 @@ function xray_bird_select_and_write_active_tun(): array
 if (count(debug_backtrace()) === 0) {
     ob_start();
     $mode = $argv[1] ?? '';
-    if ($mode === 'autoroute') {
-        xray_bird_autoroute_tick();
-    } else {
-        $sel = xray_bird_select_and_write_active_tun();
-        if (!empty($sel['changed'])) {
-            xray_bird_active_tun_configure();
+    $resultOk = true;
+    try {
+        if ($mode === 'autoroute') {
+            xray_bird_autoroute_tick();
+        } else {
+            $sel = xray_bird_select_and_write_active_tun();
+            if (!empty($sel['changed'])) {
+                $cfg = OPNsense\Core\Config::getInstance()->object();
+                $bgpOn = (string)($cfg->OPNsense->xray->general->bgp_enabled ?? '0') === '1';
+                if ($bgpOn) {
+                    xray_bird_active_tun_configure();
+                } else {
+                    echo "bird: BGP disabled — skip birdc configure (active tun files written)\n";
+                }
+            }
         }
+    } catch (Throwable $e) {
+        $resultOk = false;
+        echo 'ERROR: ' . $e->getMessage() . "\n";
     }
+    // Machine-readable trailer for API (ignore incidental "Error:" from birdc in the body).
+    echo ($resultOk ? "RESULT:OK\n" : "RESULT:ERROR\n");
     $buf = (string)ob_get_flush();
     $idle = (bool)preg_match(
         '/auto route: (next poll in |disabled\n|plugin or BGP disabled)/',

@@ -841,20 +841,20 @@
             if (!conf.length && dnstapConfCache.length) {
                 conf = dnstapConfCache;
             }
-            var proxyUrls = dnstapCollectKv($('#dnstapProxyUrlsKv'));
-            if (!$('#dnstapProxyUrlsKv input').length && dnstapProxyUrlsCache.length) {
+            var proxyUrls = dnstapCollectUrlKv($('#dnstapProxyUrlsKv'));
+            if (!$('#dnstapProxyUrlsKv input[type="text"]').length && dnstapProxyUrlsCache.length) {
                 proxyUrls = dnstapProxyUrlsCache;
             }
-            var directUrls = dnstapCollectKv($('#dnstapDirectUrlsKv'));
-            if (!$('#dnstapDirectUrlsKv input').length && dnstapDirectUrlsCache.length) {
+            var directUrls = dnstapCollectUrlKv($('#dnstapDirectUrlsKv'));
+            if (!$('#dnstapDirectUrlsKv input[type="text"]').length && dnstapDirectUrlsCache.length) {
                 directUrls = dnstapDirectUrlsCache;
             }
-            var blockUrls = dnstapCollectKv($('#dnstapBlockUrlsKv'));
-            if (!$('#dnstapBlockUrlsKv input').length && dnstapBlockUrlsCache.length) {
+            var blockUrls = dnstapCollectUrlKv($('#dnstapBlockUrlsKv'));
+            if (!$('#dnstapBlockUrlsKv input[type="text"]').length && dnstapBlockUrlsCache.length) {
                 blockUrls = dnstapBlockUrlsCache;
             }
-            var geodatUrls = dnstapCollectKv($('#dnstapGeodatUrlsKv'));
-            if (!$('#dnstapGeodatUrlsKv input').length && dnstapGeodatUrlsCache.length) {
+            var geodatUrls = dnstapCollectUrlKv($('#dnstapGeodatUrlsKv'));
+            if (!$('#dnstapGeodatUrlsKv input[type="text"]').length && dnstapGeodatUrlsCache.length) {
                 geodatUrls = dnstapGeodatUrlsCache;
             }
             return {
@@ -870,8 +870,8 @@
         }
 
         function dnstapCollectGeodatUrls() {
-            var urls = dnstapCollectKv($('#dnstapGeodatUrlsKv'));
-            if (!$('#dnstapGeodatUrlsKv input').length && dnstapGeodatUrlsCache.length) {
+            var urls = dnstapCollectUrlKv($('#dnstapGeodatUrlsKv'));
+            if (!$('#dnstapGeodatUrlsKv input[type="text"]').length && dnstapGeodatUrlsCache.length) {
                 urls = dnstapGeodatUrlsCache;
             }
             return urls.filter(function (row) {
@@ -968,6 +968,45 @@
             return $tr;
         }
 
+        function dnstapUrlRow(key, value, enabled) {
+            var on = !(enabled === false || enabled === '0' || enabled === 0);
+            if (enabled === undefined || enabled === null || enabled === '') {
+                on = false;
+            }
+            var $tr = $('<tr/>');
+            var $inp = $('<input type="text" class="form-control"/>')
+                .attr('data-key', key)
+                .attr('placeholder', 'https://')
+                .val(value == null ? '' : String(value));
+            var $fetch = $('<button type="button" class="btn btn-xs btn-default dnstap-url-fetch"/>')
+                .attr('title', '{{ lang._("Download and save this URL") }}')
+                .text('✔');
+            var $en = $('<label class="dnstap-url-enable"/>')
+                .append($('<input type="checkbox" class="dnstap-url-enabled"/>').prop('checked', on))
+                .append(document.createTextNode(' {{ lang._("Enable") }}'));
+            $tr.append($('<td/>').append(
+                $('<div class="dnstap-row-edit"/>').append($inp, $fetch, $en)
+            ));
+            return $tr;
+        }
+
+        function dnstapListKind($tbody) {
+            var id = String(($tbody && $tbody.attr('id')) || '');
+            if (id.indexOf('Proxy') >= 0) {
+                return 'proxy';
+            }
+            if (id.indexOf('Direct') >= 0) {
+                return 'direct';
+            }
+            if (id.indexOf('Block') >= 0) {
+                return 'block';
+            }
+            if (id.indexOf('Geodat') >= 0) {
+                return 'geodat';
+            }
+            return 'proxy';
+        }
+
         function dnstapFillKv($tbody, rows) {
             $tbody.empty();
             (rows || []).forEach(function (row) {
@@ -987,10 +1026,34 @@
             return rows;
         }
 
+        function dnstapCollectUrlKv($tbody) {
+            var rows = [];
+            $tbody.find('tr').each(function () {
+                var $inp = $(this).find('input[type="text"]').first();
+                if (!$inp.length) {
+                    return;
+                }
+                rows.push({
+                    key: String($inp.attr('data-key') || 'url'),
+                    value: String($inp.val() || ''),
+                    enabled: $(this).find('.dnstap-url-enabled').is(':checked') ? '1' : '0'
+                });
+            });
+            return rows;
+        }
+
         function dnstapFillOrEmpty($tbody, rows, key) {
-            dnstapFillKv($tbody, rows || []);
-            if ($tbody.find('tr').length === 0) {
-                $tbody.append(dnstapKvRow(key, ''));
+            $tbody.empty();
+            (rows || []).forEach(function (row) {
+                var val = row.value || row.url || '';
+                var en = row.enabled;
+                if (en === undefined && row.url) {
+                    en = true;
+                }
+                $tbody.append(dnstapUrlRow(row.key || key, val, en));
+            });
+            if (!$tbody.find('tr').length) {
+                $tbody.append(dnstapUrlRow(key, '', false));
             }
         }
 
@@ -1025,10 +1088,10 @@
                 dnstapFillOrEmpty($('#dnstapBlockUrlsKv'), data.block_urls, 'url');
                 dnstapFillOrEmpty($('#dnstapGeodatUrlsKv'), data.geodat_urls, 'url');
                 dnstapConfCache = dnstapCollectKv($('#dnstapConfKv'));
-                dnstapProxyUrlsCache = dnstapCollectKv($('#dnstapProxyUrlsKv'));
-                dnstapDirectUrlsCache = dnstapCollectKv($('#dnstapDirectUrlsKv'));
-                dnstapBlockUrlsCache = dnstapCollectKv($('#dnstapBlockUrlsKv'));
-                dnstapGeodatUrlsCache = dnstapCollectKv($('#dnstapGeodatUrlsKv'));
+                dnstapProxyUrlsCache = dnstapCollectUrlKv($('#dnstapProxyUrlsKv'));
+                dnstapDirectUrlsCache = dnstapCollectUrlKv($('#dnstapDirectUrlsKv'));
+                dnstapBlockUrlsCache = dnstapCollectUrlKv($('#dnstapBlockUrlsKv'));
+                dnstapGeodatUrlsCache = dnstapCollectUrlKv($('#dnstapGeodatUrlsKv'));
                 if (!dnstapExtrasDirty) {
                     dnstapExtraProxy = dnstapRowsToDomains(data.proxy || data.blocked_extra || data.blocked || data.domains);
                     dnstapExtraDirect = dnstapRowsToDomains(data.direct || data.unblocked_extra || data.unblocked);
@@ -1111,11 +1174,54 @@
                 return;
             }
             var key = String($tbody.attr('data-row-key') || 'url');
-            $tbody.append(dnstapKvRow(key, ''));
+            $tbody.append(dnstapUrlRow(key, '', false));
         });
         $(document).on('click', '.dnstap-url-remove', function () {
             var $tbody = $('#' + $(this).attr('data-list'));
+            if (!$tbody.length) {
+                return;
+            }
+            if ($tbody.find('tr').length <= 1) {
+                $tbody.find('input[type="text"]').val('');
+                $tbody.find('.dnstap-url-enabled').prop('checked', false);
+                return;
+            }
             $tbody.find('tr').last().remove();
+        });
+        $(document).on('click', '.dnstap-url-fetch', function () {
+            var $tr = $(this).closest('tr');
+            var $tbody = $tr.closest('tbody');
+            var url = String($tr.find('input[type="text"]').val() || '').trim();
+            var kind = dnstapListKind($tbody);
+            var enabled = $tr.find('.dnstap-url-enabled').is(':checked') ? '1' : '0';
+            if (!url || !/^https?:\/\//i.test(url)) {
+                BootstrapDialog.show({
+                    type: BootstrapDialog.TYPE_WARNING,
+                    title: "{{ lang._('DNStap') }}",
+                    message: "{{ lang._('Enter a valid HTTP(S) URL first.') }}"
+                });
+                return;
+            }
+            var $btn = $(this).prop('disabled', true);
+            $.ajax({
+                url: '/api/xray/service/dnstapfetchone',
+                type: 'POST',
+                dataType: 'json',
+                timeout: 180000,
+                data: {kind: kind, url: url, enabled: enabled},
+                success: function (data) {
+                    $btn.prop('disabled', false);
+                    if (!data || data.result === 'failed') {
+                        alert(data && data.message ? data.message : '{{ lang._("Download failed") }}');
+                        return;
+                    }
+                    loadDnstapConf();
+                },
+                error: function (xhr) {
+                    $btn.prop('disabled', false);
+                    alert('{{ lang._("HTTP error:") }} ' + xhr.status);
+                }
+            });
         });
         $(document).on('click', '.static-url-add', function () {
             var $tbody = $('#' + $(this).attr('data-list'));
@@ -1641,6 +1747,10 @@
                 return dfObj;
             },
             onAction: function () {
+                // Clear pending-change banners (incl. after fast OK from background reconfigure)
+                $('#InstanceChangeMessage, #BgpPeerChangeMessage, #BgpFilterChangeMessage, #BgpCommunityChangeMessage')
+                    .hide();
+                $('.alert[id$="ChangeMessage"]').hide();
                 reloadBgpPeersGrid();
                 if (isBgpRoutingTab()) {
                     openRoutingPeersStatus();
@@ -1651,6 +1761,7 @@
                 if (isDnstapTab() || isDomainsTab()) {
                     loadDnstapConf();
                 }
+                setTimeout(function () { refreshInstancesStatus(); }, 2000);
             }
         });
 
@@ -1776,7 +1887,14 @@
                     timeout: 180000,
                     success: function (data) {
                         var msg = (data && data.message) ? String(data.message) : '';
-                        var short = msg.split('\n').slice(0, 3).join(' ').trim();
+                        // Prefer the selection summary line for the status text
+                        var lines = msg.split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+                        var sel = '';
+                        $.each(lines, function (_, l) {
+                            if (l.indexOf('active tun selected:') === 0) { sel = l; return false; }
+                        });
+                        var short = sel || lines.slice(0, 3).join(' ');
+                        short = short.replace(/\s*RESULT:(OK|ERROR)\s*/g, '').trim();
                         if (data && data.result === 'ok') {
                             $res.removeClass('text-danger').addClass('text-success')
                                 .text(short !== '' ? short : "{{ lang._('Auto route done.') }}");
@@ -1785,9 +1903,9 @@
                                 .text(short !== '' ? short : "{{ lang._('Auto route failed.') }}");
                         }
                     },
-                    error: function () {
+                    error: function (xhr) {
                         $res.removeClass('text-success').addClass('text-danger')
-                            .text("{{ lang._('Auto route failed.') }}");
+                            .text("{{ lang._('Auto route failed.') }} HTTP " + (xhr.status || '?'));
                     },
                     complete: function () {
                         $btn.prop('disabled', false);

@@ -324,9 +324,18 @@ class ServiceController extends ApiMutableServiceControllerBase
             return ['result' => 'failed', 'message' => 'POST required'];
         }
         $output = trim((string)(new Backend())->configdRun('xray birdactivetun'));
-        $failed = $output === ''
-            || stripos($output, 'ERROR') !== false
-            || stripos($output, 'failed') !== false;
+        // Prefer explicit RESULT:* trailer. Do not treat birdc "Error:" lines as hard fail —
+        // that caused Test All to show "Auto route failed" after a successful tun selection.
+        $failed = $output === '';
+        if (preg_match('/^RESULT:OK\s*$/m', $output)) {
+            $failed = false;
+        } elseif (preg_match('/^RESULT:ERROR\s*$/m', $output)) {
+            $failed = true;
+        } elseif (stripos($output, 'active tun selected:') !== false
+            || stripos($output, 'active tun: plugin disabled') !== false
+            || stripos($output, 'auto route:') !== false) {
+            $failed = false;
+        }
         return [
             'result'  => $failed ? 'failed' : 'ok',
             'message' => $output !== '' ? $output : 'No response from configd',
@@ -517,6 +526,53 @@ class ServiceController extends ApiMutableServiceControllerBase
         return [
             'result'  => 'failed',
             'message' => $output !== '' ? $output : 'No response from configd',
+        ];
+    }
+
+    /**
+     * POST /api/xray/service/dnstapfetchone — ✔ download one DNStap URL into cache and save it.
+     */
+    public function dnstapfetchoneAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+
+        $kind = $this->request->getPost('kind');
+        $url = $this->request->getPost('url');
+        $enabled = $this->request->getPost('enabled');
+        if ($kind === null && $url === null) {
+            $json = $this->request->getJsonRawBody();
+            if (is_object($json)) {
+                $kind = $json->kind ?? null;
+                $url = $json->url ?? null;
+                $enabled = $json->enabled ?? null;
+            } elseif (is_array($json)) {
+                $kind = $json['kind'] ?? null;
+                $url = $json['url'] ?? null;
+                $enabled = $json['enabled'] ?? null;
+            }
+        }
+
+        $staged = '/tmp/xray_dnstap_fetchone.json';
+        $payload = json_encode([
+            'kind'    => is_string($kind) ? $kind : (string)$kind,
+            'url'     => is_string($url) ? $url : (string)$url,
+            'enabled' => $enabled,
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($payload === false || file_put_contents($staged, $payload) === false) {
+            return ['result' => 'failed', 'message' => 'Cannot stage dnstap fetchone'];
+        }
+        @chmod($staged, 0600);
+
+        $raw = trim((string)(new Backend())->configdRun('xray dnstapfetchone'));
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+        return [
+            'result'  => (stripos($raw, 'failed') !== false || stripos($raw, 'ERROR') !== false) ? 'failed' : 'ok',
+            'message' => $raw !== '' ? $raw : 'No response from configd',
         ];
     }
 

@@ -20,6 +20,21 @@
         #dnstap .dnstap-row-edit .btn {
             flex-shrink: 0;
         }
+        #dnstap .dnstap-row-edit .dnstap-url-fetch {
+            flex-shrink: 0;
+            min-width: 28px;
+            padding: 2px 6px;
+        }
+        #dnstap .dnstap-row-edit .dnstap-url-enable {
+            flex-shrink: 0;
+            margin: 0;
+            font-weight: normal;
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+        }
         #dnstap .xray-block {
             margin-bottom: 8px;
         }
@@ -100,7 +115,7 @@
                     </tfoot>
                 </table>
                 <div class="hidden" data-for="help_for_dnstap_proxy_urls" style="padding: 8px 0 0;">
-                    <small class="text-muted">{{ lang._('HTTP(S) links to PROXY domain lists. Apply downloads them and writes a unique summarized file.') }}</small>
+                    <small class="text-muted">{{ lang._('HTTP(S) PROXY domain lists. ✔ downloads and caches this URL. Enable includes cached data in the summarized file. Apply saves URLs and rebuilds from enabled caches.') }}</small>
                 </div>
             </div>
 
@@ -134,7 +149,7 @@
                     </tfoot>
                 </table>
                 <div class="hidden" data-for="help_for_dnstap_direct_urls" style="padding: 8px 0 0;">
-                    <small class="text-muted">{{ lang._('HTTP(S) links to DIRECT domain lists. Names also present in BLOCK or PROXY are dropped.') }}</small>
+                    <small class="text-muted">{{ lang._('HTTP(S) DIRECT domain lists. ✔ caches; Enable applies cache. Names also in BLOCK or PROXY are dropped.') }}</small>
                 </div>
             </div>
 
@@ -168,7 +183,7 @@
                     </tfoot>
                 </table>
                 <div class="hidden" data-for="help_for_dnstap_block_urls" style="padding: 8px 0 0;">
-                    <small class="text-muted">{{ lang._('HTTP(S) links to BLOCK domain lists. If a name is in several lists, BLOCK wins over PROXY and DIRECT.') }}</small>
+                    <small class="text-muted">{{ lang._('HTTP(S) BLOCK domain lists. ✔ caches; Enable applies cache. If a name is in several lists, BLOCK wins over PROXY and DIRECT.') }}</small>
                 </div>
             </div>
 
@@ -204,7 +219,7 @@
                     </tfoot>
                 </table>
                 <div class="hidden" data-for="help_for_dnstap_geodat_urls" style="padding: 8px 0 0;">
-                    <small class="text-muted">{{ lang._('HTTP(S) links to geosite.dat. Category is unique per file: assign PROXY, DIRECT or BLOCK. Unassigned categories are ignored. Apply and daily fetch add only assigned domains.') }}</small>
+                    <small class="text-muted">{{ lang._('HTTP(S) geosite.dat. ✔ caches the file; Enable + Category assignments feed summaries. Daily refresh updates only enabled URLs.') }}</small>
                 </div>
             </div>
         </section>
