@@ -2718,6 +2718,49 @@
             xrayEnsureLeftMenuOpen();
         }
 
+        // Page header h1 is server-rendered once; SPA tab switches must update it.
+        var xrayPageTitleLabels = {
+            'instances': '{{ lang._("Instances") }}',
+            'routing-peers': '{{ lang._("BGP peers") }}',
+            'routing-filters': '{{ lang._("BGP filter") }}',
+            'routing-communities': '{{ lang._("BGP community") }}',
+            'routing-static': '{{ lang._("Static") }}',
+            'dnstap': '{{ lang._("DNStap") }}',
+            'general': '{{ lang._("General") }}',
+            'domains': '{{ lang._("Domains") }}',
+            'logs': '{{ lang._("Log") }}'
+        };
+
+        function xraySyncPageTitle(tab) {
+            tab = String(tab || '').replace(/^#/, '');
+            var label = xrayPageTitleLabels[tab];
+            if (!label) {
+                return;
+            }
+            var $h1 = $('.page-content-header h1').first();
+            if (!$h1.length) {
+                $h1 = $('header h1').first();
+            }
+            if ($h1.length) {
+                var $kids = $h1.children().detach();
+                var cur = $.trim($h1.text());
+                var prefix = 'VPN: Xray: ';
+                var idx = cur.lastIndexOf(':');
+                if (idx >= 0) {
+                    prefix = cur.substring(0, idx + 1).replace(/\s*$/, '') + ' ';
+                }
+                $h1.text(prefix + label);
+                $h1.append($kids);
+            }
+            var docParts = String(document.title || '').split('|');
+            var hostPart = docParts.length > 1 ? ' |' + docParts.slice(1).join('|') : '';
+            var headLabel = label;
+            if ($h1 && $h1.length) {
+                headLabel = $.trim($h1.clone().children().remove().end().text()) || label;
+            }
+            document.title = headLabel + hostPart;
+        }
+
         function xrayActivateTab(tab) {
             tab = String(tab || '').replace(/^#/, '');
             if (!tab) {
@@ -2728,6 +2771,7 @@
                 $tab.tab('show');
             }
             xraySyncLeftMenu(tab);
+            xraySyncPageTitle(tab);
         }
 
         function xrayReplaceTabUrl(tab) {
@@ -2759,11 +2803,13 @@
         $(window).on('popstate', function () {
             xrayActivateTab(xrayTabFromLocation());
         });
-        $('.nav-tabs a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
+        // Only main Xray tabs — not nested Log subtabs
+        $('#maintabs a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
             var tab = String(e.target.hash || '').replace(/^#/, '');
-            if (tab) {
+            if (tab && xrayPageTitleLabels[tab]) {
                 xrayReplaceTabUrl(tab);
                 xraySyncLeftMenu(tab);
+                xraySyncPageTitle(tab);
             }
         });
     });
