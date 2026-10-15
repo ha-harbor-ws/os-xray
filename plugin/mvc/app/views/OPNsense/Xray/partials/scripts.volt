@@ -1949,18 +1949,47 @@
             return uuids;
         }
 
+        var testResultClearTimer = null;
+        function clearTestConnectResultSoon($res, delayMs) {
+            if (testResultClearTimer) {
+                clearTimeout(testResultClearTimer);
+                testResultClearTimer = null;
+            }
+            testResultClearTimer = setTimeout(function () {
+                testResultClearTimer = null;
+                $res.text('').removeClass('text-success text-danger');
+            }, delayMs || 30000);
+        }
+        function setTestConnectResult($res, ok, message, autoClear) {
+            if (testResultClearTimer) {
+                clearTimeout(testResultClearTimer);
+                testResultClearTimer = null;
+            }
+            if (ok) {
+                $res.removeClass('text-danger').addClass('text-success').text(message);
+            } else {
+                $res.removeClass('text-success').addClass('text-danger').text(message);
+            }
+            if (autoClear !== false) {
+                clearTestConnectResultSoon($res, 30000);
+            }
+        }
+
         $('#btnTestConnect').click(function () {
             var $btn = $(this).prop('disabled', true);
             var $res = $('#testConnectResult');
             var uuids = xrayEnabledRunningUuids();
 
             if (!uuids.length) {
-                $res.removeClass('text-success').addClass('text-danger')
-                    .text("{{ lang._('No enabled running instances.') }}");
+                setTestConnectResult($res, false, "{{ lang._('No enabled running instances.') }}");
                 $btn.prop('disabled', false);
                 return;
             }
 
+            if (testResultClearTimer) {
+                clearTimeout(testResultClearTimer);
+                testResultClearTimer = null;
+            }
             $res.removeClass('text-success text-danger').text("{{ lang._('Testing IF...') }}");
             var pending = uuids.length;
             var anyFail = false;
@@ -1985,11 +2014,17 @@
                         if (pending === 0) {
                             $btn.prop('disabled', false);
                             if (anyFail) {
-                                $res.removeClass('text-success').addClass('text-danger')
-                                    .text("{{ lang._('IF test finished with errors — see Test column.') }}");
+                                setTestConnectResult(
+                                    $res,
+                                    false,
+                                    "{{ lang._('IF test finished with errors — see Test column.') }}"
+                                );
                             } else {
-                                $res.removeClass('text-danger').addClass('text-success')
-                                    .text("{{ lang._('IF test OK.') }}");
+                                setTestConnectResult(
+                                    $res,
+                                    true,
+                                    "{{ lang._('IF test OK.') }}"
+                                );
                             }
                         }
                     }
@@ -1997,9 +2032,77 @@
             });
         });
 
+        var autoRoutePollTimer = null;
+        function stopAutoRoutePoll() {
+            if (autoRoutePollTimer) {
+                clearInterval(autoRoutePollTimer);
+                autoRoutePollTimer = null;
+            }
+        }
+        function finishAutoRouteUi($btn, $res, ok, message) {
+            stopAutoRoutePoll();
+            $btn.prop('disabled', false);
+            setTestConnectResult(
+                $res,
+                ok,
+                message || (ok
+                    ? "{{ lang._('Auto route OK.') }}"
+                    : "{{ lang._('Auto route failed.') }}")
+            );
+            if (ok) {
+                reloadBgpPeersGrid();
+                refreshInstancesStatus();
+            }
+        }
+        function pollAutoRouteStatus($btn, $res, token, startedMs) {
+            var tries = 0;
+            var maxTries = 90; // ~3 min at 2s
+            stopAutoRoutePoll();
+            autoRoutePollTimer = setInterval(function () {
+                tries++;
+                ajaxGet('/api/xray/service/birdactivetunstatus', {}, function (st) {
+                    if (!st) {
+                        return;
+                    }
+                    var sameToken = !token || String(st.token || '') === String(token);
+                    var done = sameToken && st.running === false && st.phase === 'done'
+                        && Number(st.finished_at || 0) * 1000 >= startedMs - 2000;
+                    if (done) {
+                        finishAutoRouteUi(
+                            $btn,
+                            $res,
+                            st.result === 'ok',
+                            st.message || (st.result === 'ok'
+                                ? "{{ lang._('Auto route OK.') }}"
+                                : "{{ lang._('Auto route failed.') }}")
+                        );
+                        return;
+                    }
+                    if (sameToken && st.running) {
+                        $res.removeClass('text-success text-danger')
+                            .text(st.message || "{{ lang._('Auto route...') }}");
+                    }
+                });
+                if (tries >= maxTries) {
+                    finishAutoRouteUi(
+                        $btn,
+                        $res,
+                        false,
+                        "{{ lang._('Auto route timed out — see Autoroute Log.') }}"
+                    );
+                }
+            }, 2000);
+        }
+
         $('#btnTestAutoRoute').click(function () {
             var $btn = $(this).prop('disabled', true);
             var $res = $('#testConnectResult');
+            var startedMs = Date.now();
+            stopAutoRoutePoll();
+            if (testResultClearTimer) {
+                clearTimeout(testResultClearTimer);
+                testResultClearTimer = null;
+            }
             $res.removeClass('text-success text-danger')
                 .text("{{ lang._('Auto route...') }}");
             $.ajax({
@@ -2008,28 +2111,30 @@
                 dataType: 'json',
                 timeout: 30000,
                 success: function (data) {
+                    if (data && data.result === 'ok' && data.async) {
+                        $res.removeClass('text-success text-danger')
+                            .text("{{ lang._('Auto route...') }}");
+                        pollAutoRouteStatus($btn, $res, data.token || '', startedMs);
+                        return;
+                    }
                     var msg = (data && data.message) ? String(data.message) : '';
                     var lines = msg.split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
                     var short = lines.slice(0, 2).join(' ')
                         .replace(/\s*RESULT:(OK|ERROR)\s*/g, '').trim();
-                    if (data && data.result === 'ok') {
-                        $res.removeClass('text-danger').addClass('text-success')
-                            .text(short !== '' ? short : "{{ lang._('Auto route started.') }}");
-                        setTimeout(function () { reloadBgpPeersGrid(); }, 3000);
-                        // Latency columns fill after background probes finish
-                        setTimeout(refreshInstancesStatus, 4000);
-                        setTimeout(refreshInstancesStatus, 10000);
-                    } else {
-                        $res.removeClass('text-success').addClass('text-danger')
-                            .text(short !== '' ? short : "{{ lang._('Auto route failed.') }}");
-                    }
+                    finishAutoRouteUi(
+                        $btn,
+                        $res,
+                        !!(data && data.result === 'ok'),
+                        short
+                    );
                 },
                 error: function (xhr) {
-                    $res.removeClass('text-success').addClass('text-danger')
-                        .text("{{ lang._('Auto route failed.') }} HTTP " + (xhr.status || '?'));
-                },
-                complete: function () {
-                    $btn.prop('disabled', false);
+                    finishAutoRouteUi(
+                        $btn,
+                        $res,
+                        false,
+                        "{{ lang._('Auto route failed.') }} HTTP " + (xhr.status || '?')
+                    );
                 }
             });
         });
@@ -2273,6 +2378,8 @@
             var href = $active.attr('href');
             if (href === '#logBoot') {
                 loadLog("/api/xray/service/log", 'logBootContent', 'logBootRefreshBtn', false);
+            } else if (href === '#logAutoroute') {
+                loadLog("/api/xray/service/autoroutelog", 'logAutorouteContent', 'logAutorouteRefreshBtn', false);
             } else if (href === '#logCore') {
                 loadLog("/api/xray/service/xraylog", 'logCoreContent', 'logCoreRefreshBtn', true);
             } else if (href === '#logBird') {
@@ -2287,6 +2394,8 @@
             var href = $(e.target).attr('href');
             if (href === '#logBoot') {
                 loadLog("/api/xray/service/log", 'logBootContent', 'logBootRefreshBtn', false);
+            } else if (href === '#logAutoroute') {
+                loadLog("/api/xray/service/autoroutelog", 'logAutorouteContent', 'logAutorouteRefreshBtn', false);
             } else if (href === '#logCore') {
                 loadLog("/api/xray/service/xraylog", 'logCoreContent', 'logCoreRefreshBtn', true);
             } else if (href === '#logBird') {
@@ -2299,6 +2408,9 @@
 
         $("#logBootRefreshBtn").click(function () {
             loadLog("/api/xray/service/log", 'logBootContent', 'logBootRefreshBtn', false);
+        });
+        $("#logAutorouteRefreshBtn").click(function () {
+            loadLog("/api/xray/service/autoroutelog", 'logAutorouteContent', 'logAutorouteRefreshBtn', false);
         });
         $("#logCoreRefreshBtn").click(function () {
             loadLog("/api/xray/service/xraylog", 'logCoreContent', 'logCoreRefreshBtn', true);

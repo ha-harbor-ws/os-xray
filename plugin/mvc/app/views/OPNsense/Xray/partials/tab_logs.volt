@@ -15,6 +15,11 @@
                         </a>
                     </li>
                     <li>
+                        <a data-toggle="tab" href="#logAutoroute">
+                            <i class="fa fa-random fa-fw"></i> {{ lang._('Autoroute Log') }}
+                        </a>
+                    </li>
+                    <li>
                         <a data-toggle="tab" href="#logCore">
                             <i class="fa fa-file-text-o fa-fw"></i> {{ lang._('Core Log') }}
                         </a>
@@ -33,7 +38,7 @@
                 <a href="#" class="xray-showhelp" id="help_for_logs"><i class="fa fa-info-circle"></i></a>
                 {{ partial('OPNsense/Xray/partials/help_toggle') }}
                 <div class="hidden" data-for="help_for_logs" style="flex-basis: 100%;">
-                    <small class="text-muted">{{ lang._('Boot, Core, Bird and DNStap logs. Refresh reloads the last lines from the corresponding file.') }}</small>
+                    <small class="text-muted">{{ lang._('Boot, Autoroute, Core, Bird and DNStap logs. Refresh reloads the last lines from the corresponding file.') }}</small>
                 </div>
 
             </div>
@@ -51,7 +56,7 @@
                             <i class="fa fa-refresh fa-fw"></i> {{ lang._('Refresh') }}
                         </button>
                         <span class="text-muted" style="font-size: 12px;">
-                            {{ lang._('/tmp/xray_syshook.log — last 300 lines (boot, Test all IF, Test auto route)') }}
+                            {{ lang._('/tmp/xray_syshook.log — last 300 lines (boot, Test all IF)') }}
                         </span>
                     </div>
                     <pre id="logBootContent"
@@ -59,6 +64,22 @@
                                 background: #1e1e1e; color: #d4d4d4; font-family: monospace;
                                 font-size: 12px; padding: 12px; border-radius: 4px;
                                 border: 1px solid #444;">{{ lang._('Switch to this tab to load log.') }}</pre>
+                </div>
+
+                <div id="logAutoroute" class="tab-pane fade in" style="padding-top: 10px;">
+                    <div style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+                        <button id="logAutorouteRefreshBtn" class="btn btn-sm btn-default">
+                            <i class="fa fa-refresh fa-fw"></i> {{ lang._('Refresh') }}
+                        </button>
+                        <span class="text-muted" style="font-size: 12px;">
+                            {{ lang._('/tmp/xray_autoroute.log — last 300 lines (Test auto route, cron)') }}
+                        </span>
+                    </div>
+                    <pre id="logAutorouteContent"
+                         style="min-height: 300px; max-height: 550px; overflow-y: auto;
+                                background: #1e1e1e; color: #d4d4d4; font-family: monospace;
+                                font-size: 12px; padding: 12px; border-radius: 4px;
+                                border: 1px solid #444;">{{ lang._('Click "Autoroute Log" to load.') }}</pre>
                 </div>
 
                 <div id="logCore" class="tab-pane fade in" style="padding-top: 10px;">

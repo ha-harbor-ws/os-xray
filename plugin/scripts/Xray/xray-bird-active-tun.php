@@ -29,6 +29,53 @@ if (!defined('XRAY_AUTOROUTE_STATE')) {
 if (!defined('XRAY_ACTIVE_TUN_LATENCY')) {
     define('XRAY_ACTIVE_TUN_LATENCY', '/var/run/xray_active_tun_latency.json');
 }
+if (!defined('XRAY_BIRDACTIVETUN_STATUS')) {
+    define('XRAY_BIRDACTIVETUN_STATUS', '/var/run/xray_birdactivetun_status.json');
+}
+
+/**
+ * GUI poll status for async Test auto route (birdactivetun → background "run").
+ *
+ * @param array<string,mixed> $patch
+ */
+function xray_bird_activetun_status_save(array $patch): void
+{
+    $cur = [];
+    if (is_readable(XRAY_BIRDACTIVETUN_STATUS)) {
+        $j = json_decode((string)file_get_contents(XRAY_BIRDACTIVETUN_STATUS), true);
+        if (is_array($j)) {
+            $cur = $j;
+        }
+    }
+    $cur = array_merge($cur, $patch);
+    @file_put_contents(
+        XRAY_BIRDACTIVETUN_STATUS,
+        json_encode($cur, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n"
+    );
+    @chmod(XRAY_BIRDACTIVETUN_STATUS, 0644);
+}
+
+function xray_bird_activetun_status_load(): array
+{
+    if (!is_readable(XRAY_BIRDACTIVETUN_STATUS)) {
+        return [
+            'running' => false,
+            'phase'   => 'idle',
+            'result'  => '',
+            'message' => '',
+        ];
+    }
+    $j = json_decode((string)file_get_contents(XRAY_BIRDACTIVETUN_STATUS), true);
+    if (!is_array($j)) {
+        return [
+            'running' => false,
+            'phase'   => 'idle',
+            'result'  => '',
+            'message' => '',
+        ];
+    }
+    return $j;
+}
 
 /**
  * Persist last probe times + active TUN for Instances grid columns.
@@ -118,15 +165,19 @@ function xray_bird_active_tun_curl(string $listen, int $port, string $ipFlag): a
     }
     $ipFlag = ($ipFlag === '-6') ? '-6' : '-4';
     $proxy = $connectAddr . ':' . $port;
-    $out   = [];
+    // Same idea as Test IF (xray-testconnect.php → 1.1.1.1), but per-family:
+    // -4 uses IPv4 literal; -6 must use IPv6 literal (1.1.1.1 cannot work with -6).
+    $target = ($ipFlag === '-6')
+        ? 'https://[2606:4700:4700::1111]'
+        : 'https://1.1.1.1';
+    $out = [];
     exec(
         '/usr/local/bin/curl ' . $ipFlag
         . ' --socks5 ' . escapeshellarg($proxy)
         . ' -s -L -o /dev/null'
         . ' -w ' . escapeshellarg("Код ответа: %{http_code}\nВремя ответа: %{time_total} сек\n")
-        . ' ' . escapeshellarg('https://google.com')
-        // Keep probes short: Test All × N instances × IPv4/IPv6 must finish under gateway timeout
-        . ' --max-time 5',
+        . ' ' . escapeshellarg($target)
+        . ' --max-time 10',
         $out,
         $rc
     );
@@ -696,6 +747,13 @@ function xray_bird_select_and_write_active_tun(): array
 if (count(debug_backtrace()) === 0) {
     ob_start();
     $mode = $argv[1] ?? '';
+
+    if ($mode === 'status') {
+        ob_end_clean();
+        echo json_encode(xray_bird_activetun_status_load(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+        exit(0);
+    }
+
     // GUI birdactivetun (no args): SOCKS probes × N instances easily exceed nginx 60s → HTTP 504.
     // Schedule the real work and return OK immediately; cron still uses sync "autoroute".
     if ($mode === '') {
@@ -703,15 +761,43 @@ if (count(debug_backtrace()) === 0) {
         if (!is_executable($php)) {
             $php = '/usr/local/bin/php';
         }
-        $cmd = escapeshellarg($php) . ' ' . escapeshellarg(__FILE__) . ' run';
-        exec($cmd . ' >>/tmp/xray_birdactivetun.log 2>&1 &');
-        echo "Auto route started in background (see Boot Log / /tmp/xray_birdactivetun.log)\n";
+        $token = bin2hex(random_bytes(8));
+        $startedAt = time();
+        xray_bird_activetun_status_save([
+            'running'    => true,
+            'phase'      => 'scheduled',
+            'result'     => '',
+            'message'    => 'Auto route running...',
+            'token'      => $token,
+            'started_at' => $startedAt,
+            'finished_at'=> 0,
+            'pid'        => 0,
+        ]);
+        $cmd = escapeshellarg($php) . ' ' . escapeshellarg(__FILE__) . ' run ' . escapeshellarg($token);
+        // Child writes Autoroute Log via xray_autoroute_log_block; avoid duplicate raw redirect.
+        $out = [];
+        exec($cmd . ' >/dev/null 2>&1 & echo $!', $out);
+        $pid = (int)trim((string)($out[0] ?? '0'));
+        if ($pid > 0) {
+            xray_bird_activetun_status_save(['pid' => $pid]);
+        }
         echo "RESULT:OK\n";
         $buf = (string)ob_get_flush();
         if ($buf !== '') {
-            xray_boot_log_block('Auto route (manual scheduled)', $buf);
+            xray_autoroute_log_block('Auto route (manual scheduled)', $buf);
         }
         exit(0);
+    }
+
+    $runToken = '';
+    if ($mode === 'run') {
+        $runToken = (string)($argv[2] ?? '');
+        xray_bird_activetun_status_save([
+            'running' => true,
+            'phase'   => 'running',
+            'message' => 'Auto route running...',
+            'pid'     => getmypid() ?: 0,
+        ]);
     }
 
     $resultOk = true;
@@ -745,6 +831,32 @@ if (count(debug_backtrace()) === 0) {
     $work = (bool)preg_match('/\bpoll \d+\/|finalize|active tun \[|active tun selected:/', $buf);
     if ($buf !== '' && (!$idle || $work)) {
         $title = ($mode === 'autoroute') ? 'Auto route (cron)' : 'Auto route (manual / Test auto route)';
-        xray_boot_log_block($title, $buf);
+        xray_autoroute_log_block($title, $buf);
+    }
+
+    if ($mode === 'run') {
+        $summary = '';
+        if (preg_match('/^active tun selected:.*$/m', $buf, $m)) {
+            $summary = trim($m[0]);
+        } elseif (preg_match('/^active tun: plugin disabled.*$/m', $buf, $m)) {
+            $summary = trim($m[0]);
+        } elseif (preg_match('/^ERROR:.*$/m', $buf, $m)) {
+            $summary = trim($m[0]);
+        }
+        if ($summary === '') {
+            $summary = $resultOk ? 'Auto route OK.' : 'Auto route failed.';
+        }
+        $st = xray_bird_activetun_status_load();
+        // Only finalize if this child still owns the token (ignore superseded runs).
+        if ($runToken === '' || (string)($st['token'] ?? '') === $runToken) {
+            xray_bird_activetun_status_save([
+                'running'     => false,
+                'phase'       => 'done',
+                'result'      => $resultOk ? 'ok' : 'error',
+                'message'     => $summary,
+                'finished_at' => time(),
+                'pid'         => 0,
+            ]);
+        }
     }
 }

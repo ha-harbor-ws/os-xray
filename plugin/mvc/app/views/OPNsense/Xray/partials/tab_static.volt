@@ -36,6 +36,14 @@
         <section class="col-xs-12">
             <div style="padding: 8px 15px; border-bottom: 1px solid #ddd;
                         display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
+                {{ partial('OPNsense/Xray/partials/help_toggle') }}
+            </div>
+        </section>
+    </div>
+
+    <div class="row">
+        <section class="col-xs-12">
+            <div class="xray-block" style="padding: 8px 0;">
                 <label style="margin: 0; font-weight: normal; display: flex; align-items: center; gap: 8px;">
                     <input type="checkbox" id="staticEnabled">
                     <a href="#" class="xray-showhelp" id="help_for_static_enabled">
@@ -43,16 +51,11 @@
                     </a>
                     {{ lang._('Enable static route') }}
                 </label>
-                {{ partial('OPNsense/Xray/partials/help_toggle') }}
+                <div class="hidden" data-for="help_for_static_enabled" style="padding-top: 4px;">
+                    <small class="text-muted">{{ lang._('When enabled, BIRD loads static_v4/static_v6 from *_apply.inc. When disabled, those protocols are removed from BIRD.') }}</small>
+                </div>
             </div>
-            <div class="hidden" data-for="help_for_static_enabled" style="padding: 0 15px 8px;">
-                <small class="text-muted">{{ lang._('When enabled, BIRD loads static_v4/static_v6 from *_apply.inc. When disabled, those protocols are removed from BIRD.') }}</small>
-            </div>
-        </section>
-    </div>
 
-    <div class="row">
-        <section class="col-xs-12">
             <div class="xray-block">
                 <table class="table table-condensed table-hover table-striped">
                     <thead>

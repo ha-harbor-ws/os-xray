@@ -166,6 +166,18 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
+     * POST-only — Auto route / Test auto route log.
+     */
+    public function autoroutelogAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+        $output = (new Backend())->configdRun('xray autoroutelog');
+        return ['log' => $output];
+    }
+
+    /**
      * BUG-5 FIX: POST-only.
      */
     public function xraylogAction($uuid = '')
@@ -317,6 +329,7 @@ class ServiceController extends ApiMutableServiceControllerBase
     /**
      * POST /api/xray/service/birdactivetun — ручной one-shot Auto route
      * (только enabled + живые процессы; без cron-интервала).
+     * Returns immediately; poll birdactivetunstatus until finished.
      */
     public function birdactivetunAction()
     {
@@ -336,9 +349,37 @@ class ServiceController extends ApiMutableServiceControllerBase
             || stripos($output, 'auto route:') !== false) {
             $failed = false;
         }
+        $token = '';
+        $statusRaw = trim((string)(new Backend())->configdRun('xray birdactivetunstatus'));
+        $status = json_decode($statusRaw, true);
+        if (is_array($status) && !empty($status['token'])) {
+            $token = (string)$status['token'];
+        }
         return [
             'result'  => $failed ? 'failed' : 'ok',
-            'message' => $output !== '' ? $output : 'No response from configd',
+            'message' => $failed
+                ? ($output !== '' ? $output : 'No response from configd')
+                : 'Auto route running...',
+            'token'   => $token,
+            'async'   => !$failed,
+        ];
+    }
+
+    /**
+     * GET /api/xray/service/birdactivetunstatus — async Test auto route progress.
+     */
+    public function birdactivetunstatusAction()
+    {
+        $raw = trim((string)(new Backend())->configdRun('xray birdactivetunstatus'));
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+        return [
+            'running' => false,
+            'phase'   => 'idle',
+            'result'  => '',
+            'message' => $raw !== '' ? $raw : '',
         ];
     }
 
