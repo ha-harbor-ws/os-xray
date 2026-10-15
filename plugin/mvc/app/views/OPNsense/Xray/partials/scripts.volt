@@ -2084,40 +2084,57 @@
             });
         });
 
-        // ── Tab selection (left menu uses /ui/xray/?tab=…; in-page uses #…) ──
-        // Hash-only menu URLs all match the same path server-side (hash stripped),
-        // so every L3 item got .active (theme brand red/orange). Use ?tab= instead.
-        function xrayTabFromLocation() {
-            try {
-                var q = new URLSearchParams(window.location.search || '');
-                var tab = String(q.get('tab') || '').replace(/^#/, '');
-                if (tab) {
-                    return tab;
-                }
-            } catch (e) {}
-            var hash = String(window.location.hash || '').replace(/^#/, '');
-            if (hash === 'routing') {
-                return 'routing-peers';
+        // ── Tab selection ──
+        // Left menu uses /ui/xray/page/show/<tab> (path stays in REQUEST_URI so
+        // OPNsense keeps VPN→Xray expanded). Legacy ?tab= / #hash still work.
+        var xrayInitialTab = '{{ xrayInitialTab|default("instances") }}';
+
+        function xrayTabFromHref(href) {
+            href = String(href || '');
+            var m = href.match(/\/ui\/xray\/page\/show\/([^\/?#]+)/);
+            if (m) {
+                return decodeURIComponent(m[1]);
             }
-            return hash || 'instances';
+            m = href.match(/[?&]tab=([^&#]+)/);
+            if (m) {
+                return decodeURIComponent(m[1]);
+            }
+            m = href.match(/#([^?]+)/);
+            if (m) {
+                return m[1];
+            }
+            return '';
+        }
+
+        function xrayTabFromLocation() {
+            var tab = xrayTabFromHref(window.location.pathname + window.location.search + window.location.hash);
+            if (tab) {
+                if (tab === 'routing') {
+                    return 'routing-peers';
+                }
+                return tab;
+            }
+            if (xrayInitialTab) {
+                return String(xrayInitialTab);
+            }
+            return 'instances';
+        }
+
+        function xrayEnsureLeftMenuOpen() {
+            $('#mainmenu a.list-group-item[href*="/ui/xray"]').each(function () {
+                $(this).parents('.collapse').addClass('in').css({height: 'auto'});
+                $(this).parents('li').children('a.active-menu-title, a.list-group-item').first()
+                    .addClass('active-menu-title');
+            });
         }
 
         function xraySyncLeftMenu(tab) {
             tab = String(tab || '').replace(/^#/, '');
             $('#mainmenu a.list-group-item[href*="/ui/xray"]').each(function () {
-                var href = String($(this).attr('href') || '');
-                var item = '';
-                var m = href.match(/[?&]tab=([^&#]+)/);
-                if (m) {
-                    item = decodeURIComponent(m[1]);
-                } else {
-                    m = href.match(/#([^?]+)/);
-                    if (m) {
-                        item = m[1];
-                    }
-                }
+                var item = xrayTabFromHref($(this).attr('href'));
                 $(this).toggleClass('active', item !== '' && item === tab);
             });
+            xrayEnsureLeftMenuOpen();
         }
 
         function xrayActivateTab(tab) {
@@ -2137,18 +2154,28 @@
             if (!tab || !window.history || !window.history.replaceState) {
                 return;
             }
-            try {
-                var url = new URL(window.location.href);
-                url.searchParams.set('tab', tab);
-                url.hash = '';
-                history.replaceState(null, null, url.pathname + url.search);
-            } catch (e) {
-                history.replaceState(null, null, '?tab=' + encodeURIComponent(tab));
-            }
+            history.replaceState(null, null, '/ui/xray/page/show/' + encodeURIComponent(tab));
         }
+
+        // Switch tabs via left menu without full reload (avoids sidebar collapse flash)
+        $(document).on('click', '#mainmenu a.list-group-item[href*="/ui/xray"]', function (e) {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.which === 2) {
+                return;
+            }
+            var tab = xrayTabFromHref($(this).attr('href'));
+            if (!tab || !$('#maintabs a[data-toggle="tab"][href="#' + tab + '"]').length) {
+                return;
+            }
+            e.preventDefault();
+            xrayActivateTab(tab);
+            xrayReplaceTabUrl(tab);
+        });
 
         xrayActivateTab(xrayTabFromLocation());
         $(window).on('hashchange', function () {
+            xrayActivateTab(xrayTabFromLocation());
+        });
+        $(window).on('popstate', function () {
             xrayActivateTab(xrayTabFromLocation());
         });
         $('.nav-tabs a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
