@@ -5,6 +5,7 @@ require_once('config.inc');
 require_once(__DIR__ . '/xray-bird-peers.php');
 require_once(__DIR__ . '/xray-bird-active-tun.php');
 require_once(__DIR__ . '/xray-dnstap-unbound.php');
+require_once(__DIR__ . '/xray-static-conf.php');
 
 // ─── Shared constants (not per-instance) ─────────────────────────────────────
 define('XRAY_BIN',          '/usr/local/bin/xray-core');
@@ -814,10 +815,28 @@ function xray_bird_gated_start(string $verb): bool
     return true;
 }
 
+/** Sync BIRD static_v4/v6 protocols from general.static_enabled. */
+function xray_static_apply_general(): void
+{
+    if (!function_exists('xray_static_write_protocols_inc')) {
+        echo "static: write helper missing\n";
+        return;
+    }
+    $on = function_exists('xray_static_enabled') && xray_static_enabled();
+    xray_static_write_protocols_inc($on);
+    if (function_exists('xray_bird_reload_config')) {
+        xray_bird_reload_config();
+    } elseif (function_exists('xray_static_bird_reload')) {
+        xray_static_bird_reload();
+    }
+    echo 'static: protocols ' . ($on ? 'enabled' : 'disabled') . "\n";
+}
+
 /** General Apply: Enable BGP → выбор TUN и старт; иначе останов. */
 function xray_bird_apply_general_bgp(): void
 {
     xray_bird_write_peers();
+    xray_static_apply_general();
     if (!xray_bgp_enabled()) {
         xray_sysrc_bird_enable(false);
         xray_bird_service('stop');
@@ -848,6 +867,9 @@ function xray_bird_hold(): void
 function xray_bird_sync(): void
 {
     xray_bird_write_peers();
+    if (function_exists('xray_static_write_protocols_inc')) {
+        xray_static_write_protocols_inc();
+    }
     $sel = xray_bird_select_and_write_active_tun();
     if (!empty($sel['changed'])) {
         xray_bird_active_tun_configure();

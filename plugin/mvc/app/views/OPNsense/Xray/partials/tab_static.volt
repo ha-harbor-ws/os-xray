@@ -12,6 +12,21 @@
             padding: 4px 8px;
             font-size: 13px;
         }
+        #routing-static .static-row-edit .static-url-fetch {
+            flex-shrink: 0;
+            min-width: 28px;
+            padding: 2px 6px;
+        }
+        #routing-static .static-row-edit .static-url-enable {
+            flex-shrink: 0;
+            margin: 0;
+            font-weight: normal;
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+        }
         #routing-static .xray-block {
             margin-bottom: 8px;
         }
@@ -21,7 +36,17 @@
         <section class="col-xs-12">
             <div style="padding: 8px 15px; border-bottom: 1px solid #ddd;
                         display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
+                <label style="margin: 0; font-weight: normal; display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="staticEnabled">
+                    <a href="#" class="xray-showhelp" id="help_for_static_enabled">
+                        <i class="fa fa-info-circle"></i>
+                    </a>
+                    {{ lang._('Enable static route') }}
+                </label>
                 {{ partial('OPNsense/Xray/partials/help_toggle') }}
+            </div>
+            <div class="hidden" data-for="help_for_static_enabled" style="padding: 0 15px 8px;">
+                <small class="text-muted">{{ lang._('When enabled, BIRD loads static_v4/static_v6 from *_apply.inc. When disabled, those protocols are removed from BIRD.') }}</small>
             </div>
         </section>
     </div>
@@ -58,7 +83,7 @@
                     </tfoot>
                 </table>
                 <div class="hidden" data-for="help_for_static_proxy_urls" style="padding: 8px 0 0;">
-                    <small class="text-muted">{{ lang._('HTTP(S) links to PROXY IP/CIDR lists. Apply writes intermediate routes_static_v*_PROXY.inc and rebuilds *_apply.inc (via ACTIVE_TUN*_IF).') }}</small>
+                    <small class="text-muted">{{ lang._('HTTP(S) PROXY IP/CIDR lists. ✔ downloads and caches this URL. Enable includes cached data in BIRD. Apply saves URLs and rebuilds from enabled caches only.') }}</small>
                 </div>
             </div>
 
@@ -92,7 +117,7 @@
                     </tfoot>
                 </table>
                 <div class="hidden" data-for="help_for_static_direct_urls" style="padding: 8px 0 0;">
-                    <small class="text-muted">{{ lang._('HTTP(S) links to DIRECT IP/CIDR lists. Apply writes intermediate routes_static_v*_DIRECT.inc and rebuilds *_apply.inc (via IPv4_GATEWAY / IPv6_GATEWAY).') }}</small>
+                    <small class="text-muted">{{ lang._('HTTP(S) DIRECT IP/CIDR lists. ✔ downloads and caches; Enable applies cache to BIRD (via IPv4_GATEWAY / IPv6_GATEWAY).') }}</small>
                 </div>
             </div>
 
@@ -126,7 +151,7 @@
                     </tfoot>
                 </table>
                 <div class="hidden" data-for="help_for_static_block_urls" style="padding: 8px 0 0;">
-                    <small class="text-muted">{{ lang._('HTTP(S) links to BLOCK IP/CIDR lists. Apply writes intermediate routes_static_v*_BLOCK.inc and rebuilds *_apply.inc (blackhole).') }}</small>
+                    <small class="text-muted">{{ lang._('HTTP(S) BLOCK IP/CIDR lists. ✔ downloads and caches; Enable applies cache to BIRD (blackhole).') }}</small>
                 </div>
             </div>
 
@@ -163,7 +188,7 @@
                     </tfoot>
                 </table>
                 <div class="hidden" data-for="help_for_static_geodat_urls" style="padding: 8px 0 0;">
-                    <small class="text-muted">{{ lang._('HTTP(S) links to geoip.dat. Assign categories to PROXY/DIRECT/BLOCK; Apply writes *_geodat.inc sources and rebuilds *_apply.inc.') }}</small>
+                    <small class="text-muted">{{ lang._('HTTP(S) geoip.dat. ✔ caches the file; Enable + Category assignments feed *_geodat.inc. Daily refresh updates only enabled URLs.') }}</small>
                 </div>
             </div>
         </section>

@@ -2,19 +2,23 @@
 <model>
     <mount>//OPNsense/xray/general</mount>
     <description>Xray General Settings</description>
-    <version>1.0.8</version>
+    <version>1.0.9</version>
     <items>
         <enabled type="BooleanField">
-            <default>0</default>
+            <Default>0</Default>
             <Required>N</Required>
         </enabled>
+        <static_enabled type="BooleanField">
+            <Default>0</Default>
+            <Required>N</Required>
+        </static_enabled>
         <!-- E1: watchdog — автоперезапуск через cron при падении xray-core или tun2socks -->
         <watchdog_enabled type="BooleanField">
-            <default>0</default>
+            <Default>0</Default>
             <Required>N</Required>
         </watchdog_enabled>
         <bgp_enabled type="BooleanField">
-            <default>0</default>
+            <Default>0</Default>
             <Required>N</Required>
         </bgp_enabled>
         <bgp_if_wan4 type="TextField">
@@ -30,19 +34,19 @@
             <ValidationMessage>WAN6 must be a FreeBSD interface name (e.g. igc3).</ValidationMessage>
         </bgp_if_wan6>
         <dnstap_bgp_enabled type="BooleanField">
-            <default>0</default>
+            <Default>0</Default>
             <Required>N</Required>
         </dnstap_bgp_enabled>
         <bgp_auto_route type="BooleanField">
-            <default>0</default>
+            <Default>0</Default>
             <Required>N</Required>
         </bgp_auto_route>
         <bgp_weight_used_ipv4 type="BooleanField">
-            <default>0</default>
+            <Default>0</Default>
             <Required>N</Required>
         </bgp_weight_used_ipv4>
         <bgp_weight_used_ipv6 type="BooleanField">
-            <default>0</default>
+            <Default>0</Default>
             <Required>N</Required>
         </bgp_weight_used_ipv6>
         <bgp_auto_route_polls type="IntegerField">

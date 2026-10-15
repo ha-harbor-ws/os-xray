@@ -546,23 +546,26 @@ class ServiceController extends ApiMutableServiceControllerBase
         $directUrls = $this->request->getPost('direct_urls');
         $blockUrls  = $this->request->getPost('block_urls');
         $geodatUrls = $this->request->getPost('geodat_urls');
-        if ($proxyUrls === null && $directUrls === null && $blockUrls === null && $geodatUrls === null) {
+        $enabled    = $this->request->getPost('enabled');
+        if ($proxyUrls === null && $directUrls === null && $blockUrls === null && $geodatUrls === null && $enabled === null) {
             $json = $this->request->getJsonRawBody();
             if (is_object($json)) {
                 $proxyUrls  = $json->proxy_urls ?? null;
                 $directUrls = $json->direct_urls ?? null;
                 $blockUrls  = $json->block_urls ?? null;
                 $geodatUrls = $json->geodat_urls ?? null;
+                $enabled    = $json->enabled ?? null;
             } elseif (is_array($json)) {
                 $proxyUrls  = $json['proxy_urls'] ?? null;
                 $directUrls = $json['direct_urls'] ?? null;
                 $blockUrls  = $json['block_urls'] ?? null;
                 $geodatUrls = $json['geodat_urls'] ?? null;
+                $enabled    = $json['enabled'] ?? null;
             }
         }
 
         // SimpleActionButton may call this endpoint again after onPreAction with an empty body.
-        if ($proxyUrls === null && $directUrls === null && $blockUrls === null && $geodatUrls === null) {
+        if ($proxyUrls === null && $directUrls === null && $blockUrls === null && $geodatUrls === null && $enabled === null) {
             return ['result' => 'ok', 'message' => 'Nothing to write'];
         }
 
@@ -579,6 +582,7 @@ class ServiceController extends ApiMutableServiceControllerBase
 
         $staged = '/tmp/xray_static_write.json';
         $payload = json_encode([
+            'enabled'     => $enabled,
             'proxy_urls'  => $decodeRows($proxyUrls),
             'direct_urls' => $decodeRows($directUrls),
             'block_urls'  => $decodeRows($blockUrls),
@@ -596,6 +600,53 @@ class ServiceController extends ApiMutableServiceControllerBase
         return [
             'result'  => $failed ? 'failed' : 'ok',
             'message' => $output !== '' ? $output : 'No response from configd',
+        ];
+    }
+
+    /**
+     * POST /api/xray/service/staticfetchone — ✔ download one Static URL into cache and save it.
+     */
+    public function staticfetchoneAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+
+        $kind = $this->request->getPost('kind');
+        $url = $this->request->getPost('url');
+        $enabled = $this->request->getPost('enabled');
+        if ($kind === null && $url === null) {
+            $json = $this->request->getJsonRawBody();
+            if (is_object($json)) {
+                $kind = $json->kind ?? null;
+                $url = $json->url ?? null;
+                $enabled = $json->enabled ?? null;
+            } elseif (is_array($json)) {
+                $kind = $json['kind'] ?? null;
+                $url = $json['url'] ?? null;
+                $enabled = $json['enabled'] ?? null;
+            }
+        }
+
+        $staged = '/tmp/xray_static_fetchone.json';
+        $payload = json_encode([
+            'kind'    => is_string($kind) ? $kind : (string)$kind,
+            'url'     => is_string($url) ? $url : (string)$url,
+            'enabled' => $enabled,
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($payload === false || file_put_contents($staged, $payload) === false) {
+            return ['result' => 'failed', 'message' => 'Cannot stage static fetchone'];
+        }
+        @chmod($staged, 0600);
+
+        $raw = trim((string)(new Backend())->configdRun('xray staticfetchone'));
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+        return [
+            'result'  => (stripos($raw, 'failed') !== false || stripos($raw, 'ERROR') !== false) ? 'failed' : 'ok',
+            'message' => $raw !== '' ? $raw : 'No response from configd',
         ];
     }
 

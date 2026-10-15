@@ -11,6 +11,8 @@
  *
  *   xray-static-conf.php get
  *   xray-static-conf.php write
+ *   xray-static-conf.php fetchone   — ✔: download one URL into cache
+ *   xray-static-conf.php fetch      — daily: refresh enabled URL caches
  *   xray-static-conf.php geodatcats
  */
 
@@ -24,14 +26,21 @@ require_once __DIR__ . '/xray-dnstap-geosite.php';
 require_once __DIR__ . '/xray-static-geoip.php';
 
 const XRAY_STATIC_STAGED = '/tmp/xray_static_write.json';
+const XRAY_STATIC_FETCHONE_STAGED = '/tmp/xray_static_fetchone.json';
 const XRAY_STATIC_GEODAT_STAGED = '/tmp/xray_static_geodat.json';
 const XRAY_STATIC_MAX_BODY = 67108864;
 const XRAY_STATIC_BIRD_DIR = '/usr/local/etc/bird';
+const XRAY_STATIC_CACHE_DIR = '/usr/local/etc/bird/static-cache';
 const XRAY_STATIC_FILES = [
-    'proxy_urls'       => '/usr/local/etc/bird/static-proxy-urls.txt',
-    'direct_urls'      => '/usr/local/etc/bird/static-direct-urls.txt',
-    'block_urls'       => '/usr/local/etc/bird/static-block-urls.txt',
-    'geodat_urls'      => '/usr/local/etc/bird/static-geodat-urls.txt',
+    'proxy_urls'       => '/usr/local/etc/bird/static-proxy-urls.json',
+    'direct_urls'      => '/usr/local/etc/bird/static-direct-urls.json',
+    'block_urls'       => '/usr/local/etc/bird/static-block-urls.json',
+    'geodat_urls'      => '/usr/local/etc/bird/static-geodat-urls.json',
+    // legacy plain-text lists (migrated on read)
+    'proxy_urls_txt'   => '/usr/local/etc/bird/static-proxy-urls.txt',
+    'direct_urls_txt'  => '/usr/local/etc/bird/static-direct-urls.txt',
+    'block_urls_txt'   => '/usr/local/etc/bird/static-block-urls.txt',
+    'geodat_urls_txt'  => '/usr/local/etc/bird/static-geodat-urls.txt',
     'v4_proxy'         => '/usr/local/etc/bird/routes_static_v4_PROXY.inc',
     'v4_direct'        => '/usr/local/etc/bird/routes_static_v4_DIRECT.inc',
     'v4_block'         => '/usr/local/etc/bird/routes_static_v4_BLOCK.inc',
@@ -46,6 +55,7 @@ const XRAY_STATIC_FILES = [
     'v6_block_geodat'  => '/usr/local/etc/bird/routes_static_v6_BLOCK_geodat.inc',
     'v4_apply'         => '/usr/local/etc/bird/routes_static_v4_apply.inc',
     'v6_apply'         => '/usr/local/etc/bird/routes_static_v6_apply.inc',
+    'protocols'        => '/usr/local/etc/bird/static_protocols.inc',
 ];
 
 /** Intermediate prefix sources per family → keys in XRAY_STATIC_FILES */
@@ -83,6 +93,22 @@ function xray_static_write_file(string $path, string $body): bool
     return true;
 }
 
+function xray_static_row_enabled($row): bool
+{
+    if (!is_array($row)) {
+        return false;
+    }
+    if (!array_key_exists('enabled', $row)) {
+        return true; // legacy rows without flag
+    }
+    $v = $row['enabled'];
+    if (is_bool($v)) {
+        return $v;
+    }
+    $s = strtolower(trim((string)$v));
+    return $s === '1' || $s === 'on' || $s === 'true' || $s === 'yes';
+}
+
 function xray_static_rows_from_post($raw): array
 {
     if (is_array($raw)) {
@@ -91,12 +117,23 @@ function xray_static_rows_from_post($raw): array
             if (!is_array($item)) {
                 continue;
             }
+            if (isset($item['url']) && !isset($item['value'])) {
+                $item['value'] = $item['url'];
+            }
             if (isset($item['key'])) {
-                $rows[] = ['key' => (string)$item['key'], 'value' => (string)($item['value'] ?? '')];
+                $rows[] = [
+                    'key'     => (string)$item['key'],
+                    'value'   => (string)($item['value'] ?? ''),
+                    'enabled' => xray_static_row_enabled($item) ? '1' : '0',
+                ];
                 continue;
             }
             if (isset($item['name'])) {
-                $rows[] = ['key' => (string)$item['name'], 'value' => (string)($item['action'] ?? $item['value'] ?? '')];
+                $rows[] = [
+                    'key'     => (string)$item['name'],
+                    'value'   => (string)($item['action'] ?? $item['value'] ?? ''),
+                    'enabled' => xray_static_row_enabled($item) ? '1' : '0',
+                ];
             }
         }
         return $rows;
@@ -110,7 +147,7 @@ function xray_static_rows_from_post($raw): array
     return [];
 }
 
-function xray_static_parse_urls(string $text): array
+function xray_static_parse_urls_txt(string $text): array
 {
     $rows = [];
     foreach (preg_split("/\r\n|\n|\r/", $text) as $line) {
@@ -121,32 +158,66 @@ function xray_static_parse_urls(string $text): array
         if (!preg_match('#^https?://#i', $u)) {
             continue;
         }
-        $rows[] = ['key' => 'url', 'value' => $u];
+        $rows[] = ['key' => 'url', 'value' => $u, 'enabled' => '1'];
     }
     return $rows;
 }
 
-function xray_static_render_urls(array $rows): string
+/** @return array<int,array{key:string,value:string,enabled:string}> */
+function xray_static_load_url_rows(string $kind): array
 {
-    $lines = ['# os-xray Static IP list URLs (one URL per line)'];
-    $seen = [];
-    foreach ($rows as $row) {
-        $u = trim((string)($row['value'] ?? ''));
-        if ($u === '' || !preg_match('#^https?://#i', $u) || isset($seen[$u])) {
-            continue;
+    $jsonKey = $kind . '_urls';
+    $txtKey  = $kind . '_urls_txt';
+    $jsonPath = XRAY_STATIC_FILES[$jsonKey] ?? '';
+    $txtPath  = XRAY_STATIC_FILES[$txtKey] ?? '';
+    if ($jsonPath !== '' && is_readable($jsonPath)) {
+        $j = json_decode(xray_static_read_file($jsonPath), true);
+        if (is_array($j)) {
+            return xray_static_rows_from_post($j);
         }
-        $seen[$u] = true;
-        $lines[] = $u;
     }
-    return implode("\n", $lines) . "\n";
+    if ($txtPath !== '' && is_readable($txtPath)) {
+        return xray_static_parse_urls_txt(xray_static_read_file($txtPath));
+    }
+    return [];
 }
 
-function xray_static_url_list(array $rows): array
+function xray_static_render_urls_json(array $rows): string
 {
     $out = [];
     $seen = [];
     foreach ($rows as $row) {
-        $u = trim((string)($row['value'] ?? ''));
+        $u = trim((string)($row['value'] ?? $row['url'] ?? ''));
+        if ($u === '' || !preg_match('#^https?://#i', $u) || isset($seen[$u])) {
+            continue;
+        }
+        $seen[$u] = true;
+        $out[] = [
+            'url'     => $u,
+            'enabled' => xray_static_row_enabled($row),
+        ];
+    }
+    return json_encode($out, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n";
+}
+
+function xray_static_save_url_rows(string $kind, array $rows): void
+{
+    $jsonKey = $kind . '_urls';
+    if (!isset(XRAY_STATIC_FILES[$jsonKey])) {
+        return;
+    }
+    xray_static_write_file(XRAY_STATIC_FILES[$jsonKey], xray_static_render_urls_json($rows));
+}
+
+function xray_static_url_list(array $rows, bool $enabledOnly = false): array
+{
+    $out = [];
+    $seen = [];
+    foreach ($rows as $row) {
+        if ($enabledOnly && !xray_static_row_enabled($row)) {
+            continue;
+        }
+        $u = trim((string)($row['value'] ?? $row['url'] ?? ''));
         if ($u === '' || !preg_match('#^https?://#i', $u) || isset($seen[$u])) {
             continue;
         }
@@ -156,9 +227,60 @@ function xray_static_url_list(array $rows): array
     return $out;
 }
 
-function xray_static_has_urls(array $rows): bool
+function xray_static_has_urls(array $rows, bool $enabledOnly = false): bool
 {
-    return xray_static_url_list($rows) !== [];
+    return xray_static_url_list($rows, $enabledOnly) !== [];
+}
+
+function xray_static_url_id(string $url): string
+{
+    return sha1(strtolower(rtrim(trim($url), '/')));
+}
+
+function xray_static_cache_path(string $kind, string $url): string
+{
+    $kind = preg_replace('/[^a-z]/', '', strtolower($kind)) ?: 'proxy';
+    $ext = ($kind === 'geodat') ? '.dat' : '.txt';
+    return XRAY_STATIC_CACHE_DIR . '/' . $kind . '/' . xray_static_url_id($url) . $ext;
+}
+
+function xray_static_cache_write(string $kind, string $url, string $body): bool
+{
+    return xray_static_write_file(xray_static_cache_path($kind, $url), $body);
+}
+
+function xray_static_cache_read(string $kind, string $url): string
+{
+    return xray_static_read_file(xray_static_cache_path($kind, $url));
+}
+
+function xray_static_upsert_url_row(array $rows, string $url, ?bool $enabled = null): array
+{
+    $url = trim($url);
+    $found = false;
+    foreach ($rows as &$row) {
+        $u = trim((string)($row['value'] ?? $row['url'] ?? ''));
+        if (strcasecmp($u, $url) === 0) {
+            $row['key'] = 'url';
+            $row['value'] = $url;
+            if ($enabled !== null) {
+                $row['enabled'] = $enabled ? '1' : '0';
+            } elseif (!isset($row['enabled'])) {
+                $row['enabled'] = '0';
+            }
+            $found = true;
+            break;
+        }
+    }
+    unset($row);
+    if (!$found) {
+        $rows[] = [
+            'key'     => 'url',
+            'value'   => $url,
+            'enabled' => ($enabled === null) ? '0' : ($enabled ? '1' : '0'),
+        ];
+    }
+    return $rows;
 }
 
 function xray_static_fetch_url(string $url): string
@@ -367,6 +489,72 @@ function xray_static_render_apply(string $family, array $proxy, array $direct, a
     return implode("\n", $lines) . "\n";
 }
 
+function xray_static_enabled(): bool
+{
+    try {
+        $cfg = \OPNsense\Core\Config::getInstance()->object();
+        $v = strtolower(trim((string)($cfg->OPNsense->xray->general->static_enabled ?? '0')));
+        return $v === '1' || $v === 'on' || $v === 'true' || $v === 'yes';
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+function xray_static_set_enabled(bool $on): void
+{
+    try {
+        $cnf = \OPNsense\Core\Config::getInstance();
+        $cfg = $cnf->object();
+        if (!isset($cfg->OPNsense)) {
+            $cfg->addChild('OPNsense');
+        }
+        if (!isset($cfg->OPNsense->xray)) {
+            $cfg->OPNsense->addChild('xray');
+        }
+        if (!isset($cfg->OPNsense->xray->general)) {
+            $cfg->OPNsense->xray->addChild('general');
+        }
+        $g = $cfg->OPNsense->xray->general;
+        $val = $on ? '1' : '0';
+        if (!isset($g->static_enabled)) {
+            $g->addChild('static_enabled', $val);
+        } else {
+            $g->static_enabled = $val;
+        }
+        $cnf->save();
+        if (method_exists($cnf, 'forceReload')) {
+            $cnf->forceReload();
+        }
+    } catch (\Throwable $e) {
+        echo 'WARN: cannot save static_enabled: ' . $e->getMessage() . "\n";
+    }
+}
+
+/**
+ * Write static_protocols.inc: protocol blocks when enabled, comment stub when off.
+ */
+function xray_static_write_protocols_inc(?bool $enabled = null): void
+{
+    if ($enabled === null) {
+        $enabled = xray_static_enabled();
+    }
+    if ($enabled) {
+        $body = "# generated by os-xray — Enable static route is on\n"
+            . "protocol static static_v4 {\n"
+            . "    ipv4;\n"
+            . "include \"/usr/local/etc/bird/routes_static_v4_apply.inc\";\n"
+            . "}\n"
+            . "\n"
+            . "protocol static static_v6 {\n"
+            . "    ipv6;\n"
+            . "include \"/usr/local/etc/bird/routes_static_v6_apply.inc\";\n"
+            . "}\n";
+    } else {
+        $body = "# static routes disabled (Enable static route on Static tab)\n";
+    }
+    xray_static_write_file(XRAY_STATIC_FILES['protocols'], $body);
+}
+
 /**
  * Rebuild final *_apply.inc from all intermediate prefix sources.
  *
@@ -389,7 +577,7 @@ function xray_static_build_apply(string $family): array
 
 function xray_static_geodat_id(string $url): string
 {
-    return sha1(strtolower(rtrim(trim($url), '/')));
+    return xray_static_url_id($url);
 }
 
 function xray_static_geodat_cat_dir(): string
@@ -409,7 +597,7 @@ function xray_static_geodat_assign_for_url(string $url): array
 
 function xray_static_geodat_has_any_assign(array $urlRows): bool
 {
-    foreach (xray_static_url_list($urlRows) as $url) {
+    foreach (xray_static_url_list($urlRows, true) as $url) {
         if (xray_static_geodat_assign_for_url($url) !== []) {
             return true;
         }
@@ -418,9 +606,40 @@ function xray_static_geodat_has_any_assign(array $urlRows): bool
 }
 
 /**
- * @return array{proxy4:string[],proxy6:string[],direct4:string[],direct6:string[],block4:string[],block6:string[],fetched:int,failed:string[]}
+ * Merge prefix caches for enabled list URLs of one kind.
+ *
+ * @return array{v4:array<string,true>,v6:array<string,true>,used:int,missing:string[]}
  */
-function xray_static_geoip_sets(array $urlRows): array
+function xray_static_prefixes_from_caches(string $kind, array $urlRows): array
+{
+    $v4 = [];
+    $v6 = [];
+    $used = 0;
+    $missing = [];
+    foreach (xray_static_url_list($urlRows, true) as $url) {
+        $body = xray_static_cache_read($kind, $url);
+        if ($body === '') {
+            $missing[] = $url;
+            continue;
+        }
+        $used++;
+        $parsed = xray_static_parse_prefix_text($body);
+        foreach ($parsed['v4'] as $c => $_) {
+            $v4[$c] = true;
+        }
+        foreach ($parsed['v6'] as $c => $_) {
+            $v6[$c] = true;
+        }
+    }
+    return ['v4' => $v4, 'v6' => $v6, 'used' => $used, 'missing' => $missing];
+}
+
+/**
+ * Build geodat prefix sets from enabled URL caches + category assignments.
+ *
+ * @return array{proxy4:string[],proxy6:string[],direct4:string[],direct6:string[],block4:string[],block6:string[],used:int,missing:string[]}
+ */
+function xray_static_geoip_from_caches(array $urlRows): array
 {
     $proxy4 = [];
     $proxy6 = [];
@@ -428,19 +647,19 @@ function xray_static_geoip_sets(array $urlRows): array
     $direct6 = [];
     $block4 = [];
     $block6 = [];
-    $fetched = 0;
-    $failed = [];
-    foreach (xray_static_url_list($urlRows) as $url) {
+    $used = 0;
+    $missing = [];
+    foreach (xray_static_url_list($urlRows, true) as $url) {
         $assign = xray_static_geodat_assign_for_url($url);
         if ($assign === []) {
             continue;
         }
-        $body = xray_static_fetch_url($url);
+        $body = xray_static_cache_read('geodat', $url);
         if ($body === '') {
-            $failed[] = $url;
+            $missing[] = $url;
             continue;
         }
-        $fetched++;
+        $used++;
         $cats = xray_geoip_parse_dat($body);
         $col = xray_geoip_collect_prefixes($cats, $assign);
         foreach ($col['proxy4'] as $c) {
@@ -469,36 +688,74 @@ function xray_static_geoip_sets(array $urlRows): array
         'direct6' => array_keys($direct6),
         'block4'  => array_keys($block4),
         'block6'  => array_keys($block6),
-        'fetched' => $fetched,
-        'failed'  => $failed,
+        'used'    => $used,
+        'missing' => $missing,
     ];
 }
 
 /**
- * @return array{v4:array<string,true>,v6:array<string,true>,fetched:int,failed:string[]}
+ * Download one URL into cache. For list kinds stores normalized prefix text.
+ *
+ * @return array{ok:bool,message:string,count:int}
  */
-function xray_static_fetch_prefix_urls(array $urlRows): array
+function xray_static_download_to_cache(string $kind, string $url): array
 {
-    $v4 = [];
-    $v6 = [];
+    $kind = strtolower($kind);
+    if (!in_array($kind, ['proxy', 'direct', 'block', 'geodat'], true)) {
+        return ['ok' => false, 'message' => 'Invalid kind', 'count' => 0];
+    }
+    $body = xray_static_fetch_url($url);
+    if ($body === '') {
+        return ['ok' => false, 'message' => 'Download failed', 'count' => 0];
+    }
+    if ($kind === 'geodat') {
+        $cats = xray_geoip_parse_dat($body);
+        if ($cats === []) {
+            return ['ok' => false, 'message' => 'No geoip categories found (expect geoip.dat)', 'count' => 0];
+        }
+        xray_static_cache_write('geodat', $url, $body);
+        return ['ok' => true, 'message' => 'OK', 'count' => count($cats)];
+    }
+    $parsed = xray_static_parse_prefix_text($body);
+    $all = array_merge(array_keys($parsed['v4']), array_keys($parsed['v6']));
+    if ($all === []) {
+        return ['ok' => false, 'message' => 'No IPv4/IPv6 prefixes found', 'count' => 0];
+    }
+    xray_static_cache_write($kind, $url, xray_static_render_prefix_list($all));
+    return ['ok' => true, 'message' => 'OK', 'count' => count($all)];
+}
+
+/**
+ * Re-fetch all enabled URLs into cache.
+ *
+ * @return array{fetched:int,failed:string[]}
+ */
+function xray_static_fetch_enabled_caches(
+    array $proxyUrls,
+    array $directUrls,
+    array $blockUrls,
+    array $geodatUrls
+): array {
     $fetched = 0;
     $failed = [];
-    foreach (xray_static_url_list($urlRows) as $url) {
-        $body = xray_static_fetch_url($url);
-        if ($body === '') {
-            $failed[] = $url;
-            continue;
-        }
-        $fetched++;
-        $parsed = xray_static_parse_prefix_text($body);
-        foreach ($parsed['v4'] as $c => $_) {
-            $v4[$c] = true;
-        }
-        foreach ($parsed['v6'] as $c => $_) {
-            $v6[$c] = true;
+    foreach (
+        [
+            'proxy'  => $proxyUrls,
+            'direct' => $directUrls,
+            'block'  => $blockUrls,
+            'geodat' => $geodatUrls,
+        ] as $kind => $rows
+    ) {
+        foreach (xray_static_url_list($rows, true) as $url) {
+            $r = xray_static_download_to_cache($kind, $url);
+            if ($r['ok']) {
+                $fetched++;
+            } else {
+                $failed[] = $url;
+            }
         }
     }
-    return ['v4' => $v4, 'v6' => $v6, 'fetched' => $fetched, 'failed' => $failed];
+    return ['fetched' => $fetched, 'failed' => $failed];
 }
 
 function xray_static_bird_reload(): void
@@ -522,9 +779,9 @@ function xray_static_bird_reload(): void
 }
 
 /**
- * Fetch URL/geodat sources into intermediate .inc, then rebuild *_apply.inc.
+ * Rebuild intermediate + apply.inc from caches of enabled URLs only (no download).
  *
- * @return array{wrote:bool,proxy4:int,proxy6:int,direct4:int,direct6:int,block4:int,block6:int,fetched:int,failed:string[]}
+ * @return array{wrote:bool,proxy4:int,proxy6:int,direct4:int,direct6:int,block4:int,block6:int,used:int,missing:string[],enabled:bool}
  */
 function xray_static_refresh(
     array $proxyUrls,
@@ -532,16 +789,12 @@ function xray_static_refresh(
     array $blockUrls,
     array $geodatUrls
 ): array {
-    $failed = [];
-    $fetched = 0;
+    $proxy = xray_static_prefixes_from_caches('proxy', $proxyUrls);
+    $direct = xray_static_prefixes_from_caches('direct', $directUrls);
+    $block = xray_static_prefixes_from_caches('block', $blockUrls);
+    $missing = array_merge($proxy['missing'], $direct['missing'], $block['missing']);
+    $used = $proxy['used'] + $direct['used'] + $block['used'];
 
-    $proxy = xray_static_fetch_prefix_urls($proxyUrls);
-    $direct = xray_static_fetch_prefix_urls($directUrls);
-    $block = xray_static_fetch_prefix_urls($blockUrls);
-    $fetched += $proxy['fetched'] + $direct['fetched'] + $block['fetched'];
-    $failed = array_merge($failed, $proxy['failed'], $direct['failed'], $block['failed']);
-
-    // Intermediate sources from IP list URLs
     xray_static_write_file(XRAY_STATIC_FILES['v4_proxy'], xray_static_render_prefix_list(array_keys($proxy['v4'])));
     xray_static_write_file(XRAY_STATIC_FILES['v6_proxy'], xray_static_render_prefix_list(array_keys($proxy['v6'])));
     xray_static_write_file(XRAY_STATIC_FILES['v4_direct'], xray_static_render_prefix_list(array_keys($direct['v4'])));
@@ -549,17 +802,16 @@ function xray_static_refresh(
     xray_static_write_file(XRAY_STATIC_FILES['v4_block'], xray_static_render_prefix_list(array_keys($block['v4'])));
     xray_static_write_file(XRAY_STATIC_FILES['v6_block'], xray_static_render_prefix_list(array_keys($block['v6'])));
 
-    // Intermediate sources from geoip.dat categories
     $g4p = [];
     $g6p = [];
     $g4d = [];
     $g6d = [];
     $g4b = [];
     $g6b = [];
-    if (xray_static_has_urls($geodatUrls) && xray_static_geodat_has_any_assign($geodatUrls)) {
-        $geo = xray_static_geoip_sets($geodatUrls);
-        $fetched += $geo['fetched'];
-        $failed = array_merge($failed, $geo['failed']);
+    if (xray_static_has_urls($geodatUrls, true) && xray_static_geodat_has_any_assign($geodatUrls)) {
+        $geo = xray_static_geoip_from_caches($geodatUrls);
+        $used += $geo['used'];
+        $missing = array_merge($missing, $geo['missing']);
         $g4p = $geo['proxy4'];
         $g6p = $geo['proxy6'];
         $g4d = $geo['direct4'];
@@ -574,9 +826,9 @@ function xray_static_refresh(
     xray_static_write_file(XRAY_STATIC_FILES['v4_block_geodat'], xray_static_render_prefix_list($g4b));
     xray_static_write_file(XRAY_STATIC_FILES['v6_block_geodat'], xray_static_render_prefix_list($g6b));
 
-    // Final apply.inc from all intermediate sources
     $a4 = xray_static_build_apply('ipv4');
     $a6 = xray_static_build_apply('ipv6');
+    xray_static_write_protocols_inc();
 
     return [
         'wrote'    => true,
@@ -586,8 +838,9 @@ function xray_static_refresh(
         'direct6'  => $a6['direct'],
         'block4'   => $a4['block'],
         'block6'   => $a6['block'],
-        'fetched'  => $fetched,
-        'failed'   => $failed,
+        'used'     => $used,
+        'missing'  => $missing,
+        'enabled'  => xray_static_enabled(),
     ];
 }
 
@@ -605,6 +858,11 @@ function xray_static_count_prefixes(string $text): int
     return $n;
 }
 
+// Allow require from other scripts without running CLI handlers
+if (PHP_SAPI !== 'cli' || realpath((string)($_SERVER['SCRIPT_FILENAME'] ?? '')) !== realpath(__FILE__)) {
+    return;
+}
+
 $op = strtolower(trim((string)($argv[1] ?? 'get')));
 
 if ($op === 'geodatcats') {
@@ -619,7 +877,7 @@ if ($op === 'geodatcats') {
     }
     $urlRows = xray_static_rows_from_post($j['geodat_urls'] ?? []);
     if ($urlRows === []) {
-        $urlRows = xray_static_parse_urls(xray_static_read_file(XRAY_STATIC_FILES['geodat_urls']));
+        $urlRows = xray_static_load_url_rows('geodat');
     }
     $target = trim((string)($j['geodat_url'] ?? ''));
     if ($target === '' && isset($urlRows[0]['value'])) {
@@ -630,7 +888,9 @@ if ($op === 'geodatcats') {
         ? xray_geosite_assignments_from_rows(xray_static_rows_from_post($j['geodat_categories'] ?? $j['categories'] ?? []))
         : ($target !== '' ? xray_static_geodat_assign_for_url($target) : []);
 
-    xray_static_write_file(XRAY_STATIC_FILES['geodat_urls'], xray_static_render_urls($urlRows));
+    if ($urlRows !== []) {
+        xray_static_save_url_rows('geodat', $urlRows);
+    }
     if ($save && $target !== '') {
         if (!is_dir(xray_static_geodat_cat_dir())) {
             @mkdir(xray_static_geodat_cat_dir(), 0755, true);
@@ -643,10 +903,16 @@ if ($op === 'geodatcats') {
     if ($target === '') {
         $message = 'No geodat URL selected';
     } else {
-        $body = xray_static_fetch_url($target);
+        $body = xray_static_cache_read('geodat', $target);
         if ($body === '') {
-            $message = 'Failed to download geodat URL';
-        } else {
+            $dl = xray_static_download_to_cache('geodat', $target);
+            if (!$dl['ok']) {
+                $message = $dl['message'];
+            } else {
+                $body = xray_static_cache_read('geodat', $target);
+            }
+        }
+        if ($body !== '') {
             $cats = xray_geoip_parse_dat($body);
             if ($cats === []) {
                 $message = 'No geoip categories found (expect geoip.dat)';
@@ -671,6 +937,79 @@ if ($op === 'geodatcats') {
     exit(0);
 }
 
+if ($op === 'fetchone') {
+    $raw = is_readable(XRAY_STATIC_FETCHONE_STAGED)
+        ? (string)file_get_contents(XRAY_STATIC_FETCHONE_STAGED)
+        : '';
+    @unlink(XRAY_STATIC_FETCHONE_STAGED);
+    $j = json_decode($raw, true);
+    if (!is_array($j)) {
+        echo json_encode(['result' => 'failed', 'message' => 'No staged fetchone request'], JSON_UNESCAPED_SLASHES) . "\n";
+        exit(1);
+    }
+    $kind = strtolower(trim((string)($j['kind'] ?? '')));
+    $url = trim((string)($j['url'] ?? ''));
+    if (!in_array($kind, ['proxy', 'direct', 'block', 'geodat'], true) || $url === '' || !preg_match('#^https?://#i', $url)) {
+        echo json_encode(['result' => 'failed', 'message' => 'kind and http(s) url required'], JSON_UNESCAPED_SLASHES) . "\n";
+        exit(1);
+    }
+    $enabled = array_key_exists('enabled', $j) ? xray_static_row_enabled(['enabled' => $j['enabled']]) : null;
+    $rows = xray_static_load_url_rows($kind);
+    $rows = xray_static_upsert_url_row($rows, $url, $enabled);
+    xray_static_save_url_rows($kind, $rows);
+    $dl = xray_static_download_to_cache($kind, $url);
+    if (!$dl['ok']) {
+        echo json_encode(['result' => 'failed', 'message' => $dl['message'], 'url' => $url, 'kind' => $kind], JSON_UNESCAPED_SLASHES) . "\n";
+        exit(1);
+    }
+    // Rebuild bird data if this URL is enabled
+    $rowEn = false;
+    foreach ($rows as $r) {
+        if (strcasecmp(trim((string)($r['value'] ?? '')), $url) === 0) {
+            $rowEn = xray_static_row_enabled($r);
+            break;
+        }
+    }
+    if ($rowEn) {
+        $sum = xray_static_refresh(
+            xray_static_load_url_rows('proxy'),
+            xray_static_load_url_rows('direct'),
+            xray_static_load_url_rows('block'),
+            xray_static_load_url_rows('geodat')
+        );
+        xray_static_bird_reload();
+    }
+    echo json_encode([
+        'result'  => 'ok',
+        'message' => 'Saved URL and downloaded ' . $dl['count'] . ' item(s)',
+        'url'     => $url,
+        'kind'    => $kind,
+        'count'   => $dl['count'],
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+    exit(0);
+}
+
+if ($op === 'fetch') {
+    // Daily: refresh caches for enabled URLs only, then rebuild
+    $proxyUrls  = xray_static_load_url_rows('proxy');
+    $directUrls = xray_static_load_url_rows('direct');
+    $blockUrls  = xray_static_load_url_rows('block');
+    $geodatUrls = xray_static_load_url_rows('geodat');
+    $dl = xray_static_fetch_enabled_caches($proxyUrls, $directUrls, $blockUrls, $geodatUrls);
+    $sum = xray_static_refresh($proxyUrls, $directUrls, $blockUrls, $geodatUrls);
+    xray_static_bird_reload();
+    echo 'OK: static fetch enabled URLs fetched=' . $dl['fetched']
+        . ' failed=' . count($dl['failed'])
+        . ' proxy4=' . $sum['proxy4'] . ' proxy6=' . $sum['proxy6']
+        . ' direct4=' . $sum['direct4'] . ' direct6=' . $sum['direct6']
+        . ' block4=' . $sum['block4'] . ' block6=' . $sum['block6']
+        . "\n";
+    foreach ($dl['failed'] as $u) {
+        echo "WARN: download failed: {$u}\n";
+    }
+    exit(0);
+}
+
 if ($op === 'write') {
     if (!is_readable(XRAY_STATIC_STAGED)) {
         echo "OK\n";
@@ -685,48 +1024,56 @@ if ($op === 'write') {
     }
     $proxyUrls  = array_key_exists('proxy_urls', $j)
         ? xray_static_rows_from_post($j['proxy_urls'])
-        : xray_static_parse_urls(xray_static_read_file(XRAY_STATIC_FILES['proxy_urls']));
+        : xray_static_load_url_rows('proxy');
     $directUrls = array_key_exists('direct_urls', $j)
         ? xray_static_rows_from_post($j['direct_urls'])
-        : xray_static_parse_urls(xray_static_read_file(XRAY_STATIC_FILES['direct_urls']));
+        : xray_static_load_url_rows('direct');
     $blockUrls  = array_key_exists('block_urls', $j)
         ? xray_static_rows_from_post($j['block_urls'])
-        : xray_static_parse_urls(xray_static_read_file(XRAY_STATIC_FILES['block_urls']));
+        : xray_static_load_url_rows('block');
     $geodatUrls = array_key_exists('geodat_urls', $j)
         ? xray_static_rows_from_post($j['geodat_urls'])
-        : xray_static_parse_urls(xray_static_read_file(XRAY_STATIC_FILES['geodat_urls']));
+        : xray_static_load_url_rows('geodat');
 
-    xray_static_write_file(XRAY_STATIC_FILES['proxy_urls'], xray_static_render_urls($proxyUrls));
-    xray_static_write_file(XRAY_STATIC_FILES['direct_urls'], xray_static_render_urls($directUrls));
-    xray_static_write_file(XRAY_STATIC_FILES['block_urls'], xray_static_render_urls($blockUrls));
-    xray_static_write_file(XRAY_STATIC_FILES['geodat_urls'], xray_static_render_urls($geodatUrls));
+    xray_static_save_url_rows('proxy', $proxyUrls);
+    xray_static_save_url_rows('direct', $directUrls);
+    xray_static_save_url_rows('block', $blockUrls);
+    xray_static_save_url_rows('geodat', $geodatUrls);
+
+    if (array_key_exists('enabled', $j)) {
+        $en = $j['enabled'];
+        $on = ($en === true || $en === 1 || $en === '1' || $en === 'on' || $en === 'true' || $en === 'yes');
+        xray_static_set_enabled($on);
+    }
 
     $sum = xray_static_refresh($proxyUrls, $directUrls, $blockUrls, $geodatUrls);
     xray_static_bird_reload();
 
     echo 'OK: static prefixes'
+        . ' enabled=' . ($sum['enabled'] ? '1' : '0')
         . ' proxy4=' . $sum['proxy4'] . ' proxy6=' . $sum['proxy6']
         . ' direct4=' . $sum['direct4'] . ' direct6=' . $sum['direct6']
         . ' block4=' . $sum['block4'] . ' block6=' . $sum['block6']
-        . ' fetched=' . $sum['fetched']
-        . ($sum['failed'] !== [] ? (' failed=' . count($sum['failed'])) : '')
+        . ' used=' . $sum['used']
+        . ($sum['missing'] !== [] ? (' missing=' . count($sum['missing'])) : '')
         . "\n";
-    foreach ($sum['failed'] as $u) {
-        echo "WARN: download failed: {$u}\n";
+    foreach ($sum['missing'] as $u) {
+        echo "WARN: no cached data for enabled URL (use ✔): {$u}\n";
     }
     exit(0);
 }
 
 // get
-$proxyUrls  = xray_static_parse_urls(xray_static_read_file(XRAY_STATIC_FILES['proxy_urls']));
-$directUrls = xray_static_parse_urls(xray_static_read_file(XRAY_STATIC_FILES['direct_urls']));
-$blockUrls  = xray_static_parse_urls(xray_static_read_file(XRAY_STATIC_FILES['block_urls']));
-$geodatUrls = xray_static_parse_urls(xray_static_read_file(XRAY_STATIC_FILES['geodat_urls']));
+$proxyUrls  = xray_static_load_url_rows('proxy');
+$directUrls = xray_static_load_url_rows('direct');
+$blockUrls  = xray_static_load_url_rows('block');
+$geodatUrls = xray_static_load_url_rows('geodat');
 
 $m4 = xray_static_merge_sources('ipv4');
 $m6 = xray_static_merge_sources('ipv6');
 echo json_encode([
     'result'      => 'ok',
+    'enabled'     => xray_static_enabled() ? '1' : '0',
     'proxy_urls'  => $proxyUrls,
     'direct_urls' => $directUrls,
     'block_urls'  => $blockUrls,

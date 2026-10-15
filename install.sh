@@ -1556,8 +1556,7 @@ for _static_inc in \
     routes_static_v6_PROXY.inc routes_static_v6_DIRECT.inc routes_static_v6_BLOCK.inc \
     routes_static_v4_PROXY_geodat.inc routes_static_v4_DIRECT_geodat.inc routes_static_v4_BLOCK_geodat.inc \
     routes_static_v6_PROXY_geodat.inc routes_static_v6_DIRECT_geodat.inc routes_static_v6_BLOCK_geodat.inc \
-    routes_static_v4_apply.inc routes_static_v6_apply.inc \
-    static-proxy-urls.txt static-direct-urls.txt static-block-urls.txt static-geodat-urls.txt
+    routes_static_v4_apply.inc routes_static_v6_apply.inc
 do
     if [ ! -f "$BIRD_INC_DIR/$_static_inc" ]; then
         printf '%s\n' '#' > "$BIRD_INC_DIR/$_static_inc"
@@ -1567,7 +1566,31 @@ do
         echo "[SKIP] $BIRD_INC_DIR/$_static_inc already exists"
     fi
 done
+for _static_json in \
+    static-proxy-urls.json static-direct-urls.json static-block-urls.json static-geodat-urls.json
+do
+    if [ ! -f "$BIRD_INC_DIR/$_static_json" ]; then
+        printf '%s\n' '[]' > "$BIRD_INC_DIR/$_static_json"
+        chmod 0644 "$BIRD_INC_DIR/$_static_json"
+        echo "[OK]  $BIRD_INC_DIR/$_static_json"
+    else
+        echo "[SKIP] $BIRD_INC_DIR/$_static_json already exists"
+    fi
+done
+# static_protocols.inc: empty until Enable static route (protocols live only when enabled)
+if [ ! -f "$BIRD_INC_DIR/static_protocols.inc" ]; then
+    printf '%s\n' '# static routes disabled (Enable static route on Static tab)' \
+        > "$BIRD_INC_DIR/static_protocols.inc"
+    chmod 0644 "$BIRD_INC_DIR/static_protocols.inc"
+    echo "[OK]  $BIRD_INC_DIR/static_protocols.inc"
+else
+    echo "[SKIP] $BIRD_INC_DIR/static_protocols.inc already exists"
+fi
 install -d -m 0755 "$BIRD_INC_DIR/static-geodat-categories"
+install -d -m 0755 "$BIRD_INC_DIR/static-cache/proxy"
+install -d -m 0755 "$BIRD_INC_DIR/static-cache/direct"
+install -d -m 0755 "$BIRD_INC_DIR/static-cache/block"
+install -d -m 0755 "$BIRD_INC_DIR/static-cache/geodat"
 
 
 if [ "$BINARIES_OK" = "0" ]; then
