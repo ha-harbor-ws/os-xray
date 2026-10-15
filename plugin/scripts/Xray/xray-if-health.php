@@ -8,6 +8,7 @@
 
 require_once('config.inc');
 require_once(__DIR__ . '/xray-boot-log.inc.php');
+require_once(__DIR__ . '/xray-if-test.inc.php');
 require_once(__DIR__ . '/xray-bird-active-tun.php');
 
 function xray_if_health_curl(string $listen, int $port): array
@@ -54,19 +55,25 @@ if ($cands === []) {
     exit(0);
 }
 
-$byTun  = [];
-$lines  = [];
-$failed = [];
+$byTun   = [];
+$lines   = [];
+$failed  = [];
+$ifRows  = [];
 foreach ($cands as $c) {
     $byTun[$c['tun']] = $c;
     $p = xray_if_health_curl($c['listen'], $c['port']);
     $status = $p['ok'] ? 'ok' : 'failed';
     $lines[] = "[{$c['name']}] tun={$c['tun']} socks={$p['proxy']} HTTP {$p['code']} {$status}";
     echo $lines[count($lines) - 1] . "\n";
+    $ifRows[$c['uuid']] = [
+        'ok'        => $p['ok'],
+        'http_code' => $p['http'],
+    ];
     if (!$p['ok']) {
         $failed[$c['uuid']] = $c;
     }
 }
+xray_if_test_save_many($ifRows, 'cron');
 
 $act4 = xray_bird_active_tun_current(
     XRAY_BIRD_INC_DIR . '/active_tun_v4.inc',

@@ -13,6 +13,7 @@
 
 require_once('config.inc');
 require_once(__DIR__ . '/xray-boot-log.inc.php');
+require_once(__DIR__ . '/xray-if-test.inc.php');
 
 // UUID инстанса как первый аргумент (из actions_xray.conf %1)
 $instUuid = isset($argv[1]) ? preg_replace('/[^0-9a-fA-F\-]/', '', trim($argv[1])) : '';
@@ -67,6 +68,15 @@ if ($tun === '') {
     $tun = 'proxytun2socks0';
 }
 $en = $inst && (string)($inst->enabled ?? '1') === '1' ? '1' : '0';
+$uuidSave = $instUuid !== '' ? $instUuid : (string)($inst['uuid'] ?? '');
+$msg = $ok
+    ? "OK ({$http}) — connection works"
+    : ($http === 0
+        ? 'Could not connect — xray-core may be stopped or port unreachable'
+        : "HTTP {$http} — unexpected response from 1.1.1.1");
+if ($uuidSave !== '') {
+    xray_if_test_save_one($uuidSave, $ok, $http, $msg, 'manual');
+}
 xray_boot_log_block(
     'Test connect',
     "instance={$name} uuid=" . ($instUuid !== '' ? $instUuid : '(first)') . "\n"
@@ -75,5 +85,4 @@ xray_boot_log_block(
     . " target={$target}"
 );
 
-// TODO return parsed result as now it done in ServiceController
 exit($rc);

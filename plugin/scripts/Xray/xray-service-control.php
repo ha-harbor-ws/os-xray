@@ -750,6 +750,18 @@ function xray_active_tun_latency_load(): array
     return is_array($j) ? $j : [];
 }
 
+function xray_if_test_results_load(): array
+{
+    $inc = __DIR__ . '/xray-if-test.inc.php';
+    if (is_readable($inc)) {
+        require_once($inc);
+        if (function_exists('xray_if_test_load')) {
+            return xray_if_test_load();
+        }
+    }
+    return ['instances' => []];
+}
+
 function do_status_all(): void
 {
     $all    = xray_get_all_instances();
@@ -757,6 +769,8 @@ function do_status_all(): void
     $act4   = (string)($lat['active_v4'] ?? '');
     $act6   = (string)($lat['active_v6'] ?? '');
     $byUuid = is_array($lat['instances'] ?? null) ? $lat['instances'] : [];
+    $ifStore = xray_if_test_results_load();
+    $ifByUuid = is_array($ifStore['instances'] ?? null) ? $ifStore['instances'] : [];
     $result = [];
     foreach ($all as $inst_uuid => $c) {
         $xray = proc_is_running(xray_pid_path($inst_uuid));
@@ -797,6 +811,16 @@ function do_status_all(): void
                     $row['active_tun_v6']['active_time'] = (float)($o['v6_time'] ?? 0);
                 }
             }
+        }
+        $T = is_array($ifByUuid[$inst_uuid] ?? null) ? $ifByUuid[$inst_uuid] : null;
+        if ($T !== null) {
+            $row['test_result'] = [
+                'result'    => (string)($T['result'] ?? 'failed'),
+                'message'   => (string)($T['message'] ?? ''),
+                'http_code' => (int)($T['http_code'] ?? 0),
+                'source'    => (string)($T['source'] ?? ''),
+                'tested_at' => (int)($T['tested_at'] ?? 0),
+            ];
         }
         $result[$inst_uuid] = $row;
     }

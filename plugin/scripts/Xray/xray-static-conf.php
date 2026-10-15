@@ -914,6 +914,9 @@ if ($op === 'geodatcats') {
         }
         if ($body !== '') {
             $cats = xray_geoip_parse_dat($body);
+            // Drop binary dat from memory before building the large JSON response
+            $body = '';
+            unset($body);
             if ($cats === []) {
                 $message = 'No geoip categories found (expect geoip.dat)';
             }
@@ -926,6 +929,7 @@ if ($op === 'geodatcats') {
                     'action' => $assign[$lk] ?? $assign[$name] ?? '',
                 ];
             }
+            unset($cats);
         }
     }
 
@@ -942,13 +946,21 @@ if ($op === 'geodatcats') {
         unset($catRow);
     }
 
+    $flags = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
+    if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
+        $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+    }
+    // Ensure stdout is only the JSON object (no prior warnings)
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
     echo json_encode([
         'result'     => ($message !== '' && $categories === [] && !$save) ? 'failed' : 'ok',
         'message'    => $message,
         'geodat_url' => $target,
         'categories' => $categories,
         'saved'      => $save,
-    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+    ], $flags) . "\n";
     exit(0);
 }
 

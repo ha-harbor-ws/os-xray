@@ -43,15 +43,22 @@
 
     <div class="row">
         <section class="col-xs-12">
-            <div class="xray-block" style="padding: 8px 0;">
-                <label style="margin: 0; font-weight: normal; display: flex; align-items: center; gap: 8px;">
-                    <input type="checkbox" id="staticEnabled">
-                    <a href="#" class="xray-showhelp" id="help_for_static_enabled">
-                        <i class="fa fa-info-circle"></i>
-                    </a>
-                    {{ lang._('Enable static route') }}
-                </label>
-                <div class="hidden" data-for="help_for_static_enabled" style="padding-top: 4px;">
+            <div class="xray-block">
+                <table class="table table-condensed table-hover table-striped">
+                    <thead>
+                        <tr>
+                            <th>
+                                <a href="#" class="xray-showhelp" id="help_for_static_enabled">
+                                    <i class="fa fa-info-circle"></i>
+                                </a>
+                                {{ lang._('Enable static route') }}
+                                <input type="checkbox" id="staticEnabled"
+                                       style="margin-left: 8px; vertical-align: middle;">
+                            </th>
+                        </tr>
+                    </thead>
+                </table>
+                <div class="hidden" data-for="help_for_static_enabled" style="padding: 8px 0 0;">
                     <small class="text-muted">{{ lang._('When enabled, BIRD loads static_v4/static_v6 from *_apply.inc. When disabled, those protocols are removed from BIRD.') }}</small>
                 </div>
             </div>

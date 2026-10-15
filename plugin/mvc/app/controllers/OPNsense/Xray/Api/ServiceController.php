@@ -27,6 +27,28 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
+     * Decode JSON from configd script_output (may have warnings before/after the object).
+     */
+    private function decodeConfigdJson(string $output): ?array
+    {
+        $output = trim($output);
+        if ($output === '') {
+            return null;
+        }
+        $decoded = json_decode($output, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+        $start = strpos($output, '{');
+        $end   = strrpos($output, '}');
+        if ($start === false || $end === false || $end <= $start) {
+            return null;
+        }
+        $decoded = json_decode(substr($output, $start, $end - $start + 1), true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
      * BUG-12 FIX: возвращает реальный статус reconfigure.
      */
     public function reconfigureAction($uuid = '')
@@ -560,13 +582,13 @@ class ServiceController extends ApiMutableServiceControllerBase
         @chmod($staged, 0600);
 
         $output = trim((string)(new Backend())->configdRun('xray dnstapgeodat'));
-        $decoded = json_decode($output, true);
+        $decoded = $this->decodeConfigdJson($output);
         if (is_array($decoded)) {
             return $decoded;
         }
         return [
             'result'  => 'failed',
-            'message' => $output !== '' ? $output : 'No response from configd',
+            'message' => $output !== '' ? mb_substr($output, 0, 500) : 'No response from configd',
         ];
     }
 
@@ -798,13 +820,13 @@ class ServiceController extends ApiMutableServiceControllerBase
         @chmod($staged, 0600);
 
         $output = trim((string)(new Backend())->configdRun('xray staticgeodat'));
-        $decoded = json_decode($output, true);
+        $decoded = $this->decodeConfigdJson($output);
         if (is_array($decoded)) {
             return $decoded;
         }
         return [
             'result'  => 'failed',
-            'message' => $output !== '' ? $output : 'No response from configd',
+            'message' => $output !== '' ? mb_substr($output, 0, 500) : 'No response from configd',
         ];
     }
 

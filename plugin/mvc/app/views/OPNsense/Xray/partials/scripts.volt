@@ -782,7 +782,55 @@
             });
         }
 
+        function xrayNormalizeApiData(data) {
+            if (data == null) {
+                return null;
+            }
+            if (typeof data === 'string') {
+                var s = data.trim();
+                try {
+                    data = JSON.parse(s);
+                } catch (e1) {
+                    var m = s.match(/\{[\s\S]*\}/);
+                    if (!m) {
+                        return null;
+                    }
+                    try {
+                        data = JSON.parse(m[0]);
+                    } catch (e2) {
+                        return null;
+                    }
+                }
+            }
+            if (typeof data !== 'object') {
+                return null;
+            }
+            // Failed API sometimes puts the whole JSON blob into message — recover categories
+            if ((!data.categories || !data.categories.length) && typeof data.message === 'string'
+                    && data.message.indexOf('{') >= 0 && data.message.indexOf('categories') >= 0) {
+                var recovered = xrayNormalizeApiData(data.message);
+                if (recovered && recovered.categories) {
+                    return recovered;
+                }
+            }
+            if (typeof data.categories === 'string') {
+                try {
+                    data.categories = JSON.parse(data.categories);
+                } catch (e3) {
+                    data.categories = [];
+                }
+            }
+            if (!Array.isArray(data.categories)) {
+                data.categories = [];
+            }
+            return data;
+        }
+
+        var staticGeodatXhr = null;
+        var staticGeodatPickSilent = false;
+
         function staticFillGeodatUrlPick(selected) {
+            staticGeodatPickSilent = true;
             var $pick = $('#staticGeodatUrlPick').empty();
             staticCollectGeodatUrls().forEach(function (row) {
                 var u = String(row.value || '').trim();
@@ -796,11 +844,21 @@
             if (selected) {
                 $pick.val(selected);
             }
+            staticGeodatPickSilent = false;
         }
 
         function staticGeodatFillModal(categories) {
             var $tb = $('#staticGeodatCats').empty();
-            (categories || []).forEach(function (cat) {
+            if (!Array.isArray(categories)) {
+                categories = [];
+            }
+            categories.forEach(function (cat) {
+                if (typeof cat === 'string') {
+                    try { cat = JSON.parse(cat); } catch (e) { return; }
+                }
+                if (!cat || typeof cat !== 'object') {
+                    return;
+                }
                 var name = String(cat.name || cat.key || '');
                 if (!name) {
                     return;
@@ -824,6 +882,49 @@
                 $tb.append($tr);
             });
             staticGeodatApplyFilter();
+        }
+
+        function staticGeodatLoadCategories(url) {
+            url = String(url || '').trim();
+            if (!url) {
+                return;
+            }
+            staticGeodatActiveUrl = url;
+            $('#staticGeodatModalMsg').text("{{ lang._('Loading categories…') }}");
+            $('#staticGeodatCats').empty();
+            if (staticGeodatXhr && staticGeodatXhr.readyState !== 4) {
+                staticGeodatXhr.abort();
+            }
+            staticGeodatXhr = $.ajax({
+                url: '/api/xray/service/staticgeodat',
+                type: 'POST',
+                dataType: 'json',
+                timeout: 180000,
+                data: {
+                    geodat_urls: JSON.stringify(staticCollectGeodatUrls()),
+                    geodat_url: url
+                },
+                success: function (data) {
+                    data = xrayNormalizeApiData(data);
+                    if (!data || data.result === 'failed') {
+                        var failMsg = (data && data.message) ? String(data.message) : 'failed';
+                        // Never dump a raw JSON blob into the status line
+                        if (failMsg.charAt(0) === '{' || failMsg.length > 300) {
+                            failMsg = "{{ lang._('Failed to load categories.') }}";
+                        }
+                        $('#staticGeodatModalMsg').text(failMsg);
+                        return;
+                    }
+                    $('#staticGeodatModalMsg').text(data.message || "{{ lang._('Categories loaded.') }}");
+                    staticGeodatFillModal(data.categories || []);
+                },
+                error: function (xhr, status) {
+                    if (status === 'abort') {
+                        return;
+                    }
+                    $('#staticGeodatModalMsg').text("{{ lang._('HTTP error:') }} " + xhr.status);
+                }
+            });
         }
 
         function staticGeodatApplyFilter() {
@@ -1201,34 +1302,10 @@
         });
         $(document).on('input', '#staticGeodatFilter', staticGeodatApplyFilter);
         $(document).on('change', '#staticGeodatUrlPick', function () {
-            var url = String($(this).val() || '');
-            if (!url) {
+            if (staticGeodatPickSilent) {
                 return;
             }
-            staticGeodatActiveUrl = url;
-            $('#staticGeodatModalMsg').text("{{ lang._('Loading categories…') }}");
-            $('#staticGeodatCats').empty();
-            $.ajax({
-                url: '/api/xray/service/staticgeodat',
-                type: 'POST',
-                dataType: 'json',
-                timeout: 180000,
-                data: {
-                    geodat_urls: JSON.stringify(staticCollectGeodatUrls()),
-                    geodat_url: url
-                },
-                success: function (data) {
-                    if (!data || data.result === 'failed') {
-                        $('#staticGeodatModalMsg').text((data && data.message) || 'failed');
-                        return;
-                    }
-                    $('#staticGeodatModalMsg').text(data.message || "{{ lang._('Categories loaded.') }}");
-                    staticGeodatFillModal(data.categories || []);
-                },
-                error: function (xhr) {
-                    $('#staticGeodatModalMsg').text("{{ lang._('HTTP error:') }} " + xhr.status);
-                }
-            });
+            staticGeodatLoadCategories(String($(this).val() || ''));
         });
 
         $(document).on('click', '.dnstap-url-add', function () {
@@ -1360,7 +1437,8 @@
             $('#staticGeodatCats').empty();
             $('#staticGeodatModalMsg').text("{{ lang._('Loading categories…') }}");
             $('#staticGeodatModal').modal('show');
-            $('#staticGeodatUrlPick').trigger('change');
+            // Direct load — avoid double-fire from select rebuild + change
+            staticGeodatLoadCategories(String($('#staticGeodatUrlPick').val() || ''));
         });
         $('#staticGeodatModal').on('click', '.static-geodat-save', function () {
             var url = String($('#staticGeodatUrlPick').val() || '');
@@ -1382,8 +1460,13 @@
                 },
                 success: function (data) {
                     $saveBtn.prop('disabled', false);
+                    data = xrayNormalizeApiData(data);
                     if (!data || data.result === 'failed') {
-                        $('#staticGeodatModalMsg').text((data && data.message) || 'failed');
+                        var failMsg = (data && data.message) ? String(data.message) : 'failed';
+                        if (failMsg.charAt(0) === '{' || failMsg.length > 300) {
+                            failMsg = "{{ lang._('Failed to save categories.') }}";
+                        }
+                        $('#staticGeodatModalMsg').text(failMsg);
                         return;
                     }
                     staticGeodatActiveUrl = url;
@@ -1406,7 +1489,16 @@
         });
         function dnstapGeodatFillModal(categories) {
             var $tb = $('#dnstapGeodatCats').empty();
-            (categories || []).forEach(function (cat) {
+            if (!Array.isArray(categories)) {
+                categories = [];
+            }
+            categories.forEach(function (cat) {
+                if (typeof cat === 'string') {
+                    try { cat = JSON.parse(cat); } catch (e) { return; }
+                }
+                if (!cat || typeof cat !== 'object') {
+                    return;
+                }
                 var name = String(cat.name || cat.key || '');
                 if (!name) {
                     return;
@@ -1459,7 +1551,11 @@
 
         $(document).on('input', '#dnstapGeodatFilter', dnstapGeodatApplyFilter);
 
+        var dnstapGeodatXhr = null;
+        var dnstapGeodatPickSilent = false;
+
         function dnstapGeodatFillUrlPick(selected) {
+            dnstapGeodatPickSilent = true;
             var $pick = $('#dnstapGeodatUrlPick').empty();
             dnstapCollectGeodatUrls().forEach(function (row) {
                 var u = String(row.value || '').trim();
@@ -1469,6 +1565,7 @@
                 $pick.val(selected);
             }
             dnstapGeodatActiveUrl = String($pick.val() || '');
+            dnstapGeodatPickSilent = false;
         }
 
         function dnstapGeodatLoad(url) {
@@ -1479,7 +1576,10 @@
             dnstapGeodatActiveUrl = url;
             $('#dnstapGeodatStatus').text('{{ lang._("Downloading geosite.dat…") }}');
             $('#dnstapGeodatCats').empty();
-            $.ajax({
+            if (dnstapGeodatXhr && dnstapGeodatXhr.readyState !== 4) {
+                dnstapGeodatXhr.abort();
+            }
+            dnstapGeodatXhr = $.ajax({
                 url: '/api/xray/service/dnstapgeodat',
                 type: 'POST',
                 dataType: 'json',
@@ -1489,10 +1589,15 @@
                     geodat_url: url
                 },
                 success: function (data) {
+                    data = xrayNormalizeApiData(data);
                     if (!data || data.result === 'failed') {
-                        $('#dnstapGeodatStatus').text(data && data.message
-                            ? data.message
-                            : '{{ lang._("Failed to parse geosite.dat") }}');
+                        var failMsg = data && data.message
+                            ? String(data.message)
+                            : '{{ lang._("Failed to parse geosite.dat") }}';
+                        if (failMsg.charAt(0) === '{' || failMsg.length > 300) {
+                            failMsg = '{{ lang._("Failed to parse geosite.dat") }}';
+                        }
+                        $('#dnstapGeodatStatus').text(failMsg);
                         return;
                     }
                     var n = (data.categories || []).length;
@@ -1501,13 +1606,19 @@
                     );
                     dnstapGeodatFillModal(data.categories || []);
                 },
-                error: function (xhr) {
+                error: function (xhr, status) {
+                    if (status === 'abort') {
+                        return;
+                    }
                     $('#dnstapGeodatStatus').text('{{ lang._("HTTP error:") }} ' + xhr.status);
                 }
             });
         }
 
         $(document).on('change', '#dnstapGeodatUrlPick', function () {
+            if (dnstapGeodatPickSilent) {
+                return;
+            }
             dnstapGeodatLoad(String($(this).val() || ''));
         });
 
@@ -1857,6 +1968,15 @@
                 $.each(data, function (uuid, info) {
                     if (info.xray_core === 'running') anyXray = true;
                     if (info.tun2socks === 'running') anyTun = true;
+                    // Last IF result (cron or manual) — whichever wrote the store last per uuid
+                    if (info && info.test_result && info.test_result.message) {
+                        instanceTestCache[uuid] = {
+                            result: info.test_result.result || 'failed',
+                            message: info.test_result.message,
+                            http_code: info.test_result.http_code || 0,
+                            source: info.test_result.source || ''
+                        };
+                    }
                 });
                 var xok = anyXray, tok = anyTun;
                 $('#badge_xray')
@@ -1868,8 +1988,9 @@
                     .addClass(tok ? 'label-success' : 'label-danger')
                     .text('tun2socks: ' + (tok ? 'running' : 'stopped'));
 
-                // Update per-instance status in grid
+                // Update per-instance status + Test Result in grid
                 applyStatusToGrid();
+                applyTestResultToGrid();
 
                 var running = xok || tok;
                 $('#btnStartAll').prop('disabled', running);

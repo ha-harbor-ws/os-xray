@@ -1284,6 +1284,13 @@ if ($op === 'geodatcats') {
             xray_dnstap_sighup();
         }
     }
+    $flags = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
+    if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
+        $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+    }
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
     echo json_encode([
         'result'     => $load['failed'] !== [] && $load['cats'] === [] ? 'failed' : 'ok',
         'saved'      => $saved,
@@ -1294,7 +1301,7 @@ if ($op === 'geodatcats') {
         'message'    => $load['failed'] !== [] && $load['cats'] === []
             ? ('Could not parse geosite.dat: ' . implode(' ', $load['failed']))
             : '',
-    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+    ], $flags) . "\n";
     exit(0);
 }
 

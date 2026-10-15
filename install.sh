@@ -855,6 +855,8 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f /var/run/xray_core_*.pid /var/run/tun2socks_*.pid
     rm -f /var/run/xray_start_*.lock /var/run/xray_stopped_*.flag
     rm -f /var/run/xray_autoroute.last /var/run/xray_autoroute_state.json
+    rm -f /var/run/xray_if_test.json /var/run/xray_active_tun_latency.json
+    rm -f /var/run/xray_birdactivetun_status.json
     rm -f /usr/local/etc/xray-core/config-*.json
     rm -f /usr/local/tun2socks/config-*.yaml
     # v1.x legacy files
@@ -866,6 +868,7 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/opnsense/scripts/Xray/xray-testconnect.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-watchdog.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-if-health.php
+    rm -f  /usr/local/opnsense/scripts/Xray/xray-if-test.inc.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-ifstats.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-peers.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-active-tun.php
