@@ -591,25 +591,50 @@
             }
         });
 
+        var birdTestResultClearTimer = null;
+        function clearBirdTestResultSoon($res, delayMs) {
+            if (birdTestResultClearTimer) {
+                clearTimeout(birdTestResultClearTimer);
+                birdTestResultClearTimer = null;
+            }
+            birdTestResultClearTimer = setTimeout(function () {
+                birdTestResultClearTimer = null;
+                $res.text('').removeClass('text-success text-danger');
+            }, delayMs || 30000);
+        }
+        function setBirdTestResult($res, ok, message) {
+            if (birdTestResultClearTimer) {
+                clearTimeout(birdTestResultClearTimer);
+                birdTestResultClearTimer = null;
+            }
+            if (ok) {
+                $res.removeClass('text-danger').addClass('text-success').text(message);
+            } else {
+                $res.removeClass('text-success').addClass('text-danger').text(message);
+            }
+            clearBirdTestResultSoon($res, 30000);
+        }
+
         $(document).on('click', '.xray-btn-bird-testall', function () {
+            var $res = $('.xray-bird-test-result');
+            if (birdTestResultClearTimer) {
+                clearTimeout(birdTestResultClearTimer);
+                birdTestResultClearTimer = null;
+            }
             if (!birdRunning) {
-                $('.xray-bird-test-result').removeClass('text-success').addClass('text-danger')
-                    .text("{{ lang._('BIRD is not running.') }}");
+                setBirdTestResult($res, false, "{{ lang._('BIRD is not running.') }}");
                 return;
             }
             var $btn = $(this).prop('disabled', true);
-            var $res = $('.xray-bird-test-result');
             $res.removeClass('text-success text-danger').text("{{ lang._('Testing...') }}");
             ajaxGet("/api/xray/bgppeer/statusAll", {}, function (data) {
                 $btn.prop('disabled', false);
                 updateBirdToolbar();
                 if (!applyPeerStatusPayload(data) || !birdRunning) {
-                    $res.removeClass('text-success').addClass('text-danger')
-                        .text("{{ lang._('BIRD is not running.') }}");
+                    setBirdTestResult($res, false, "{{ lang._('BIRD is not running.') }}");
                     return;
                 }
-                $res.removeClass('text-danger').addClass('text-success')
-                    .text("{{ lang._('Peer status updated.') }}");
+                setBirdTestResult($res, true, "{{ lang._('Peer status updated.') }}");
             });
         });
 
@@ -1260,6 +1285,7 @@
                     dnstapExtraDirect = dnstapRowsToDomains(data.direct || data.unblocked_extra || data.unblocked);
                     dnstapExtraBlock = dnstapRowsToDomains(data.block);
                 }
+                domainsExtraRefreshCounts();
             });
         }
 
@@ -1710,6 +1736,21 @@
             }
         }
 
+        function domainsExtraSetCount($el, n) {
+            n = parseInt(n, 10);
+            if (n > 0) {
+                $el.text(String(n)).attr('title', '{{ lang._("Extra domains in the list") }}').show();
+            } else {
+                $el.text('').hide();
+            }
+        }
+
+        function domainsExtraRefreshCounts() {
+            domainsExtraSetCount($('#domainsProxyCount'), dnstapExtraProxy.length);
+            domainsExtraSetCount($('#domainsDirectCount'), dnstapExtraDirect.length);
+            domainsExtraSetCount($('#domainsBlockCount'), dnstapExtraBlock.length);
+        }
+
         function dnstapExtraAdd(kind) {
             var $inp = dnstapExtraInput(kind);
             var d = dnstapNormalizeDomain($inp.val());
@@ -1723,6 +1764,7 @@
             }
             dnstapExtraSet(kind, list);
             dnstapExtrasDirty = true;
+            domainsExtraRefreshCounts();
             $inp.val(d);
         }
 
@@ -1731,6 +1773,7 @@
             var d = domain ? dnstapNormalizeDomain(domain) : dnstapNormalizeDomain($inp.val());
             dnstapExtraSet(kind, dnstapExtraList(kind).filter(function (x) { return x !== d; }));
             dnstapExtrasDirty = true;
+            domainsExtraRefreshCounts();
             if ($inp.val() && dnstapNormalizeDomain($inp.val()) === d) {
                 $inp.val('');
             }
@@ -1802,7 +1845,7 @@
             var $tbl = $('#domainsCheckTable');
             if (!d) {
                 $tbl.hide();
-                $msg.text('{{ lang._("Enter a domain") }}').show();
+                $msg.text('{{ lang._("Enter a domain or IP") }}').show();
                 return;
             }
             $btn.prop('disabled', true);

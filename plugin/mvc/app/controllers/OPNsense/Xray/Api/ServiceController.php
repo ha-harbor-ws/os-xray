@@ -867,7 +867,7 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
-     * POST /api/xray/service/domainroute — resolv + birdcl show route for <ip> all.
+     * POST /api/xray/service/domainroute — domain or IP → birdcl show route for <ip> all.
      */
     public function domainrouteAction()
     {
@@ -883,11 +883,16 @@ class ServiceController extends ApiMutableServiceControllerBase
                 $domain = $json['domain'] ?? '';
             }
         }
-        $domain = strtolower(trim((string)$domain));
-        $domain = preg_replace('#^https?://#', '', $domain) ?? $domain;
-        $domain = preg_replace('#/.*$#', '', $domain) ?? $domain;
+        $domain = trim((string)$domain);
+        $domain = preg_replace('#^https?://#i', '', $domain) ?? $domain;
+        if (preg_match('/^\[([0-9a-fA-F:.]+)\](?::\d+)?/', $domain, $m)) {
+            $domain = $m[1];
+        } else {
+            $domain = preg_replace('#/.*$#', '', $domain) ?? $domain;
+        }
+        $domain = strtolower(rtrim(trim($domain), '.'));
         if ($domain === '' || !preg_match('/^[A-Za-z0-9._:\-]+$/', $domain)) {
-            return ['result' => 'failed', 'message' => 'Invalid domain', 'rows' => []];
+            return ['result' => 'failed', 'message' => 'Invalid domain or IP', 'rows' => []];
         }
         $output = trim((string)(new Backend())->configdRun('xray domainroute ' . $domain));
         $decoded = json_decode($output, true);

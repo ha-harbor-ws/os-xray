@@ -1,8 +1,8 @@
 #!/usr/local/bin/php
 <?php
 /**
- * Проверка маршрута домена в BIRD: resolv → birdcl show route for <ip> all.
- * JSON для вкладки Domains.
+ * Проверка маршрута домена или IP в BIRD: resolv (для имени) → birdcl show route for <ip> all.
+ * JSON для вкладки Domains. Для прямого IP колонка Domain пустая.
  */
 
 $xray_config_inc = '/usr/local/etc/inc/config.inc';
@@ -24,11 +24,30 @@ function xray_domain_route_birdcl(): string
 
 function xray_domain_route_sanitize(string $raw): string
 {
-    $raw = strtolower(trim($raw, " \t\n\r."));
-    $raw = preg_replace('#^https?://#', '', $raw) ?? $raw;
+    $raw = trim($raw);
+    $raw = preg_replace('#^https?://#i', '', $raw) ?? $raw;
+
+    // [IPv6] или [IPv6]:port
+    if (preg_match('/^\[([0-9a-fA-F:.]+)\](?::\d+)?/', $raw, $m)) {
+        return strtolower($m[1]);
+    }
+
     $raw = preg_replace('#/.*$#', '', $raw) ?? $raw;
+    $raw = rtrim($raw, '.');
+
+    if (filter_var($raw, FILTER_VALIDATE_IP) !== false) {
+        return strtolower($raw);
+    }
+
+    // IPv4:port
+    if (preg_match('/^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/', $raw, $m)
+        && filter_var($m[1], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
+        return $m[1];
+    }
+
+    // hostname:port
     $raw = preg_replace('/:\d+$/', '', $raw) ?? $raw;
-    return $raw;
+    return strtolower(trim($raw, " \t\n\r."));
 }
 
 function xray_domain_route_is_ip(string $s): bool
@@ -59,8 +78,8 @@ function xray_domain_route_general_if(string $key, string $default): string
 function xray_domain_route_if_label(string $dev, string $ip): string
 {
     $v6    = xray_domain_route_is_ip6($ip);
-    $wan4  = xray_domain_route_general_if('bgp_if_wan4', 'igc3');
-    $wan6  = xray_domain_route_general_if('bgp_if_wan6', 'igc3');
+    $wan4  = xray_domain_route_general_if('bgp_if_wan4', '');
+    $wan6  = xray_domain_route_general_if('bgp_if_wan6', '');
     $low   = strtolower($dev);
     if ($low === 'lo0' || $low === 'lo' || $low === 'blackhole' || strncmp($low, 'blackhole', 9) === 0) {
         return 'Null';
@@ -204,25 +223,28 @@ function xray_domain_route_parse(string $text, string $ip): array
 }
 
 $raw = isset($argv[1]) ? (string)$argv[1] : '';
-$domain = xray_domain_route_sanitize($raw);
+$query = xray_domain_route_sanitize($raw);
+$isIp = xray_domain_route_is_ip($query);
+$domainLabel = $isIp ? '' : $query;
 
-$fail = static function (string $msg) use ($domain): void {
+$fail = static function (string $msg) use ($query, $domainLabel): void {
     echo json_encode([
         'result' => 'failed',
-        'domain' => $domain,
+        'domain' => $domainLabel,
+        'query'  => $query,
         'message' => $msg,
         'rows' => [],
     ], JSON_UNESCAPED_SLASHES) . "\n";
     exit(0);
 };
 
-if ($domain === '' || (!xray_domain_route_is_ip($domain) && !xray_domain_route_is_host($domain))) {
-    $fail('Invalid domain');
+if ($query === '' || (!$isIp && !xray_domain_route_is_host($query))) {
+    $fail('Invalid domain or IP');
 }
 
-$ips = xray_domain_route_resolve($domain);
+$ips = xray_domain_route_resolve($query);
 if ($ips === []) {
-    $fail('No A/AAAA records');
+    $fail($isIp ? 'Invalid IP' : 'No A/AAAA records');
 }
 
 $birdcl = xray_domain_route_birdcl();
@@ -237,7 +259,7 @@ foreach ($ips as $ip) {
     $paths = xray_domain_route_parse($text, $ip);
     if ($paths === [] || xray_domain_route_not_found($text)) {
         $rows[] = [
-            'domain'   => $domain,
+            'domain'   => $domainLabel,
             'ip'       => $ip,
             'peer'     => 'N/A',
             'instance' => 'N/A',
@@ -255,7 +277,7 @@ foreach ($ips as $ip) {
         }
         $peer = trim((string)($p['peer'] ?? ''));
         $rows[] = [
-            'domain'   => $domain,
+            'domain'   => $domainLabel,
             'ip'       => $ip,
             'peer'     => $peer !== '' ? $peer : 'N/A',
             'instance' => $inst,
@@ -267,6 +289,7 @@ foreach ($ips as $ip) {
 
 echo json_encode([
     'result' => 'ok',
-    'domain' => $domain,
+    'domain' => $domainLabel,
+    'query'  => $query,
     'rows'   => $rows,
 ], JSON_UNESCAPED_SLASHES) . "\n";

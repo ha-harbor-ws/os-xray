@@ -27,15 +27,15 @@
         <id>general.bgp_if_wan4</id>
         <label>Interface WAN4</label>
         <type>text</type>
-        <help>FreeBSD device for BIRD WAN4_IF (IPv4). Default igc3. Used when a BGP filter sets Interface to WAN4.</help>
-        <hint>igc3</hint>
+        <help>FreeBSD device for BIRD WAN4_IF (IPv4). Filled automatically from the WAN / default route on first install; you can override manually. Used when a BGP filter sets Interface to WAN4.</help>
+        <hint>em0</hint>
     </field>
     <field>
         <id>general.bgp_if_wan6</id>
         <label>Interface WAN6</label>
         <type>text</type>
-        <help>FreeBSD device for BIRD WAN6_IF (IPv6). Default igc3. Used when a BGP filter sets Interface to WAN6.</help>
-        <hint>igc3</hint>
+        <help>FreeBSD device for BIRD WAN6_IF (IPv6). Filled automatically from the WAN / default route on first install; you can override manually. Used when a BGP filter sets Interface to WAN6.</help>
+        <hint>em0</hint>
     </field>
     <field>
         <id>general.dnstap_bgp_enabled</id>

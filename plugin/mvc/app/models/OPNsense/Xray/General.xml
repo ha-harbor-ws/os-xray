@@ -31,16 +31,16 @@
             <Required>N</Required>
         </bgp_enabled>
         <bgp_if_wan4 type="TextField">
-            <Default>igc3</Default>
-            <Required>Y</Required>
-            <Mask>/^[A-Za-z][A-Za-z0-9._-]*$/</Mask>
-            <ValidationMessage>WAN4 must be a FreeBSD interface name (e.g. igc3).</ValidationMessage>
+            <Default></Default>
+            <Required>N</Required>
+            <Mask>/^([A-Za-z][A-Za-z0-9._-]*)?$/</Mask>
+            <ValidationMessage>WAN4 must be a FreeBSD interface name (e.g. em0), or empty.</ValidationMessage>
         </bgp_if_wan4>
         <bgp_if_wan6 type="TextField">
-            <Default>igc3</Default>
-            <Required>Y</Required>
-            <Mask>/^[A-Za-z][A-Za-z0-9._-]*$/</Mask>
-            <ValidationMessage>WAN6 must be a FreeBSD interface name (e.g. igc3).</ValidationMessage>
+            <Default></Default>
+            <Required>N</Required>
+            <Mask>/^([A-Za-z][A-Za-z0-9._-]*)?$/</Mask>
+            <ValidationMessage>WAN6 must be a FreeBSD interface name (e.g. em0), or empty.</ValidationMessage>
         </bgp_if_wan6>
         <dnstap_bgp_enabled type="BooleanField">
             <Default>0</Default>

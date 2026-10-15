@@ -27,10 +27,10 @@
                 <a href="#" class="xray-showhelp" id="help_for_domains_check">
                     <i class="fa fa-info-circle"></i>
                 </a>
-                <span>{{ lang._('Check domain route') }}</span>
+                <span>{{ lang._('Check domain and IP route') }}</span>
                 <div class="dnstap-row-edit" style="flex: 1; min-width: 220px; max-width: 480px;">
                     <input type="text" class="form-control" id="domainsCheckInput"
-                           placeholder="{{ lang._('example.com') }}"/>
+                           placeholder="{{ lang._('example.com or 1.1.1.1') }}"/>
                     <button type="button" class="btn btn-xs btn-primary" id="domainsCheckBtn"
                             title="{{ lang._('Check') }}">
                         <i class="fa fa-search fa-fw"></i> {{ lang._('Check') }}
@@ -38,7 +38,7 @@
                 </div>
                 {{ partial('OPNsense/Xray/partials/help_toggle') }}
                 <div class="hidden" data-for="help_for_domains_check" style="flex-basis: 100%;">
-                    <small class="text-muted">{{ lang._('Resolve the domain and for each IP run birdcl show route for IP all. Active is the BIRD * route. If Network not found: peer N/A, instance N/A, interface WAN4/WAN6, Active yes.') }}</small>
+                    <small class="text-muted">{{ lang._('Enter a domain or an IPv4/IPv6 address. Domains are resolved; for each IP birdcl show route for IP all is run. For a direct IP the Domain column stays empty. Active is the BIRD * route. If Network not found: peer N/A, instance N/A, interface WAN4/WAN6, Active yes.') }}</small>
                 </div>
             </div>
         </section>
@@ -72,6 +72,7 @@
                                     <i class="fa fa-info-circle"></i>
                                 </a>
                                 {{ lang._('Extra PROXY domains') }}
+                                <span id="domainsProxyCount" class="label label-info" style="font-size:11px; margin-left:8px; display:none;"></span>
                             </th>
                         </tr>
                     </thead>
@@ -118,6 +119,7 @@
                                     <i class="fa fa-info-circle"></i>
                                 </a>
                                 {{ lang._('Extra DIRECT domains') }}
+                                <span id="domainsDirectCount" class="label label-info" style="font-size:11px; margin-left:8px; display:none;"></span>
                             </th>
                         </tr>
                     </thead>
@@ -164,6 +166,7 @@
                                     <i class="fa fa-info-circle"></i>
                                 </a>
                                 {{ lang._('Extra BLOCK domains') }}
+                                <span id="domainsBlockCount" class="label label-info" style="font-size:11px; margin-left:8px; display:none;"></span>
                             </th>
                         </tr>
                     </thead>
