@@ -892,6 +892,7 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -rf /usr/local/opnsense/mvc/app/models/OPNsense/Xray       # включает ACL/, Menu/, version.txt
     rm -rf /usr/local/opnsense/mvc/app/controllers/OPNsense/Xray
     rm -rf /usr/local/opnsense/mvc/app/views/OPNsense/Xray
+    rm -rf /usr/local/opnsense/www/fonts/xray
     rm -f  /usr/local/etc/inc/plugins.inc.d/xray.inc
     rm -f  /usr/local/etc/rc.syshook.d/start/50-xray
     rm -f  /usr/local/etc/rc.syshook.d/start/10-xray-bird-hold
@@ -1798,6 +1799,13 @@ install -d /usr/local/opnsense/mvc/app/views/OPNsense/Xray
 install_tree "$PLUGIN_DIR/mvc/app/views/OPNsense/Xray" \
              "/usr/local/opnsense/mvc/app/views/OPNsense/Xray" 0644
 
+# Static assets (flag emoji polyfill for desktop Chrome/Windows)
+install -d /usr/local/opnsense/www/fonts/xray
+if [ -d "$PLUGIN_DIR/www/fonts/xray" ]; then
+    install_tree "$PLUGIN_DIR/www/fonts/xray" \
+                 "/usr/local/opnsense/www/fonts/xray" 0644
+fi
+
 # System hooks
 install -d /usr/local/etc/inc/plugins.inc.d
 install_tree "$PLUGIN_DIR/etc/inc/plugins.inc.d" \
@@ -1805,17 +1813,34 @@ install_tree "$PLUGIN_DIR/etc/inc/plugins.inc.d" \
 
 # Register plugin autocron jobs in /var/cron/tabs/root (watchdog, IF health, Auto route, …)
 echo "==> Refreshing system crontab (xray autocron)..."
-/usr/local/bin/php -r '
-set_include_path("/usr/local/etc/inc" . PATH_SEPARATOR . get_include_path());
-require_once("config.inc");
-require_once("system.inc");
-if (function_exists("system_cron_configure")) {
-    system_cron_configure(true);
-    echo "OK crontab refreshed\n";
-} else {
-    echo "WARN system_cron_configure missing\n";
+/usr/local/bin/php <<'PHPEOF' 2>&1 || echo "[WARN] crontab refresh failed — reboot or save System → Settings → Cron once"
+<?php
+set_include_path('/usr/local/etc/inc' . PATH_SEPARATOR . get_include_path());
+require_once 'config.inc';
+require_once 'util.inc';
+require_once 'plugins.inc';
+require_once 'system.inc';
+// CLI bootstrap may omit helpers that system_cron_configure() expects.
+if (!function_exists('service_log')) {
+    function service_log($message, $verbose = true): void
+    {
+        if ($verbose) {
+            echo (string)$message;
+        }
+    }
 }
-' 2>&1 || echo "[WARN] crontab refresh failed — reboot or save System → Settings → Cron once"
+if (!function_exists('system_cron_configure')) {
+    fwrite(STDERR, "WARN system_cron_configure missing\n");
+    exit(1);
+}
+try {
+    system_cron_configure(false);
+    echo "OK crontab refreshed\n";
+} catch (Throwable $e) {
+    fwrite(STDERR, 'ERROR: ' . $e->getMessage() . "\n");
+    exit(1);
+}
+PHPEOF
 
 install -d /usr/local/etc/rc.syshook.d/start
 install_tree "$PLUGIN_DIR/etc/rc.syshook.d/start" \

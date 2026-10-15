@@ -22,6 +22,15 @@
 
     <div class="row">
         <section class="col-xs-12">
+            <div style="padding: 8px 15px; border-bottom: 1px solid #ddd;
+                        display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
+                {{ partial('OPNsense/Xray/partials/help_toggle') }}
+            </div>
+        </section>
+    </div>
+
+    <div class="row">
+        <section class="col-xs-12">
             <div class="xray-block">
                 <table class="table table-condensed table-hover table-striped">
                     <thead>
@@ -40,20 +49,14 @@
                                 <div class="dnstap-row-edit">
                                     <input type="text" class="form-control" id="domainsCheckInput"
                                            placeholder="{{ lang._('example.com or 1.1.1.1') }}"/>
+                                    <button type="button" class="btn btn-xs btn-primary" id="domainsCheckBtn"
+                                            title="{{ lang._('Check') }}">
+                                        <span class="fa fa-fw fa-search"></span>
+                                    </button>
                                 </div>
                             </td>
                         </tr>
                     </tbody>
-                    <tfoot>
-                        <tr>
-                            <td>
-                                <button type="button" class="btn btn-xs btn-primary" id="domainsCheckBtn"
-                                        title="{{ lang._('Check') }}">
-                                    <span class="fa fa-fw fa-search"></span>
-                                </button>
-                            </td>
-                        </tr>
-                    </tfoot>
                 </table>
                 <div class="hidden" data-for="help_for_domains_check" style="padding: 8px 0 0;">
                     <small class="text-muted">{{ lang._('Enter a domain or an IPv4/IPv6 address. Domains are resolved; for each IP birdcl show route for IP all is run. For a direct IP the Domain column stays empty. Active is the BIRD * route. If Network not found: peer N/A, instance N/A, interface WAN4/WAN6, Active yes.') }}</small>
