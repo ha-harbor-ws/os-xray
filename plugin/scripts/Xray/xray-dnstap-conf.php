@@ -1143,6 +1143,11 @@ if ($op === 'stop') {
 }
 
 if ($op === 'fetch') {
+    $cfg = OPNsense\Core\Config::getInstance()->object();
+    if ((string)($cfg->OPNsense->xray->general->dnstap_bgp_enabled ?? '0') !== '1') {
+        echo "OK dnstap_bgp disabled — skip fetch\n";
+        exit(0);
+    }
     $result = xray_dnstap_refresh_from_urls();
     if (!$result['has_urls'] && !$result['wrote']) {
         echo "OK no enabled domain list URLs — skip download\n";

@@ -115,9 +115,9 @@ class ServiceController extends ApiMutableServiceControllerBase
     public function statusAllAction()
     {
         $backend = new Backend();
-        $result  = $backend->configdRun('xray statusall');
-        $decoded = json_decode($result, true);
-        if (json_last_error() === JSON_ERROR_NONE) {
+        $result  = (string)$backend->configdRun('xray statusall');
+        $decoded = $this->decodeConfigdJson($result);
+        if (is_array($decoded)) {
             return $decoded;
         }
         return ['error' => trim($result)];

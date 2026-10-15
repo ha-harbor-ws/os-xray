@@ -186,69 +186,22 @@ function xray_services()
 }
 
 /**
- * E1: регистрирует cron-задание для watchdog.
+ * Cron jobs for OPNsense system_cron_configure().
+ * Only entries with key "autocron" are written to /var/cron/tabs/root.
+ * Scripts self-gate on enabled flags (watchdog / BGP / IF / DNStap / Static).
  */
 function xray_cron(): array
 {
-    return [
-        ['xray_cron_watchdog', '/', '*', '*', '*', '*'],
-        ['xray_cron_autoroute', '/', '*', '*', '*', '*'],
-        ['xray_cron_if_health', '/', '*/5', '*', '*', '*'],
-        ['xray_cron_dnstap_fetch', '/', '15', '4', '*', '*'],
-        ['xray_cron_static_fetch', '/', '30', '4', '*', '*'],
-    ];
-}
-
-function xray_cron_watchdog(): void
-{
-    (new OPNsense\Core\Backend())->configdRun('xray watchdog');
-}
-
-function xray_cron_if_health(): void
-{
-    $cfg = OPNsense\Core\Config::getInstance()->object();
-    $g   = $cfg->OPNsense->xray->general ?? null;
-    if ((string)($g->enabled ?? '0') !== '1') {
-        return;
-    }
-    (new OPNsense\Core\Backend())->configdRun('xray ifhealth');
-}
-
-function xray_cron_autoroute(): void
-{
-    $cfg = OPNsense\Core\Config::getInstance()->object();
-    $g   = $cfg->OPNsense->xray->general ?? null;
-    if ((string)($g->enabled ?? '0') !== '1') {
-        return;
-    }
-    if ((string)($g->bgp_enabled ?? '0') !== '1') {
-        return;
-    }
-    if ((string)($g->bgp_auto_route ?? '0') !== '1') {
-        return;
-    }
-    (new OPNsense\Core\Backend())->configdRun('xray birdautoroute');
-}
-
-function xray_cron_dnstap_fetch(): void
-{
-    $cfg = OPNsense\Core\Config::getInstance()->object();
-    $g   = $cfg->OPNsense->xray->general ?? null;
-    if ((string)($g->dnstap_bgp_enabled ?? '0') !== '1') {
-        return;
-    }
-    (new OPNsense\Core\Backend())->configdRun('xray dnstapfetch');
-}
-
-function xray_cron_static_fetch(): void
-{
-    $cfg = OPNsense\Core\Config::getInstance()->object();
-    $g   = $cfg->OPNsense->xray->general ?? null;
-    // Daily refresh only when global static routes are enabled; per-URL Enable is checked in the script.
-    if ((string)($g->static_enabled ?? '0') !== '1') {
-        return;
-    }
-    (new OPNsense\Core\Backend())->configdRun('xray staticfetch');
+    $jobs = [];
+    // Every minute: watchdog + Auto route tick
+    $jobs[]['autocron'] = ['/usr/local/sbin/configctl -d xray watchdog', '*'];
+    $jobs[]['autocron'] = ['/usr/local/sbin/configctl -d xray birdautoroute', '*'];
+    // Every 5 minutes: IF health → Test Result store + active TUN reselect if needed
+    $jobs[]['autocron'] = ['/usr/local/sbin/configctl -d xray ifhealth', '*/5'];
+    // Daily URL refreshes
+    $jobs[]['autocron'] = ['/usr/local/sbin/configctl -d xray dnstapfetch', '15', '4'];
+    $jobs[]['autocron'] = ['/usr/local/sbin/configctl -d xray staticfetch', '30', '4'];
+    return $jobs;
 }
 
 function xray_xmlrpc_sync()

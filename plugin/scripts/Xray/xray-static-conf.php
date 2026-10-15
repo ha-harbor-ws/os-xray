@@ -1026,6 +1026,10 @@ if ($op === 'fetchone') {
 
 if ($op === 'fetch') {
     // Daily: refresh caches for enabled URLs only, then rebuild
+    if (!xray_static_enabled()) {
+        echo "OK static disabled — skip fetch\n";
+        exit(0);
+    }
     $proxyUrls  = xray_static_load_url_rows('proxy');
     $directUrls = xray_static_load_url_rows('direct');
     $blockUrls  = xray_static_load_url_rows('block');

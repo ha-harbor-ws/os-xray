@@ -1803,6 +1803,20 @@ install -d /usr/local/etc/inc/plugins.inc.d
 install_tree "$PLUGIN_DIR/etc/inc/plugins.inc.d" \
              "/usr/local/etc/inc/plugins.inc.d" 0644
 
+# Register plugin autocron jobs in /var/cron/tabs/root (watchdog, IF health, Auto route, …)
+echo "==> Refreshing system crontab (xray autocron)..."
+/usr/local/bin/php -r '
+set_include_path("/usr/local/etc/inc" . PATH_SEPARATOR . get_include_path());
+require_once("config.inc");
+require_once("system.inc");
+if (function_exists("system_cron_configure")) {
+    system_cron_configure(true);
+    echo "OK crontab refreshed\n";
+} else {
+    echo "WARN system_cron_configure missing\n";
+}
+' 2>&1 || echo "[WARN] crontab refresh failed — reboot or save System → Settings → Cron once"
+
 install -d /usr/local/etc/rc.syshook.d/start
 install_tree "$PLUGIN_DIR/etc/rc.syshook.d/start" \
              "/usr/local/etc/rc.syshook.d/start" 0755

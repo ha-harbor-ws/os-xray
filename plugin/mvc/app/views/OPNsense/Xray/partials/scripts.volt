@@ -91,18 +91,22 @@
             return '<span class="label label-warning" style="font-size:11px;">' + escAttr(text) + '</span>';
         }
 
+        function gridRowUuid(el) {
+            return String($(el).attr('data-uuid') || $(el).data('uuid') || '');
+        }
+
         function applyStatusToGrid() {
             $('#grid-instances .xray-status-cell').each(function () {
-                var uuid = $(this).data('uuid');
+                var uuid = gridRowUuid(this);
                 $(this).html(statusBadge(instanceStatusCache[uuid]));
             });
             $('#grid-instances .xray-activetun-v4-cell').each(function () {
-                var uuid = $(this).data('uuid');
+                var uuid = gridRowUuid(this);
                 var info = instanceStatusCache[uuid];
                 $(this).html(activeTunBadge(info && info.active_tun_v4));
             });
             $('#grid-instances .xray-activetun-v6-cell').each(function () {
-                var uuid = $(this).data('uuid');
+                var uuid = gridRowUuid(this);
                 var info = instanceStatusCache[uuid];
                 $(this).html(activeTunBadge(info && info.active_tun_v6));
             });
@@ -117,7 +121,7 @@
 
         function applyTestResultToGrid() {
             $('#grid-instances .xray-test-cell').each(function () {
-                var uuid = $(this).data('uuid');
+                var uuid = gridRowUuid(this);
                 $(this).html(testResultBadge(instanceTestCache[uuid]));
             });
         }
@@ -1998,16 +2002,19 @@
         // ── Status badges + per-instance status ───────────────────
         function refreshInstancesStatus() {
             ajaxGet("/api/xray/service/statusall", {}, function (data) {
-                if (data.error) return;
+                if (!data || typeof data !== 'object' || data.error) return;
                 instanceStatusCache = data;
 
                 // Aggregate: any instance running = global running
                 var anyXray = false, anyTun = false;
                 $.each(data, function (uuid, info) {
+                    if (!info || typeof info !== 'object' || Array.isArray(info)) {
+                        return;
+                    }
                     if (info.xray_core === 'running') anyXray = true;
                     if (info.tun2socks === 'running') anyTun = true;
                     // Last IF result (cron or manual) — whichever wrote the store last per uuid
-                    if (info && info.test_result && info.test_result.message) {
+                    if (info.test_result && info.test_result.message) {
                         instanceTestCache[uuid] = {
                             result: info.test_result.result || 'failed',
                             message: info.test_result.message,
