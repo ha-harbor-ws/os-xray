@@ -1496,15 +1496,10 @@
                         return;
                     }
                     staticGeodatActiveUrl = url;
-                    var msg = data.message || "{{ lang._('Saved.') }}";
-                    if (data.saved) {
-                        msg = "{{ lang._('Saved.') }}" + (data.message ? (' — ' + data.message) : '');
-                    }
-                    $('#staticGeodatModalMsg').text(msg);
                     if (data.categories && data.categories.length) {
                         staticGeodatFillModal(data.categories);
                     }
-                    // Keep modal open; selections stay after refill from saved assignments
+                    $('#staticGeodatModal').modal('hide');
                 },
                 error: function (xhr) {
                     $saveBtn.prop('disabled', false);

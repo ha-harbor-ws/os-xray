@@ -1,4 +1,18 @@
 <style>
+    /* Desktop Chrome/Windows: flags & emoji need an explicit color-emoji fallback. */
+    .tab-content.content-box,
+    #DialogInstance,
+    #DialogBgpPeer,
+    #DialogBgpFilter,
+    #DialogBgpCommunity {
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif,
+            "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", "Twemoji Mozilla", emoji;
+    }
+    #DialogInstance input[id="instance.name"],
+    #grid-instances td {
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif,
+            "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", "Twemoji Mozilla", emoji;
+    }
     #DialogBgpFilter tr.xray-filter-block-start > td {
         border-top: 1px solid #bbb;
         border-left: 1px solid #bbb;

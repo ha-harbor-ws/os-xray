@@ -233,8 +233,8 @@
                     </table>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-primary static-geodat-save">{{ lang._('Save') }}</button>
                     <button type="button" class="btn btn-default" data-dismiss="modal">{{ lang._('Close') }}</button>
+                    <button type="button" class="btn btn-primary static-geodat-save">{{ lang._('Save') }}</button>
                 </div>
             </div>
         </div>
