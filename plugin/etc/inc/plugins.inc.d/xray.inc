@@ -193,6 +193,7 @@ function xray_cron(): array
     return [
         ['xray_cron_watchdog', '/', '*', '*', '*', '*'],
         ['xray_cron_autoroute', '/', '*', '*', '*', '*'],
+        ['xray_cron_if_health', '/', '*/5', '*', '*', '*'],
         ['xray_cron_dnstap_fetch', '/', '15', '4', '*', '*'],
         ['xray_cron_static_fetch', '/', '30', '4', '*', '*'],
     ];
@@ -201,6 +202,16 @@ function xray_cron(): array
 function xray_cron_watchdog(): void
 {
     (new OPNsense\Core\Backend())->configdRun('xray watchdog');
+}
+
+function xray_cron_if_health(): void
+{
+    $cfg = OPNsense\Core\Config::getInstance()->object();
+    $g   = $cfg->OPNsense->xray->general ?? null;
+    if ((string)($g->enabled ?? '0') !== '1') {
+        return;
+    }
+    (new OPNsense\Core\Backend())->configdRun('xray ifhealth');
 }
 
 function xray_cron_autoroute(): void

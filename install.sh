@@ -865,6 +865,7 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/opnsense/scripts/Xray/xray-service-control.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-testconnect.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-watchdog.php
+    rm -f  /usr/local/opnsense/scripts/Xray/xray-if-health.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-ifstats.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-peers.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-active-tun.php
@@ -931,8 +932,18 @@ if [ "${1:-}" = "uninstall" ]; then
 
     xray_uninstall_managed_packages
 
-    echo "==> Restarting syslog-ng / BIRD (if still installed)..."
-    xray_restart_bird_log_services
+    # Only syslog-ng: bird includes were just removed, so bird onerestart would fail
+    # with a broken config (and leave a noisy [WARN]). If bird2 was pre-installed and
+    # kept running, leave the process alone — operator can fix/reload bird.conf later.
+    echo "==> Restarting syslog-ng..."
+    if service syslog-ng restart >/dev/null 2>&1; then
+        echo "[OK]  syslog-ng restarted"
+    else
+        warn "syslog-ng restart failed"
+    fi
+    if service bird onestatus >/dev/null 2>&1; then
+        echo "[INFO] bird still running (plugin includes removed) — not restarting"
+    fi
 
     echo "==> Restarting configd..."
     service configd restart

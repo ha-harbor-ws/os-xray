@@ -165,18 +165,13 @@ function xray_bird_active_tun_curl(string $listen, int $port, string $ipFlag): a
     }
     $ipFlag = ($ipFlag === '-6') ? '-6' : '-4';
     $proxy = $connectAddr . ':' . $port;
-    // Same idea as Test IF (xray-testconnect.php → 1.1.1.1), but per-family:
-    // -4 uses IPv4 literal; -6 must use IPv6 literal (1.1.1.1 cannot work with -6).
-    $target = ($ipFlag === '-6')
-        ? 'https://[2606:4700:4700::1111]'
-        : 'https://1.1.1.1';
     $out = [];
     exec(
         '/usr/local/bin/curl ' . $ipFlag
         . ' --socks5 ' . escapeshellarg($proxy)
         . ' -s -L -o /dev/null'
         . ' -w ' . escapeshellarg("Код ответа: %{http_code}\nВремя ответа: %{time_total} сек\n")
-        . ' ' . escapeshellarg($target)
+        . ' ' . escapeshellarg('https://google.com')
         . ' --max-time 10',
         $out,
         $rc
