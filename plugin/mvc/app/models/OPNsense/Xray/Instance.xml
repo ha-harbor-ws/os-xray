@@ -11,9 +11,9 @@
             <enabled type="BooleanField">
                 <Default>1</Default>
             </enabled>
-            <!-- Имя инстанса для отображения в таблице GUI -->
+            <!-- Имя инстанса для отображения в таблице GUI (пустое по умолчанию — без фантома default) -->
             <name type="TextField">
-                <Default>default</Default>
+                <Default></Default>
                 <Required>N</Required>
             </name>
             <outbound_config type="TextField">

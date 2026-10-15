@@ -1189,7 +1189,16 @@ $x = $obj->OPNsense->xray;
 if (!isset($x->general))          { $x->addChild('general'); }
 
 // v2.0.0: ArrayField — instances (plural) с instance (child) с uuid-атрибутом
-if (!isset($x->instances))        { $x->addChild('instances'); }
+if (!isset($x->instances)) {
+    $x->addChild('instances');
+}
+// Never add a second instance on reinstall if GUI already has any
+foreach ($x->instances->instance ?? [] as $_exist) {
+    if ((string)($_exist['uuid'] ?? '') !== '') {
+        echo "SKIP: instances already present — not importing file config\n";
+        exit(0);
+    }
+}
 $inst = $x->instances->addChild('instance');
 // Генерируем UUID для OPNsense BaseModel (атрибут инстанса, не VLESS UUID)
 $instUuid = sprintf(
@@ -1203,7 +1212,11 @@ $instUuid = sprintf(
 $inst->addAttribute('uuid', $instUuid);
 
 $x->general->enabled    = '1';
-$inst->addChild('name',                'default');
+$importName = trim((string)($d['server'] ?? ''));
+if ($importName === '') {
+    $importName = 'imported';
+}
+$inst->addChild('name',                $importName);
 $inst->addChild('server_address',      $d['server']);
 $inst->addChild('server_port',         (string)$d['port']);
 $inst->addChild('vless_uuid',          $d['uuid']);
@@ -1738,11 +1751,12 @@ set_include_path("/usr/local/etc/inc" . PATH_SEPARATOR . get_include_path());
 require_once("config.inc");
 $cfg = OPNsense\Core\Config::getInstance()->object();
 
-// v2.0.0: check new ArrayField structure first
+// Any ArrayField instance (even custom/outbound-only) means GUI config exists — do not re-import.
 $instances = $cfg->OPNsense->xray->instances ?? null;
 if ($instances) {
     foreach ($instances->instance as $inst) {
-        if ((string)($inst->server_address ?? "") !== "" || (string)($inst->vless_uuid ?? "") !== "") {
+        $uuid = (string)($inst["uuid"] ?? "");
+        if ($uuid !== "") {
             echo "new";
             exit(0);
         }
@@ -1769,6 +1783,53 @@ elif [ "$HAS_EXISTING_CONFIG" = "1" ]; then
     import_existing_config
 else
     echo "[SKIP] No existing config to import."
+fi
+
+# Drop empty placeholder "default" instances left by older installers (no server / UUID / outbound).
+echo "==> Removing empty placeholder instance named default (if any)..."
+_PURGE_DEFAULT=$(php << 'PHPEOF'
+<?php
+set_include_path('/usr/local/etc/inc' . PATH_SEPARATOR . get_include_path());
+require_once('config.inc');
+$cfg = OPNsense\Core\Config::getInstance();
+$obj = $cfg->object();
+$instances = $obj->OPNsense->xray->instances ?? null;
+if (!$instances || !isset($instances->instance)) {
+    echo "SKIP";
+    exit(0);
+}
+$removed = 0;
+$toRemove = [];
+foreach ($instances->instance as $inst) {
+    $name = trim((string)($inst->name ?? ''));
+    $server = trim((string)($inst->server_address ?? ''));
+    $vless = trim((string)($inst->vless_uuid ?? ''));
+    $outb = trim((string)($inst->outbound_config ?? ''));
+    $custom = trim((string)($inst->custom_config ?? ''));
+    $empty = ($server === '' && $vless === '' && $outb === '' && $custom === '');
+    if (strcasecmp($name, 'default') === 0 && $empty) {
+        $toRemove[] = $inst;
+    }
+}
+foreach ($toRemove as $inst) {
+    $dom = dom_import_simplexml($inst);
+    if ($dom && $dom->parentNode) {
+        $dom->parentNode->removeChild($dom);
+        $removed++;
+    }
+}
+if ($removed === 0) {
+    echo "SKIP";
+    exit(0);
+}
+$cfg->save();
+echo "OK:$removed";
+PHPEOF
+) || true
+if echo "$_PURGE_DEFAULT" | grep -q '^OK:'; then
+    echo "[OK]  Removed empty placeholder instance(s): ${_PURGE_DEFAULT#OK:}"
+else
+    echo "[SKIP] No empty default placeholder instance"
 fi
 
 # ── Шаг 4.5: Миграция v1.x → v3.0.0 (single instance → ArrayField) ─────────
@@ -2214,6 +2275,27 @@ echo "==> Step 6: Clearing cache..."
 rm -f /var/lib/php/tmp/opnsense_menu_cache.xml
 rm -f /var/lib/php/tmp/PHP_errors.log
 
+# ── Шаг 7: Автостарт enabled-инстансов после переустановки ───────────────────
+# Раньше после reinstall сервисы не поднимались, пока не нажмут Start All / Apply.
+echo ""
+echo "==> Step 7: Auto-start enabled instances (if Enable Xray is on)..."
+_XRAY_EN=$(php -r '
+set_include_path("/usr/local/etc/inc" . PATH_SEPARATOR . get_include_path());
+require_once("config.inc");
+$cfg = OPNsense\Core\Config::getInstance()->object();
+echo (string)($cfg->OPNsense->xray->general->enabled ?? "0");
+' 2>/dev/null) || true
+if [ "$_XRAY_EN" = "1" ]; then
+    echo "    Enable Xray is on — starting instances via configctl..."
+    if /usr/local/sbin/configctl xray start 2>&1; then
+        echo "[OK]  xray start completed"
+    else
+        echo "[WARN] configctl xray start failed — use Start All in the GUI"
+    fi
+else
+    echo "    Enable Xray is off — skipping auto-start"
+fi
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SUMMARY
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2232,7 +2314,7 @@ if [ "$CONFIG_XML_HAS_XRAY" = "1" ]; then
     echo "  Quick steps:"
     echo "  1. Refresh browser (Ctrl+F5) → VPN → Xray"
     echo "  2. Verify your settings are intact"
-    echo "  3. Click Apply if needed"
+    echo "  3. Instances should already be running if Enable Xray was on"
     echo ""
 elif [ "$HAS_EXISTING_CONFIG" = "1" ]; then
     echo "  Existing config was detected and imported automatically."
@@ -2242,7 +2324,7 @@ elif [ "$HAS_EXISTING_CONFIG" = "1" ]; then
     echo "  1. Refresh browser (Ctrl+F5) → VPN → Xray"
     echo "  2. Check that Instance tab shows your settings"
     echo "  3. General tab → verify 'Enable Xray' is checked"
-    echo "  4. Click Apply"
+    echo "  4. Click Apply if instances are not running"
     echo ""
 else
     echo "  Quick steps:"

@@ -1706,6 +1706,7 @@
                 url:      '/api/xray/service/' + action,
                 type:     'POST',
                 dataType: 'json',
+                timeout:  180000,
                 success: function (data) {
                     $btn.html(origHtml);
                     if (data.result !== 'ok') {
@@ -1720,6 +1721,12 @@
                 error: function (xhr) {
                     $btn.html(origHtml);
                     $btns.prop('disabled', false);
+                    // 504: gateway timed out while start may still have succeeded
+                    if (xhr.status === 504 || xhr.status === 502) {
+                        setTimeout(function () { refreshInstancesStatus(); }, 1500);
+                        alert('{{ lang._("Request timed out — check instance status; services may still have started.") }}');
+                        return;
+                    }
                     alert('{{ lang._("HTTP error:") }} ' + xhr.status);
                 }
             });

@@ -168,7 +168,7 @@ function xray_services()
             if ($inst_uuid === '' || (string)($inst->enabled ?? '1') !== '1') {
                 continue;
             }
-            $name       = (string)($inst->name ?? 'default');
+            $name       = (string)($inst->name ?? '');
             $services[] = [
                 'description' => 'Xray (' . $name . ')',
                 'configd'     => [

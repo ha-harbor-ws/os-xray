@@ -12,6 +12,12 @@
         <help>Automatically restart xray-core and tun2socks if they crash (checked every minute via cron). Writes recovery events to /var/log/xray-watchdog.log.</help>
     </field>
     <field>
+        <id>general.routing_strategy</id>
+        <label>Routing strategy</label>
+        <type>dropdown</type>
+        <help>Order of routing rules (BLOCK / PROXY / DIRECT). Behavior will be documented later.</help>
+    </field>
+    <field>
         <id>general.bgp_enabled</id>
         <label>Enable BGP</label>
         <type>checkbox</type>

@@ -68,7 +68,7 @@ function xray_parse_instance($inst, bool $globalEnabled): array
 
     return [
         'enabled'         => $globalEnabled && (string)($inst->enabled ?? '1') === '1',
-        'name'            => (string)($inst->name             ?? 'default'),
+        'name'            => (string)($inst->name             ?? ''),
         'outbound_config' => (string)($inst->outbound_config  ?? ''),
         'socks5_listen'   => (string)($inst->socks5_listen    ?? '127.0.0.1') ?: '127.0.0.1',
         'socks5_port'     => (int)(string)($inst->socks5_port ?? 10808) ?: 10808,
@@ -892,6 +892,25 @@ function xray_bird_sync(): void
     echo "bird sync: BGP on, no tun2socks, bird stopped\n";
 }
 
+/**
+ * BIRD sync does SOCKS probes and can take >60s (HTTP 504 on Start All).
+ * Run it out-of-band so start/stop/restart return promptly.
+ */
+function xray_bird_sync_async(): void
+{
+    $bin = '/usr/local/sbin/configctl';
+    if (!is_executable($bin)) {
+        $bin = '/usr/local/bin/configctl';
+    }
+    if (is_executable($bin)) {
+        exec(escapeshellarg($bin) . ' xray birdsync >/dev/null 2>&1 &');
+        echo "bird sync: scheduled in background\n";
+        return;
+    }
+    // Fallback: still sync inline if configctl missing
+    xray_bird_sync();
+}
+
 function xray_dnstap_bgp_installed(): bool
 {
     if (is_executable('/usr/local/sbin/dnstap-bgp')
@@ -982,7 +1001,7 @@ switch ($action) {
                 $exitCode = $anyFailed ? 1 : 0;
             }
         }
-        xray_bird_sync();
+        xray_bird_sync_async();
         exit($exitCode);
 
     case 'stop':
@@ -993,7 +1012,7 @@ switch ($action) {
                 do_stop($uuid);
             }
         }
-        xray_bird_sync();
+        xray_bird_sync_async();
         break;
 
     case 'restart':
@@ -1016,7 +1035,7 @@ switch ($action) {
                 if ($c['enabled']) do_start($c);
             }
         }
-        xray_bird_sync();
+        xray_bird_sync_async();
         break;
 
     case 'reconfigure':
@@ -1037,7 +1056,7 @@ switch ($action) {
             } else {
                 echo "Xray disabled — services stopped.\n";
             }
-            xray_bird_sync();
+            xray_bird_sync_async();
             exit($exitCode);
         }
         // Без UUID: рекофигурируем все инстансы
@@ -1061,11 +1080,13 @@ switch ($action) {
             echo "ERROR: One or more instances failed to start.\n";
             xray_bird_apply_general_bgp();
             xray_dnstap_apply_general();
+            xray_bird_sync_async();
             exit(1);
         }
         echo "OK\n";
         xray_bird_apply_general_bgp();
         xray_dnstap_apply_general();
+        xray_bird_sync_async();
         exit(0);
 
     case 'birdhold':
