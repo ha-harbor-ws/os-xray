@@ -51,7 +51,7 @@
                             <i class="fa fa-refresh fa-fw"></i> {{ lang._('Refresh') }}
                         </button>
                         <span class="text-muted" style="font-size: 12px;">
-                            {{ lang._('/tmp/xray_syshook.log — last 300 lines (boot, Test All, Auto route)') }}
+                            {{ lang._('/tmp/xray_syshook.log — last 300 lines (boot, Test all IF, Test auto route)') }}
                         </span>
                     </div>
                     <pre id="logBootContent"

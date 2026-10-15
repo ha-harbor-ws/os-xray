@@ -740,20 +740,65 @@ function do_status(string $inst_uuid = ''): void
     ]) . "\n";
 }
 
+function xray_active_tun_latency_load(): array
+{
+    $path = '/var/run/xray_active_tun_latency.json';
+    if (!is_readable($path)) {
+        return [];
+    }
+    $j = json_decode((string)file_get_contents($path), true);
+    return is_array($j) ? $j : [];
+}
+
 function do_status_all(): void
 {
     $all    = xray_get_all_instances();
+    $lat    = xray_active_tun_latency_load();
+    $act4   = (string)($lat['active_v4'] ?? '');
+    $act6   = (string)($lat['active_v6'] ?? '');
+    $byUuid = is_array($lat['instances'] ?? null) ? $lat['instances'] : [];
     $result = [];
     foreach ($all as $inst_uuid => $c) {
         $xray = proc_is_running(xray_pid_path($inst_uuid));
         $t2s  = proc_is_running(t2s_pid_path($inst_uuid));
-        $result[$inst_uuid] = [
+        $row  = [
             'name'      => $c['name'],
             'enabled'   => !empty($c['enabled']),
             'status'    => ($xray && $t2s) ? 'ok' : 'stopped',
             'xray_core' => $xray ? 'running' : 'stopped',
             'tun2socks' => $t2s  ? 'running' : 'stopped',
+            'tun_iface' => (string)($c['tun_iface'] ?? ''),
         ];
+        $L = is_array($byUuid[$inst_uuid] ?? null) ? $byUuid[$inst_uuid] : null;
+        if ($L !== null) {
+            $tun = (string)($L['tun'] ?? $row['tun_iface']);
+            $row['active_tun_v4'] = [
+                'ok'     => !empty($L['v4_ok']),
+                'time'   => !empty($L['v4_ok']) ? (float)($L['v4_time'] ?? 0) : 0.0,
+                'active' => ($act4 !== '' && $tun !== '' && $tun === $act4),
+            ];
+            $row['active_tun_v6'] = [
+                'ok'     => !empty($L['v6_ok']),
+                'time'   => !empty($L['v6_ok']) ? (float)($L['v6_time'] ?? 0) : 0.0,
+                'active' => ($act6 !== '' && $tun !== '' && $tun === $act6),
+            ];
+            // Active TUN RTT for yellow comparison (slower/faster than winner)
+            $row['active_tun_v4']['active_time'] = null;
+            $row['active_tun_v6']['active_time'] = null;
+            foreach ($byUuid as $o) {
+                if (!is_array($o)) {
+                    continue;
+                }
+                $ot = (string)($o['tun'] ?? '');
+                if ($act4 !== '' && $ot === $act4 && !empty($o['v4_ok'])) {
+                    $row['active_tun_v4']['active_time'] = (float)($o['v4_time'] ?? 0);
+                }
+                if ($act6 !== '' && $ot === $act6 && !empty($o['v6_ok'])) {
+                    $row['active_tun_v6']['active_time'] = (float)($o['v6_time'] ?? 0);
+                }
+            }
+        }
+        $result[$inst_uuid] = $row;
     }
     echo json_encode($result) . "\n";
 }

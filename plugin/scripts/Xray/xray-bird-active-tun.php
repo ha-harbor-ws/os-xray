@@ -26,6 +26,55 @@ if (!defined('XRAY_BIRD_INC_DIR')) {
 if (!defined('XRAY_AUTOROUTE_STATE')) {
     define('XRAY_AUTOROUTE_STATE', '/var/run/xray_autoroute_state.json');
 }
+if (!defined('XRAY_ACTIVE_TUN_LATENCY')) {
+    define('XRAY_ACTIVE_TUN_LATENCY', '/var/run/xray_active_tun_latency.json');
+}
+
+/**
+ * Persist last probe times + active TUN for Instances grid columns.
+ *
+ * @param array<string,array{tun?:string,name?:string,v4_ok?:bool,v4_time?:float|null,v6_ok?:bool,v6_time?:float|null}> $byUuid
+ */
+function xray_bird_latency_save(array $byUuid, string $active4, string $active6): void
+{
+    $instances = [];
+    foreach ($byUuid as $uuid => $row) {
+        $uuid = (string)$uuid;
+        if ($uuid === '') {
+            continue;
+        }
+        $v4ok = !empty($row['v4_ok']);
+        $v6ok = !empty($row['v6_ok']);
+        $instances[$uuid] = [
+            'tun'     => (string)($row['tun'] ?? ''),
+            'name'    => (string)($row['name'] ?? ''),
+            'v4_ok'   => $v4ok,
+            'v4_time' => $v4ok ? (float)($row['v4_time'] ?? 0) : 0.0,
+            'v6_ok'   => $v6ok,
+            'v6_time' => $v6ok ? (float)($row['v6_time'] ?? 0) : 0.0,
+        ];
+    }
+    $payload = [
+        'updated_at' => time(),
+        'active_v4'  => $active4,
+        'active_v6'  => $active6,
+        'instances'  => $instances,
+    ];
+    @file_put_contents(
+        XRAY_ACTIVE_TUN_LATENCY,
+        json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n"
+    );
+    @chmod(XRAY_ACTIVE_TUN_LATENCY, 0644);
+}
+
+function xray_bird_latency_load(): array
+{
+    if (!is_readable(XRAY_ACTIVE_TUN_LATENCY)) {
+        return [];
+    }
+    $j = json_decode((string)file_get_contents(XRAY_ACTIVE_TUN_LATENCY), true);
+    return is_array($j) ? $j : [];
+}
 
 function xray_bird_active_tun_pid_alive(string $pidfile): bool
 {
@@ -400,6 +449,25 @@ function xray_bird_autoroute_finalize(array $state, $general, string $reason): v
     $prev4 = xray_bird_active_tun_current(XRAY_BIRD_INC_DIR . '/active_tun_v4.inc', 'ACTIVE_TUN4_IF');
     $prev6 = xray_bird_active_tun_current(XRAY_BIRD_INC_DIR . '/active_tun_v6.inc', 'ACTIVE_TUN6_IF');
     $res = xray_bird_active_tun_commit($best4, $best6, $prev4, $prev6);
+    $latency = [];
+    foreach ($state['samples'] as $uuid => $s) {
+        $uuid = (string)$uuid;
+        $avg4 = xray_bird_avg_times($s['v4'] ?? []);
+        $avg6 = xray_bird_avg_times($s['v6'] ?? []);
+        $latency[$uuid] = [
+            'tun'     => (string)($s['tun'] ?? ''),
+            'name'    => (string)($s['name'] ?? $uuid),
+            'v4_ok'   => $avg4 !== null,
+            'v4_time' => $avg4 ?? 0.0,
+            'v6_ok'   => $avg6 !== null,
+            'v6_time' => $avg6 ?? 0.0,
+        ];
+    }
+    xray_bird_latency_save(
+        $latency,
+        $best4['tun'] ?? $prev4,
+        $best6['tun'] ?? $prev6
+    );
     if (!empty($res['changed'])) {
         xray_bird_active_tun_configure();
     }
@@ -510,6 +578,22 @@ function xray_bird_autoroute_tick(): void
     $state['last_poll_at'] = $now;
     xray_bird_autoroute_save($state);
 
+    // Live grid snapshot (running averages + current ACTIVE_TUN* files)
+    $latSnap = [];
+    foreach ($state['samples'] as $sid => $s) {
+        $a4 = xray_bird_avg_times($s['v4'] ?? []);
+        $a6 = xray_bird_avg_times($s['v6'] ?? []);
+        $latSnap[(string)$sid] = [
+            'tun'     => (string)($s['tun'] ?? ''),
+            'name'    => (string)($s['name'] ?? $sid),
+            'v4_ok'   => $a4 !== null,
+            'v4_time' => $a4 ?? 0.0,
+            'v6_ok'   => $a6 !== null,
+            'v6_time' => $a6 ?? 0.0,
+        ];
+    }
+    xray_bird_latency_save($latSnap, $prev4, $prev6);
+
     if ($abort || $round >= $target) {
         $reason = $abort ? 'active tun lost after poll ' . $round : "completed {$target} polls";
         xray_bird_autoroute_finalize($state, $general, $reason);
@@ -535,6 +619,7 @@ function xray_bird_select_and_write_active_tun(): array
     $ins     = $cfg->OPNsense->xray->instances ?? null;
     $v4ok    = [];
     $v6ok    = [];
+    $latency = [];
 
     if ((string)($general->enabled ?? '0') !== '1' || !$ins) {
         echo "active tun: plugin disabled or no instances — files unchanged\n";
@@ -577,6 +662,14 @@ function xray_bird_select_and_write_active_tun(): array
             echo "  best -6: Код ответа: {$probe6['http']}; Время ответа: {$probe6['time']} сек\n";
             $v6ok[] = $base + ['time' => $probe6['time']];
         }
+        $latency[$uuid] = [
+            'tun'     => $tun,
+            'name'    => $name,
+            'v4_ok'   => $probe4['ok'],
+            'v4_time' => $probe4['ok'] ? $probe4['time'] : 0.0,
+            'v6_ok'   => $probe6['ok'],
+            'v6_time' => $probe6['ok'] ? $probe6['time'] : 0.0,
+        ];
     }
 
     $best4 = xray_bird_active_tun_pick_or_fallback(
@@ -593,17 +686,40 @@ function xray_bird_select_and_write_active_tun(): array
         $useWeight6,
         'v6'
     );
-    return xray_bird_active_tun_commit($best4, $best6, $prev4, $prev6);
+    $res = xray_bird_active_tun_commit($best4, $best6, $prev4, $prev6);
+    $act4 = $best4['tun'] ?? $prev4;
+    $act6 = $best6['tun'] ?? $prev6;
+    xray_bird_latency_save($latency, $act4, $act6);
+    return $res;
 }
 
 if (count(debug_backtrace()) === 0) {
     ob_start();
     $mode = $argv[1] ?? '';
+    // GUI birdactivetun (no args): SOCKS probes × N instances easily exceed nginx 60s → HTTP 504.
+    // Schedule the real work and return OK immediately; cron still uses sync "autoroute".
+    if ($mode === '') {
+        $php = (defined('PHP_BINARY') && PHP_BINARY !== '') ? PHP_BINARY : '/usr/local/bin/php';
+        if (!is_executable($php)) {
+            $php = '/usr/local/bin/php';
+        }
+        $cmd = escapeshellarg($php) . ' ' . escapeshellarg(__FILE__) . ' run';
+        exec($cmd . ' >>/tmp/xray_birdactivetun.log 2>&1 &');
+        echo "Auto route started in background (see Boot Log / /tmp/xray_birdactivetun.log)\n";
+        echo "RESULT:OK\n";
+        $buf = (string)ob_get_flush();
+        if ($buf !== '') {
+            xray_boot_log_block('Auto route (manual scheduled)', $buf);
+        }
+        exit(0);
+    }
+
     $resultOk = true;
     try {
         if ($mode === 'autoroute') {
             xray_bird_autoroute_tick();
         } else {
+            // mode "run" (background from GUI) or any other → one-shot select
             $sel = xray_bird_select_and_write_active_tun();
             if (!empty($sel['changed'])) {
                 $cfg = OPNsense\Core\Config::getInstance()->object();
@@ -628,7 +744,7 @@ if (count(debug_backtrace()) === 0) {
     );
     $work = (bool)preg_match('/\bpoll \d+\/|finalize|active tun \[|active tun selected:/', $buf);
     if ($buf !== '' && (!$idle || $work)) {
-        $title = ($mode === 'autoroute') ? 'Auto route (cron)' : 'Auto route (manual / Test All)';
+        $title = ($mode === 'autoroute') ? 'Auto route (cron)' : 'Auto route (manual / Test auto route)';
         xray_boot_log_block($title, $buf);
     }
 }

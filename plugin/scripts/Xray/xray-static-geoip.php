@@ -212,8 +212,14 @@ function xray_geoip_collect_prefixes(array $cats, array $assign): array
         'block4'  => [],
         'block6'  => [],
     ];
+    // Build case-insensitive cat index (assignments are lowercased)
+    $catsByLower = [];
+    foreach ($cats as $cname => $cinfo) {
+        $catsByLower[strtolower((string)$cname)] = $cinfo;
+    }
     foreach ($assign as $name => $action) {
-        if (!isset($cats[$name])) {
+        $lk = strtolower((string)$name);
+        if (!isset($catsByLower[$lk])) {
             continue;
         }
         $action = xray_geoip_normalize_action((string)$action);
@@ -222,10 +228,10 @@ function xray_geoip_collect_prefixes(array $cats, array $assign): array
         }
         $key4 = $action . '4';
         $key6 = $action . '6';
-        foreach ($cats[$name]['v4'] as $c => $_) {
+        foreach ($catsByLower[$lk]['v4'] as $c => $_) {
             $out[$key4][$c] = true;
         }
-        foreach ($cats[$name]['v6'] as $c => $_) {
+        foreach ($catsByLower[$lk]['v6'] as $c => $_) {
             $out[$key6][$c] = true;
         }
     }

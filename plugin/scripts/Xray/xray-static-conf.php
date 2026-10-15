@@ -120,19 +120,17 @@ function xray_static_rows_from_post($raw): array
             if (isset($item['url']) && !isset($item['value'])) {
                 $item['value'] = $item['url'];
             }
-            if (isset($item['key'])) {
+            // Saved JSON is {"url","enabled"} without "key" — must still load.
+            if (isset($item['key']) || isset($item['value']) || isset($item['url']) || isset($item['name'])) {
+                $key = (string)($item['key'] ?? $item['name'] ?? 'url');
+                $val = (string)($item['value'] ?? $item['action'] ?? $item['url'] ?? '');
+                $en  = array_key_exists('enabled', $item)
+                    ? (xray_static_row_enabled($item) ? '1' : '0')
+                    : '1'; // legacy rows without flag
                 $rows[] = [
-                    'key'     => (string)$item['key'],
-                    'value'   => (string)($item['value'] ?? ''),
-                    'enabled' => xray_static_row_enabled($item) ? '1' : '0',
-                ];
-                continue;
-            }
-            if (isset($item['name'])) {
-                $rows[] = [
-                    'key'     => (string)$item['name'],
-                    'value'   => (string)($item['action'] ?? $item['value'] ?? ''),
-                    'enabled' => xray_static_row_enabled($item) ? '1' : '0',
+                    'key'     => $key !== '' ? $key : 'url',
+                    'value'   => $val,
+                    'enabled' => $en,
                 ];
             }
         }
@@ -193,8 +191,10 @@ function xray_static_render_urls_json(array $rows): string
         }
         $seen[$u] = true;
         $out[] = [
+            'key'     => 'url',
             'url'     => $u,
-            'enabled' => xray_static_row_enabled($row),
+            'value'   => $u,
+            'enabled' => xray_static_row_enabled($row) ? '1' : '0',
         ];
     }
     return json_encode($out, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n";
@@ -918,17 +918,32 @@ if ($op === 'geodatcats') {
                 $message = 'No geoip categories found (expect geoip.dat)';
             }
             foreach ($cats as $name => $info) {
+                $lk = strtolower((string)$name);
                 $categories[] = [
                     'name'   => $name,
-                    'count'  => (int)($info['count'] ?? (count($info['v4']) + count($info['v6']))),
-                    'action' => $assign[$name] ?? '',
+                    'count'  => (int)($info['count'] ?? (count($info['v4'] ?? []) + count($info['v6'] ?? []))),
+                    // assignments are stored lowercased — look up case-insensitively
+                    'action' => $assign[$lk] ?? $assign[$name] ?? '',
                 ];
             }
         }
     }
 
+    if ($save && $message === '') {
+        $message = 'Categories saved';
+    }
+    if ($save && $target !== '' && $assign !== []) {
+        // Confirm from disk so UI sees persisted values even if download/parse failed
+        $assign = xray_static_geodat_assign_for_url($target);
+        foreach ($categories as &$catRow) {
+            $lk = strtolower((string)($catRow['name'] ?? ''));
+            $catRow['action'] = $assign[$lk] ?? $assign[$catRow['name'] ?? ''] ?? ($catRow['action'] ?? '');
+        }
+        unset($catRow);
+    }
+
     echo json_encode([
-        'result'     => 'ok',
+        'result'     => ($message !== '' && $categories === [] && !$save) ? 'failed' : 'ok',
         'message'    => $message,
         'geodat_url' => $target,
         'categories' => $categories,
@@ -959,8 +974,16 @@ if ($op === 'fetchone') {
     xray_static_save_url_rows($kind, $rows);
     $dl = xray_static_download_to_cache($kind, $url);
     if (!$dl['ok']) {
-        echo json_encode(['result' => 'failed', 'message' => $dl['message'], 'url' => $url, 'kind' => $kind], JSON_UNESCAPED_SLASHES) . "\n";
-        exit(1);
+        // URL is already persisted — do not report total failure (UI would look like the URL vanished).
+        echo json_encode([
+            'result'      => 'ok',
+            'message'     => 'URL saved, but download failed: ' . $dl['message'],
+            'url'         => $url,
+            'kind'        => $kind,
+            'count'       => 0,
+            'download_ok' => false,
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+        exit(0);
     }
     // Rebuild bird data if this URL is enabled
     $rowEn = false;

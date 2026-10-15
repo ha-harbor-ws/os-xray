@@ -34,8 +34,12 @@
                 <div style="width: 1px; height: 22px; background: #ddd;"></div>
 
                 <button id="btnTestConnect" class="btn btn-xs btn-default"
-                        title="{{ lang._('Test SOCKS of enabled running instances, then run Auto route once') }}">
-                    <i class="fa fa-plug fa-fw"></i> {{ lang._('Test All') }}
+                        title="{{ lang._('Test SOCKS connectivity of enabled running instances') }}">
+                    <i class="fa fa-plug fa-fw"></i> {{ lang._('Test all IF') }}
+                </button>
+                <button id="btnTestAutoRoute" class="btn btn-xs btn-default"
+                        title="{{ lang._('One-shot Auto route: probe latency and select active tun2socks') }}">
+                    <i class="fa fa-random fa-fw"></i> {{ lang._('Test auto route') }}
                 </button>
                 <span id="testConnectResult" style="font-size: 12px;"></span>
                 {{ partial('OPNsense/Xray/partials/help_toggle') }}
@@ -80,6 +84,16 @@
                             data-formatter="instanceStatus"
                             data-sortable="false"
                             data-width="10em">{{ lang._('Status') }}</th>
+
+                        <th data-column-id="inst_active_tun_v4"
+                            data-formatter="instanceActiveTunV4"
+                            data-sortable="false"
+                            data-width="8em">{{ lang._('Active TUN v4') }}</th>
+
+                        <th data-column-id="inst_active_tun_v6"
+                            data-formatter="instanceActiveTunV6"
+                            data-sortable="false"
+                            data-width="8em">{{ lang._('Active TUN v6') }}</th>
 
                         <th data-column-id="inst_testresult"
                             data-formatter="instanceTestResult"

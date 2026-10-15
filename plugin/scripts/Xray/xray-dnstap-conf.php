@@ -594,7 +594,9 @@ function xray_dnstap_render_urls(array $rows, string $kind = 'proxy'): string
         }
         $seen[$v] = true;
         $out[] = [
+            'key'     => 'url',
             'url'     => $v,
+            'value'   => $v,
             'enabled' => xray_dnstap_row_enabled($row) ? '1' : '0',
         ];
     }
@@ -1030,26 +1032,18 @@ function xray_dnstap_rows_from_post($raw): array
             if (isset($item['url']) && !isset($item['value'])) {
                 $item['value'] = $item['url'];
             }
-            if (isset($item['key'])) {
-                $row = [
-                    'key'   => (string)$item['key'],
-                    'value' => (string)($item['value'] ?? ''),
+            // Accept {key,value,enabled}, {url,enabled}, {name,action} — always keep enabled.
+            if (isset($item['key']) || isset($item['value']) || isset($item['url']) || isset($item['name'])) {
+                $key = (string)($item['key'] ?? $item['name'] ?? 'url');
+                $val = (string)($item['value'] ?? $item['action'] ?? $item['url'] ?? '');
+                $en  = array_key_exists('enabled', $item)
+                    ? (xray_dnstap_row_enabled($item) ? '1' : '0')
+                    : '1'; // legacy rows without flag stay enabled
+                $rows[] = [
+                    'key'     => $key !== '' ? $key : 'url',
+                    'value'   => $val,
+                    'enabled' => $en,
                 ];
-                if (array_key_exists('enabled', $item)) {
-                    $row['enabled'] = xray_dnstap_row_enabled($item) ? '1' : '0';
-                }
-                $rows[] = $row;
-                continue;
-            }
-            if (isset($item['name'])) {
-                $row = [
-                    'key'   => (string)$item['name'],
-                    'value' => (string)($item['action'] ?? $item['value'] ?? ''),
-                ];
-                if (array_key_exists('enabled', $item)) {
-                    $row['enabled'] = xray_dnstap_row_enabled($item) ? '1' : '0';
-                }
-                $rows[] = $row;
             }
         }
         return $rows;

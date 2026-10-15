@@ -58,10 +58,53 @@
                 '</span>';
         }
 
+        function fmtLatencySec(t) {
+            var n = Number(t);
+            if (!isFinite(n) || n < 0) {
+                n = 0;
+            }
+            return n.toFixed(3) + 's';
+        }
+
+        /**
+         * Active TUN latency cell (like Status labels):
+         *  green  — this instance is the active TUN (show RTT)
+         *  red    — no probe response (show 0)
+         *  yellow — has RTT but not active: time less than active TUN, or otherwise not selected
+         */
+        function activeTunBadge(lat) {
+            if (!lat) {
+                return '<span class="label label-default" style="font-size:11px;">--</span>';
+            }
+            if (!lat.ok) {
+                return '<span class="label label-danger" style="font-size:11px;">0</span>';
+            }
+            var time = Number(lat.time);
+            if (!isFinite(time) || time < 0) {
+                time = 0;
+            }
+            var text = fmtLatencySec(time);
+            if (lat.active) {
+                return '<span class="label label-success" style="font-size:11px;">' + escAttr(text) + '</span>';
+            }
+            // Not active: yellow when RTT is lower than active's (weight) or any non-winner with a reply
+            return '<span class="label label-warning" style="font-size:11px;">' + escAttr(text) + '</span>';
+        }
+
         function applyStatusToGrid() {
             $('#grid-instances .xray-status-cell').each(function () {
                 var uuid = $(this).data('uuid');
                 $(this).html(statusBadge(instanceStatusCache[uuid]));
+            });
+            $('#grid-instances .xray-activetun-v4-cell').each(function () {
+                var uuid = $(this).data('uuid');
+                var info = instanceStatusCache[uuid];
+                $(this).html(activeTunBadge(info && info.active_tun_v4));
+            });
+            $('#grid-instances .xray-activetun-v6-cell').each(function () {
+                var uuid = $(this).data('uuid');
+                var info = instanceStatusCache[uuid];
+                $(this).html(activeTunBadge(info && info.active_tun_v6));
             });
         }
 
@@ -93,6 +136,16 @@
                         // TODO: show "disabled" label instead of status badges when row.enabled === '0'
                         return '<span class="xray-status-cell" data-uuid="' + escAttr(row.uuid) + '">' +
                             statusBadge(instanceStatusCache[row.uuid]) + '</span>';
+                    },
+                    instanceActiveTunV4: function (column, row) {
+                        var info = instanceStatusCache[row.uuid];
+                        return '<span class="xray-activetun-v4-cell" data-uuid="' + escAttr(row.uuid) + '">'
+                            + activeTunBadge(info && info.active_tun_v4) + '</span>';
+                    },
+                    instanceActiveTunV6: function (column, row) {
+                        var info = instanceStatusCache[row.uuid];
+                        return '<span class="xray-activetun-v6-cell" data-uuid="' + escAttr(row.uuid) + '">'
+                            + activeTunBadge(info && info.active_tun_v6) + '</span>';
                     },
                     instanceTestResult: function (column, row) {
                         return '<span class="xray-test-cell" data-uuid="' + escAttr(row.uuid) + '">'
@@ -574,16 +627,25 @@
         var staticGeodatUrlsCache = [];
         var staticGeodatActiveUrl = '';
 
-        function staticUrlRow(key, value, enabled) {
-            var on = !(enabled === false || enabled === '0' || enabled === 0);
+        function staticUrlEnabledOn(enabled, hasUrl) {
+            // Missing flag: legacy / new empty row — checked only when URL present and server omitted flag
             if (enabled === undefined || enabled === null || enabled === '') {
-                on = false;
+                return !!hasUrl;
             }
+            if (enabled === true || enabled === 1 || enabled === '1' || enabled === 'true' || enabled === 'on' || enabled === 'yes') {
+                return true;
+            }
+            return false;
+        }
+
+        function staticUrlRow(key, value, enabled) {
+            var val = value == null ? '' : String(value);
+            var on = staticUrlEnabledOn(enabled, val.trim() !== '');
             var $tr = $('<tr/>');
             var $inp = $('<input type="text" class="form-control"/>')
                 .attr('data-key', key)
                 .attr('placeholder', 'https://')
-                .val(value == null ? '' : String(value));
+                .val(val);
             var $fetch = $('<button type="button" class="btn btn-xs btn-default static-url-fetch"/>')
                 .attr('title', '{{ lang._("Download and save this URL") }}')
                 .text('✔');
@@ -633,11 +695,7 @@
             $tbody.empty();
             (rows || []).forEach(function (row) {
                 var val = row.value || row.url || '';
-                var en = row.enabled;
-                if (en === undefined && row.url) {
-                    en = true;
-                }
-                $tbody.append(staticUrlRow(row.key || key, val, en));
+                $tbody.append(staticUrlRow(row.key || key, val, row.enabled));
             });
             if (!$tbody.find('tr').length) {
                 $tbody.append(staticUrlRow(key, '', false));
@@ -968,16 +1026,24 @@
             return $tr;
         }
 
-        function dnstapUrlRow(key, value, enabled) {
-            var on = !(enabled === false || enabled === '0' || enabled === 0);
+        function dnstapUrlEnabledOn(enabled, hasUrl) {
             if (enabled === undefined || enabled === null || enabled === '') {
-                on = false;
+                return !!hasUrl;
             }
+            if (enabled === true || enabled === 1 || enabled === '1' || enabled === 'true' || enabled === 'on' || enabled === 'yes') {
+                return true;
+            }
+            return false;
+        }
+
+        function dnstapUrlRow(key, value, enabled) {
+            var val = value == null ? '' : String(value);
+            var on = dnstapUrlEnabledOn(enabled, val.trim() !== '');
             var $tr = $('<tr/>');
             var $inp = $('<input type="text" class="form-control"/>')
                 .attr('data-key', key)
                 .attr('placeholder', 'https://')
-                .val(value == null ? '' : String(value));
+                .val(val);
             var $fetch = $('<button type="button" class="btn btn-xs btn-default dnstap-url-fetch"/>')
                 .attr('title', '{{ lang._("Download and save this URL") }}')
                 .text('✔');
@@ -1046,11 +1112,7 @@
             $tbody.empty();
             (rows || []).forEach(function (row) {
                 var val = row.value || row.url || '';
-                var en = row.enabled;
-                if (en === undefined && row.url) {
-                    en = true;
-                }
-                $tbody.append(dnstapUrlRow(row.key || key, val, en));
+                $tbody.append(dnstapUrlRow(row.key || key, val, row.enabled));
             });
             if (!$tbody.find('tr').length) {
                 $tbody.append(dnstapUrlRow(key, '', false));
@@ -1150,6 +1212,7 @@
                 url: '/api/xray/service/staticgeodat',
                 type: 'POST',
                 dataType: 'json',
+                timeout: 180000,
                 data: {
                     geodat_urls: JSON.stringify(staticCollectGeodatUrls()),
                     geodat_url: url
@@ -1159,7 +1222,7 @@
                         $('#staticGeodatModalMsg').text((data && data.message) || 'failed');
                         return;
                     }
-                    $('#staticGeodatModalMsg').text(data.message || '');
+                    $('#staticGeodatModalMsg').text(data.message || "{{ lang._('Categories loaded.') }}");
                     staticGeodatFillModal(data.categories || []);
                 },
                 error: function (xhr) {
@@ -1262,17 +1325,23 @@
                 url: '/api/xray/service/staticfetchone',
                 type: 'POST',
                 dataType: 'json',
+                timeout: 180000,
                 data: {kind: kind, url: url, enabled: enabled},
                 success: function (data) {
                     $btn.prop('disabled', false);
+                    // Always reload so persisted URL stays visible in the list
+                    loadStaticConf();
                     if (!data || data.result === 'failed') {
                         alert(data && data.message ? data.message : '{{ lang._("Download failed") }}');
                         return;
                     }
-                    loadStaticConf();
+                    if (data.download_ok === false) {
+                        alert(data.message || '{{ lang._("URL saved, but download failed") }}');
+                    }
                 },
                 error: function (xhr) {
                     $btn.prop('disabled', false);
+                    loadStaticConf();
                     alert('{{ lang._("HTTP error:") }} ' + xhr.status);
                 }
             });
@@ -1299,27 +1368,39 @@
                 return;
             }
             var cats = staticGeodatCollectCats();
+            var $saveBtn = $(this).prop('disabled', true);
             $('#staticGeodatModalMsg').text("{{ lang._('Saving…') }}");
             $.ajax({
                 url: '/api/xray/service/staticgeodat',
                 type: 'POST',
                 dataType: 'json',
+                timeout: 180000,
                 data: {
                     geodat_urls: JSON.stringify(staticCollectGeodatUrls()),
                     geodat_url: url,
                     geodat_categories: JSON.stringify(cats)
                 },
                 success: function (data) {
+                    $saveBtn.prop('disabled', false);
                     if (!data || data.result === 'failed') {
                         $('#staticGeodatModalMsg').text((data && data.message) || 'failed');
                         return;
                     }
                     staticGeodatActiveUrl = url;
-                    $('#staticGeodatModalMsg').text(data.message || "{{ lang._('Saved.') }}");
-                    staticGeodatFillModal(data.categories || []);
+                    var msg = data.message || "{{ lang._('Saved.') }}";
+                    if (data.saved) {
+                        msg = "{{ lang._('Saved.') }}" + (data.message ? (' — ' + data.message) : '');
+                    }
+                    $('#staticGeodatModalMsg').text(msg);
+                    if (data.categories && data.categories.length) {
+                        staticGeodatFillModal(data.categories);
+                    }
+                    // Keep modal open; selections stay after refill from saved assignments
                 },
                 error: function (xhr) {
-                    $('#staticGeodatModalMsg').text("{{ lang._('HTTP error:') }} " + xhr.status);
+                    $saveBtn.prop('disabled', false);
+                    $('#staticGeodatModalMsg').text("{{ lang._('HTTP error:') }} " + xhr.status
+                        + "{{ lang._(' — assignments may still have been written; reopen Category to verify.') }}");
                 }
             });
         });
@@ -1854,18 +1935,24 @@
             serviceAction('restart', null, null);
         });
 
-        // ── Test Connection ─────────────────────────────────────────
-        $('#btnTestConnect').click(function () {
-            var $btn = $(this).prop('disabled', true);
-            var $res = $('#testConnectResult');
-
+        // ── Test all IF (SOCKS) / Test auto route (separate) ─────────
+        function xrayEnabledRunningUuids() {
             var uuids = [];
             $.each(instanceStatusCache, function (uuid, info) {
                 if (info.enabled === false || info.enabled === 0 || info.enabled === '0') {
                     return;
                 }
-                if (info.xray_core === 'running') { uuids.push(uuid); }
+                if (info.xray_core === 'running') {
+                    uuids.push(uuid);
+                }
             });
+            return uuids;
+        }
+
+        $('#btnTestConnect').click(function () {
+            var $btn = $(this).prop('disabled', true);
+            var $res = $('#testConnectResult');
+            var uuids = xrayEnabledRunningUuids();
 
             if (!uuids.length) {
                 $res.removeClass('text-success').addClass('text-danger')
@@ -1874,61 +1961,76 @@
                 return;
             }
 
-            $res.removeClass('text-success text-danger').text("{{ lang._('Testing...') }}");
+            $res.removeClass('text-success text-danger').text("{{ lang._('Testing IF...') }}");
             var pending = uuids.length;
-
-            function runManualAutoRoute() {
-                $res.removeClass('text-success text-danger')
-                    .text("{{ lang._('Auto route...') }}");
-                $.ajax({
-                    url: '/api/xray/service/birdactivetun',
-                    type: 'POST',
-                    dataType: 'json',
-                    timeout: 180000,
-                    success: function (data) {
-                        var msg = (data && data.message) ? String(data.message) : '';
-                        // Prefer the selection summary line for the status text
-                        var lines = msg.split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
-                        var sel = '';
-                        $.each(lines, function (_, l) {
-                            if (l.indexOf('active tun selected:') === 0) { sel = l; return false; }
-                        });
-                        var short = sel || lines.slice(0, 3).join(' ');
-                        short = short.replace(/\s*RESULT:(OK|ERROR)\s*/g, '').trim();
-                        if (data && data.result === 'ok') {
-                            $res.removeClass('text-danger').addClass('text-success')
-                                .text(short !== '' ? short : "{{ lang._('Auto route done.') }}");
-                        } else {
-                            $res.removeClass('text-success').addClass('text-danger')
-                                .text(short !== '' ? short : "{{ lang._('Auto route failed.') }}");
-                        }
-                    },
-                    error: function (xhr) {
-                        $res.removeClass('text-success').addClass('text-danger')
-                            .text("{{ lang._('Auto route failed.') }} HTTP " + (xhr.status || '?'));
-                    },
-                    complete: function () {
-                        $btn.prop('disabled', false);
-                        reloadBgpPeersGrid();
-                    }
-                });
-            }
+            var anyFail = false;
 
             $.each(uuids, function (_, uuid) {
                 $.ajax({
                     url: '/api/xray/service/testconnect/' + encodeURIComponent(uuid),
                     type: 'POST', dataType: 'json',
+                    timeout: 60000,
                     success: function (data) {
                         instanceTestCache[uuid] = data;
                         applyTestResultToGrid();
+                        if (!(data && data.result === 'ok')) {
+                            anyFail = true;
+                        }
+                    },
+                    error: function () {
+                        anyFail = true;
                     },
                     complete: function () {
                         pending--;
                         if (pending === 0) {
-                            runManualAutoRoute();
+                            $btn.prop('disabled', false);
+                            if (anyFail) {
+                                $res.removeClass('text-success').addClass('text-danger')
+                                    .text("{{ lang._('IF test finished with errors — see Test column.') }}");
+                            } else {
+                                $res.removeClass('text-danger').addClass('text-success')
+                                    .text("{{ lang._('IF test OK.') }}");
+                            }
                         }
                     }
                 });
+            });
+        });
+
+        $('#btnTestAutoRoute').click(function () {
+            var $btn = $(this).prop('disabled', true);
+            var $res = $('#testConnectResult');
+            $res.removeClass('text-success text-danger')
+                .text("{{ lang._('Auto route...') }}");
+            $.ajax({
+                url: '/api/xray/service/birdactivetun',
+                type: 'POST',
+                dataType: 'json',
+                timeout: 30000,
+                success: function (data) {
+                    var msg = (data && data.message) ? String(data.message) : '';
+                    var lines = msg.split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+                    var short = lines.slice(0, 2).join(' ')
+                        .replace(/\s*RESULT:(OK|ERROR)\s*/g, '').trim();
+                    if (data && data.result === 'ok') {
+                        $res.removeClass('text-danger').addClass('text-success')
+                            .text(short !== '' ? short : "{{ lang._('Auto route started.') }}");
+                        setTimeout(function () { reloadBgpPeersGrid(); }, 3000);
+                        // Latency columns fill after background probes finish
+                        setTimeout(refreshInstancesStatus, 4000);
+                        setTimeout(refreshInstancesStatus, 10000);
+                    } else {
+                        $res.removeClass('text-success').addClass('text-danger')
+                            .text(short !== '' ? short : "{{ lang._('Auto route failed.') }}");
+                    }
+                },
+                error: function (xhr) {
+                    $res.removeClass('text-success').addClass('text-danger')
+                        .text("{{ lang._('Auto route failed.') }} HTTP " + (xhr.status || '?'));
+                },
+                complete: function () {
+                    $btn.prop('disabled', false);
+                }
             });
         });
 
