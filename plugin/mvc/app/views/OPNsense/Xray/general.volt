@@ -70,6 +70,20 @@
         padding-top: 6px;
         padding-bottom: 4px;
     }
+    /* Geodat Category modals: center saved action in the select field */
+    #staticGeodatModal select.static-geodat-action,
+    #dnstapGeodatModal select.dnstap-geodat-action {
+        text-align: center;
+        text-align-last: center;
+        height: 30px;
+        line-height: 28px;
+        padding-top: 0;
+        padding-bottom: 0;
+    }
+    #staticGeodatModal select.static-geodat-action option,
+    #dnstapGeodatModal select.dnstap-geodat-action option {
+        text-align: center;
+    }
 </style>
 {{ partial('OPNsense/Xray/partials/scripts') }}
 

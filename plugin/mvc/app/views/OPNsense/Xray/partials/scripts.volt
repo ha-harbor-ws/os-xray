@@ -768,6 +768,7 @@
 
         function staticSetCounts(counts) {
             counts = counts || {};
+            var tip = '{{ lang._("Prefixes in the summarized apply.inc (IPv4 / IPv6)") }}';
             function setLabel(id, n4, n6) {
                 var $el = $(id);
                 if (!$el.length) {
@@ -776,9 +777,9 @@
                 n4 = parseInt(n4, 10) || 0;
                 n6 = parseInt(n6, 10) || 0;
                 if (n4 + n6 > 0) {
-                    $el.text('v4:' + n4 + ' v6:' + n6).show();
+                    $el.text('v4:' + n4 + ' v6:' + n6).attr('title', tip).show();
                 } else {
-                    $el.hide().text('');
+                    $el.hide().text('').removeAttr('title');
                 }
             }
             setLabel('#staticProxyCount', counts.proxy4, counts.proxy6);
@@ -1914,9 +1915,87 @@
         });
 
         // ── General settings form ───────────────────────────────────
+        function isGeneralTab() {
+            return $('#general').filter('.active').length > 0;
+        }
+
+        function routingStrategySelect() {
+            var $s = $('#frm_general_settings [id="general.routing_strategy"]');
+            if (!$s.length) {
+                $s = $('select[id="general.routing_strategy"]');
+            }
+            if (!$s.length) {
+                $s = $('select').filter(function () {
+                    return String(this.id || '').indexOf('routing_strategy') >= 0;
+                }).first();
+            }
+            return $s;
+        }
+
+        function routingStrategyValue() {
+            return String(routingStrategySelect().val() || '');
+        }
+
+        function ensureRoutingStrategyWarnEl() {
+            var $sel = routingStrategySelect();
+            if (!$sel.length) {
+                return $();
+            }
+            var $host = $sel.closest('td');
+            if (!$host.length) {
+                $host = $sel.parent();
+            }
+            var $w = $('#xrayRoutingStrategyWarn');
+            if (!$w.length) {
+                $w = $('<div id="xrayRoutingStrategyWarn" class="text-warning" style="display:none;margin-top:6px;font-size:12px;line-height:1.4;"></div>');
+                $host.append($w);
+            }
+            return $w;
+        }
+
+        function refreshRoutingStrategyAssignmentWarn() {
+            var $w = ensureRoutingStrategyWarnEl();
+            var strat = routingStrategyValue();
+            if (strat === 'system_policy' || strat === '') {
+                $w.hide().empty();
+                return $.Deferred().resolve({ok: true, missing: []}).promise();
+            }
+            return $.ajax({
+                url: '/api/xray/service/tunassignments',
+                type: 'GET',
+                dataType: 'json'
+            }).then(function (data) {
+                var missing = (data && $.isArray(data.missing)) ? data.missing : [];
+                if (!missing.length) {
+                    $w.hide().empty();
+                    return {ok: true, missing: []};
+                }
+                var list = missing.map(function (m) {
+                    return (m.name || m.tun) + ' (' + m.tun + ')';
+                }).join(', ');
+                $w.html(
+                    '{{ lang._("Warning: assign these instance interfaces in Interfaces → Assignments before using this routing strategy:") }} '
+                    + $('<div/>').text(list).html()
+                ).show();
+                return {ok: false, missing: missing};
+            }, function () {
+                return {ok: true, missing: []};
+            });
+        }
+
         mapDataToFormUI({'frm_general_settings': "/api/xray/general/get"}).done(function () {
             formatTokenizersUI();
             $('.selectpicker').selectpicker('refresh');
+            refreshRoutingStrategyAssignmentWarn();
+            $(document).on('changed.bs.select change', 'select[id="general.routing_strategy"]', function () {
+                refreshRoutingStrategyAssignmentWarn();
+            });
+        });
+
+        $('a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
+            if ($(e.target).attr('href') === '#general') {
+                refreshRoutingStrategyAssignmentWarn();
+            }
         });
 
         // ── Apply: routing → bgpwrite; DNStap → files; otherwise general + reconfigure ──
@@ -1975,8 +2054,11 @@
                     });
                     return dfObj;
                 }
-                saveFormToEndpoint("/api/xray/general/set", 'frm_general_settings', function () {
-                    dfObj.resolve();
+                // General Apply: warn under Routing strategy if TUNs not assigned
+                refreshRoutingStrategyAssignmentWarn().always(function () {
+                    saveFormToEndpoint("/api/xray/general/set", 'frm_general_settings', function () {
+                        dfObj.resolve();
+                    });
                 });
                 return dfObj;
             },
@@ -1994,6 +2076,9 @@
                 }
                 if (isDnstapTab() || isDomainsTab()) {
                     loadDnstapConf();
+                }
+                if (isGeneralTab()) {
+                    refreshRoutingStrategyAssignmentWarn();
                 }
                 setTimeout(function () { refreshInstancesStatus(); }, 2000);
             }

@@ -1,13 +1,13 @@
 <?php
 /**
- * Дозапись в Boot / Autoroute Log GUI (ротация ~50 KB, как syshook).
+ * Дозапись в Boot / Autoroute Log GUI (/var/log, ротация newsyslog + soft ~50 KB).
  */
 
 if (!defined('XRAY_BOOT_LOG')) {
-    define('XRAY_BOOT_LOG', '/tmp/xray_syshook.log');
+    define('XRAY_BOOT_LOG', '/var/log/xray-boot.log');
 }
 if (!defined('XRAY_AUTOROUTE_LOG')) {
-    define('XRAY_AUTOROUTE_LOG', '/tmp/xray_autoroute.log');
+    define('XRAY_AUTOROUTE_LOG', '/var/log/xray-autoroute.log');
 }
 if (!defined('XRAY_BOOT_LOG_MAX')) {
     define('XRAY_BOOT_LOG_MAX', 50000);

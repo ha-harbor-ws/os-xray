@@ -37,12 +37,20 @@ class InstanceController extends ApiMutableModelControllerBase
 
     public function addItemAction()
     {
-        return $this->addBase('instance', 'instance');
+        $result = $this->addBase('instance', 'instance');
+        if (($result['result'] ?? '') !== 'failed') {
+            $this->syncWanRoutes();
+        }
+        return $result;
     }
 
     public function setItemAction($uuid)
     {
-        return $this->setBase('instance', 'instance', $uuid);
+        $result = $this->setBase('instance', 'instance', $uuid);
+        if (($result['result'] ?? '') !== 'failed') {
+            $this->syncWanRoutes();
+        }
+        return $result;
     }
 
     public function delItemAction($uuid)
@@ -60,7 +68,30 @@ class InstanceController extends ApiMutableModelControllerBase
                     . ' delete ' . escapeshellarg($uuid) . ' >/dev/null 2>&1 &'
                 );
             }
+            $this->syncWanRoutes();
         }
         return $result;
+    }
+
+    private function syncWanRoutes(): void
+    {
+        $script = '/usr/local/opnsense/scripts/Xray/xray-wan-static-routes.php';
+        if (!is_readable($script)) {
+            return;
+        }
+        require_once $script;
+        if (!function_exists('xray_wan_routes_sync_all')) {
+            return;
+        }
+        ob_start();
+        try {
+            xray_wan_routes_sync_all(true);
+        } catch (\Throwable $e) {
+            syslog(LOG_ERR, 'os-xray wan routes: ' . $e->getMessage());
+        }
+        $buf = trim((string)ob_get_clean());
+        if ($buf !== '') {
+            syslog(LOG_INFO, 'os-xray wan routes: ' . $buf);
+        }
     }
 }

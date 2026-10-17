@@ -6,6 +6,7 @@ require_once(__DIR__ . '/xray-bird-peers.php');
 require_once(__DIR__ . '/xray-bird-active-tun.php');
 require_once(__DIR__ . '/xray-dnstap-unbound.php');
 require_once(__DIR__ . '/xray-static-conf.php');
+require_once(__DIR__ . '/xray-gateways.php');
 
 // ─── Shared constants (not per-instance) ─────────────────────────────────────
 define('XRAY_BIN',          '/usr/local/bin/xray-core');
@@ -912,6 +913,18 @@ function xray_static_apply_general(): void
 /** General Apply: Enable BGP → выбор TUN и старт; иначе останов. */
 function xray_bird_apply_general_bgp(): void
 {
+    if (function_exists('xray_gateways_ensure_all')) {
+        xray_gateways_ensure_all();
+    }
+    if (!function_exists('xray_wan_routes_sync_all')) {
+        $wr = __DIR__ . '/xray-wan-static-routes.php';
+        if (is_readable($wr)) {
+            require_once $wr;
+        }
+    }
+    if (function_exists('xray_wan_routes_sync_all')) {
+        xray_wan_routes_sync_all(true);
+    }
     xray_bird_write_peers();
     xray_static_apply_general();
     if (!xray_bgp_enabled()) {
@@ -1147,6 +1160,9 @@ switch ($action) {
                 }
             } else {
                 echo "Xray disabled — services stopped.\n";
+            }
+            if (function_exists('xray_gateways_ensure_all')) {
+                xray_gateways_ensure_all();
             }
             xray_bird_sync_async();
             exit($exitCode);

@@ -56,7 +56,7 @@
                             <i class="fa fa-refresh fa-fw"></i> {{ lang._('Refresh') }}
                         </button>
                         <span class="text-muted" style="font-size: 12px;">
-                            {{ lang._('/tmp/xray_syshook.log — last 300 lines (boot, Test all IF, IF health cron)') }}
+                            {{ lang._('/var/log/xray-boot.log — last 300 lines (boot, Test all IF, IF health cron)') }}
                         </span>
                     </div>
                     <pre id="logBootContent"
@@ -72,7 +72,7 @@
                             <i class="fa fa-refresh fa-fw"></i> {{ lang._('Refresh') }}
                         </button>
                         <span class="text-muted" style="font-size: 12px;">
-                            {{ lang._('/tmp/xray_autoroute.log — last 300 lines (Test auto route, cron)') }}
+                            {{ lang._('/var/log/xray-autoroute.log — last 300 lines (Test auto route, cron)') }}
                         </span>
                     </div>
                     <pre id="logAutorouteContent"

@@ -26,7 +26,7 @@
         <id>peer.neighbor</id>
         <label>Neighbor</label>
         <type>text</type>
-        <help>BGP neighbor IPv4 or IPv6 address.</help>
+        <help>BGP neighbor IPv4/IPv6 address or hostname. Hostnames are resolved (nslookup); host routes via WAN are added for all A/AAAA. BIRD uses the first resolved address.</help>
     </field>
     <field>
         <id>peer.neighbor_as</id>

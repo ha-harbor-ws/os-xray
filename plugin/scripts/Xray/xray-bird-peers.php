@@ -342,6 +342,7 @@ function xray_source_for_peer(array $p): string
     if ($v6only || xray_is_ipv6_addr($neighbor)) {
         return xray_wan_ipv6();
     }
+    // Hostname or IPv4 neighbor → WAN IPv4 source
     return xray_wan_ipv4();
 }
 
@@ -1230,10 +1231,26 @@ function xray_bgp_peer_is_dnstap(array $p): bool
 function xray_bird_render_peer(array $p, string $protoName): string
 {
     $dnstap  = xray_bgp_peer_is_dnstap($p);
+    $neighbor = explode('%', trim((string)($p['neighbor'] ?? '')))[0];
+    if ($neighbor !== '' && !xray_is_ipv4_addr($neighbor) && !xray_is_ipv6_addr($neighbor)) {
+        if (!function_exists('xray_wan_routes_resolve_neighbor_ip')) {
+            $wr = __DIR__ . '/xray-wan-static-routes.php';
+            if (is_readable($wr)) {
+                require_once $wr;
+            }
+        }
+        if (function_exists('xray_wan_routes_resolve_neighbor_ip')) {
+            $prefer6 = (($p['ipv6'] ?? '0') === '1') && (($p['ipv4'] ?? '0') !== '1');
+            $resolved = xray_wan_routes_resolve_neighbor_ip($neighbor, $prefer6);
+            if ($resolved !== '') {
+                $neighbor = $resolved;
+            }
+        }
+    }
     $lines   = [];
     $lines[] = 'protocol bgp ' . $protoName . ' {';
     $lines[] = '    local as ' . (int)$p['local_as'] . ';';
-    $lines[] = '    neighbor ' . $p['neighbor'] . ' as ' . (int)$p['neighbor_as'] . ';';
+    $lines[] = '    neighbor ' . $neighbor . ' as ' . (int)$p['neighbor_as'] . ';';
     $src = trim(explode('%', (string)($p['source_address'] ?? ''))[0]);
     if ($src !== '' && (xray_is_ipv4_addr($src) || xray_is_ipv6_addr($src))) {
         $lines[] = '    source address ' . $src . ';';

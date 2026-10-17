@@ -843,6 +843,8 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/opnsense/scripts/Xray/xray-ifstats.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-peers.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-active-tun.php
+    rm -f  /usr/local/opnsense/scripts/Xray/xray-gateways.php
+    rm -f  /usr/local/opnsense/scripts/Xray/xray-wan-static-routes.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-boot-log.inc.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-log.php
     rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-log.php
@@ -857,8 +859,11 @@ if [ "${1:-}" = "uninstall" ]; then
     rmdir  /usr/local/opnsense/scripts/Xray 2>/dev/null || true
     # BUG-11: удаляем конфиг ротации логов newsyslog
     rm -f  /etc/newsyslog.conf.d/xray.conf
-    # Логи xray-core оставляем для истории (удалять вручную при необходимости):
-    # rm -f /var/log/xray-core.log /var/log/xray-core.log.0.bz2 /var/log/xray-core.log.1.bz2 /var/log/xray-core.log.2.bz2
+    # Legacy /tmp logs; /var/log/xray-*.log leave for history
+    rm -f  /tmp/xray_syshook.log /tmp/xray_syshook.log.0
+    rm -f  /tmp/xray_autoroute.log /tmp/xray_autoroute.log.0
+    # Логи xray-core/boot/autoroute/watchdog оставляем для истории:
+    # rm -f /var/log/xray-core.log /var/log/xray-boot.log /var/log/xray-autoroute.log /var/log/xray-watchdog.log
     rm -f  /usr/local/opnsense/service/conf/actions.d/actions_xray.conf
     rm -rf /usr/local/opnsense/mvc/app/models/OPNsense/Xray       # включает ACL/, Menu/, version.txt
     rm -rf /usr/local/opnsense/mvc/app/controllers/OPNsense/Xray
@@ -1820,6 +1825,36 @@ install_tree "$PLUGIN_DIR/etc/rc.syshook.d/start" \
 install -d /etc/newsyslog.conf.d
 install_tree "$PLUGIN_DIR/etc/newsyslog.conf.d" \
              "/etc/newsyslog.conf.d" 0644
+
+# Ensure os-xray log files exist under /var/log (newsyslog: xray.conf).
+# Migrate legacy /tmp paths from older installs.
+echo "==> Preparing /var/log xray logs for newsyslog..."
+for _pair in \
+    "/tmp/xray_syshook.log:/var/log/xray-boot.log" \
+    "/tmp/xray_autoroute.log:/var/log/xray-autoroute.log"
+do
+    _old="${_pair%%:*}"
+    _new="${_pair##*:}"
+    if [ -f "$_old" ] && [ ! -f "$_new" ]; then
+        mv -f "$_old" "$_new"
+        echo "[OK]  migrated $_old → $_new"
+    else
+        rm -f "$_old" "${_old}.0"
+    fi
+done
+for _log in \
+    /var/log/xray-core.log \
+    /var/log/xray-boot.log \
+    /var/log/xray-autoroute.log \
+    /var/log/xray-watchdog.log
+do
+    if [ ! -f "$_log" ]; then
+        : > "$_log"
+    fi
+    chmod 0644 "$_log"
+done
+echo "[OK]  /etc/newsyslog.conf.d/xray.conf (core, boot, autoroute, watchdog)"
+echo "[OK]  bird/dnstap newsyslog: /usr/local/etc/newsyslog.conf.d/{bird,dnstap-bgp}.conf (install steps above)"
 
 # Working directories for xray-core and tun2socks
 install -d -m 0750 /usr/local/etc/xray-core

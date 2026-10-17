@@ -19,6 +19,7 @@
 
 require_once('config.inc');
 require_once(__DIR__ . '/xray-boot-log.inc.php');
+require_once(__DIR__ . '/xray-gateways.php');
 
 if (!defined('XRAY_BIRD_INC_DIR')) {
     define('XRAY_BIRD_INC_DIR', '/usr/local/etc/bird');
@@ -509,13 +510,18 @@ function xray_bird_autoroute_finalize(array $state, $general, string $reason): v
             'v6_time' => $avg6 ?? 0.0,
         ];
     }
-    xray_bird_latency_save(
-        $latency,
-        $best4['tun'] ?? $prev4,
-        $best6['tun'] ?? $prev6
-    );
+    $act4 = $best4['tun'] ?? $prev4;
+    $act6 = $best6['tun'] ?? $prev6;
+    xray_bird_latency_save($latency, $act4, $act6);
     if (!empty($res['changed'])) {
         xray_bird_active_tun_configure();
+    }
+    if (function_exists('xray_gateways_apply_autoroute_priorities')) {
+        $rows = [];
+        foreach ($latency as $uuid => $L) {
+            $rows[] = is_array($L) ? $L : [];
+        }
+        xray_gateways_apply_autoroute_priorities($act4, $act6, $rows);
     }
 }
 
@@ -531,6 +537,10 @@ function xray_bird_autoroute_tick(): void
     if (!xray_bird_active_tun_auto_route_on($general)) {
         echo "auto route: disabled\n";
         return;
+    }
+
+    if (function_exists('xray_gateways_ensure_missing_instances_pre_autoroute')) {
+        xray_gateways_ensure_missing_instances_pre_autoroute();
     }
 
     $now      = time();
@@ -672,6 +682,10 @@ function xray_bird_select_and_write_active_tun(): array
         return ['ok' => false, 'changed' => false];
     }
 
+    if (function_exists('xray_gateways_ensure_missing_instances_pre_autoroute')) {
+        xray_gateways_ensure_missing_instances_pre_autoroute();
+    }
+
     $useWeight4 = xray_bird_active_tun_weight_used($general, 'ipv4');
     $useWeight6 = xray_bird_active_tun_weight_used($general, 'ipv6');
     $prev4        = xray_bird_active_tun_current(XRAY_BIRD_INC_DIR . '/active_tun_v4.inc', 'ACTIVE_TUN4_IF');
@@ -736,6 +750,13 @@ function xray_bird_select_and_write_active_tun(): array
     $act4 = $best4['tun'] ?? $prev4;
     $act6 = $best6['tun'] ?? $prev6;
     xray_bird_latency_save($latency, $act4, $act6);
+    if (function_exists('xray_gateways_apply_autoroute_priorities')) {
+        $rows = [];
+        foreach ($latency as $uuid => $L) {
+            $rows[] = is_array($L) ? $L : [];
+        }
+        xray_gateways_apply_autoroute_priorities($act4, $act6, $rows);
+    }
     return $res;
 }
 

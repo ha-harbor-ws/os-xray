@@ -905,4 +905,24 @@ class ServiceController extends ApiMutableServiceControllerBase
             'rows'    => [],
         ];
     }
+
+    /**
+     * GET/POST /api/xray/service/tunassignments
+     * Unassigned instance TUN devices (not in Interfaces → Assignments).
+     */
+    public function tunassignmentsAction()
+    {
+        $script = '/usr/local/opnsense/scripts/Xray/xray-gateways.php';
+        if (is_readable($script)) {
+            require_once $script;
+        }
+        $missing = function_exists('xray_gateways_unassigned_instances')
+            ? xray_gateways_unassigned_instances()
+            : [];
+        return [
+            'result'  => 'ok',
+            'missing' => $missing,
+            'ok'      => $missing === [],
+        ];
+    }
 }

@@ -22,6 +22,7 @@
             <Default>block_proxy_direct</Default>
             <Required>Y</Required>
             <OptionValues>
+                <system_policy>System policy</system_policy>
                 <block_proxy_direct>BLOCK-&gt;PROXY-&gt;DIRECT</block_proxy_direct>
                 <block_direct_proxy>BLOCK-&gt;DIRECT-&gt;PROXY</block_direct_proxy>
             </OptionValues>

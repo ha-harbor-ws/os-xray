@@ -199,27 +199,58 @@ class BgppeerController extends ApiMutableModelControllerBase
     public function addItemAction()
     {
         $result = $this->addBase('peer', 'peer');
-        $this->syncBirdFiles();
+        if (($result['result'] ?? '') !== 'failed') {
+            $this->syncBirdFiles();
+            $this->syncWanRoutes();
+        }
         return $result;
     }
 
     public function setItemAction($uuid)
     {
         $result = $this->setBase('peer', 'peer', $uuid);
-        $this->syncBirdFiles();
+        if (($result['result'] ?? '') !== 'failed') {
+            $this->syncBirdFiles();
+            $this->syncWanRoutes();
+        }
         return $result;
     }
 
     public function delItemAction($uuid)
     {
         $result = $this->delBase('peer', $uuid);
-        $this->syncBirdFiles();
+        if (($result['result'] ?? '') !== 'failed') {
+            $this->syncBirdFiles();
+            $this->syncWanRoutes();
+        }
         return $result;
     }
 
     private function syncBirdFiles(): void
     {
         (new Backend())->configdRun('xray bgpwrite');
+    }
+
+    private function syncWanRoutes(): void
+    {
+        $script = '/usr/local/opnsense/scripts/Xray/xray-wan-static-routes.php';
+        if (!is_readable($script)) {
+            return;
+        }
+        require_once $script;
+        if (!function_exists('xray_wan_routes_sync_all')) {
+            return;
+        }
+        ob_start();
+        try {
+            xray_wan_routes_sync_all(true);
+        } catch (\Throwable $e) {
+            syslog(LOG_ERR, 'os-xray wan routes: ' . $e->getMessage());
+        }
+        $buf = trim((string)ob_get_clean());
+        if ($buf !== '') {
+            syslog(LOG_INFO, 'os-xray wan routes: ' . $buf);
+        }
     }
 
     private function setPeerEnabledAndReload($uuid, string $enabled): array
