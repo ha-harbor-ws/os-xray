@@ -60,6 +60,8 @@ class BgpfilterController extends ApiMutableModelControllerBase
         try {
             (new \OPNsense\Xray\BgpCommunity())->seedDefaultCommunitiesIfEmpty();
             (new \OPNsense\Xray\BgpCommunity())->ensureDnstapBlockedCommunity();
+            (new \OPNsense\Xray\BgpCommunity())->ensureDnstapDirectCommunity();
+            (new \OPNsense\Xray\BgpCommunity())->ensureDnstapBlockCommunity();
             (new \OPNsense\Xray\BgpFilter())->migrateAcceptFilterNames();
         } catch (\Throwable $e) {
             syslog(LOG_ERR, 'os-xray BGP seed: ' . $e->getMessage());

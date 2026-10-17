@@ -2,7 +2,7 @@
 <model>
     <mount>//OPNsense/xray/general</mount>
     <description>Xray General Settings</description>
-    <version>1.0.10</version>
+    <version>1.0.11</version>
     <items>
         <enabled type="BooleanField">
             <Default>0</Default>
@@ -19,7 +19,7 @@
         </watchdog_enabled>
         <!-- Порядок обработки маршрутов (логика применения — позже) -->
         <routing_strategy type="OptionField">
-            <Default>block_proxy_direct</Default>
+            <Default>system_policy</Default>
             <Required>Y</Required>
             <OptionValues>
                 <system_policy>System policy</system_policy>

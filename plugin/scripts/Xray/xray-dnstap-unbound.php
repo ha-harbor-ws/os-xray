@@ -18,6 +18,33 @@ const XRAY_DNSTAP_DEFAULT_PROXY_URLS = [
 const XRAY_DNSTAP_DEFAULT_GEODAT_URLS = [
     'https://github.com/hydraponique/roscomvpn-geosite/releases/latest/download/geosite.dat',
 ];
+/** Default geosite category → proxy|direct|block for XRAY_DNSTAP_DEFAULT_GEODAT_URLS[0]. */
+const XRAY_DNSTAP_DEFAULT_GEODAT_CATEGORIES = [
+    'apple'                 => 'direct',
+    'category-ads'          => 'block',
+    'category-geoblock-ru'  => 'proxy',
+    'category-ru'           => 'direct',
+    'epicgames'             => 'direct',
+    'escapefromtarkov'      => 'direct',
+    'faceit'                => 'direct',
+    'github'                => 'proxy',
+    'google-deepmind'       => 'proxy',
+    'google-play'           => 'proxy',
+    'microsoft'             => 'direct',
+    'origin'                => 'direct',
+    'pinterest'             => 'direct',
+    'private'               => 'direct',
+    'push'                  => 'direct',
+    'riot'                  => 'direct',
+    'steam'                 => 'direct',
+    'telegram'              => 'proxy',
+    'torrent'               => 'proxy',
+    'twitch'                => 'direct',
+    'twitch-ads'            => 'proxy',
+    'whitelist'             => 'direct',
+    'win-spy'               => 'block',
+    'youtube'               => 'proxy',
+];
 const XRAY_DNSTAP_PERM           = '0666';
 const XRAY_DNSTAP_RC             = '/usr/local/etc/rc.conf.d/dnstap_bgp';
 
@@ -521,6 +548,7 @@ function xray_dnstap_ensure_domain_files(): void
         @copy($legacyCats, $perFile);
         echo "dnstap: migrated {$legacyCats} → {$perFile}\n";
     }
+    xray_dnstap_seed_default_geodat_categories();
 }
 
 function xray_dnstap_seed_default_urls(string $path, array $urls, string $kind): void
@@ -548,6 +576,54 @@ function xray_dnstap_seed_default_urls(string $path, array $urls, string $kind):
     if (@file_put_contents($path, $body) !== false) {
         @chmod($path, 0644);
         echo "dnstap: seeded default {$kind} URL(s) in {$path}\n";
+    }
+}
+
+/**
+ * Seed default category assignments for the default hydraponique geosite.dat URL.
+ * Existing assignments are kept; only missing category names are added.
+ */
+function xray_dnstap_seed_default_geodat_categories(): void
+{
+    $url = XRAY_DNSTAP_DEFAULT_GEODAT_URLS[0] ?? '';
+    if ($url === '') {
+        return;
+    }
+    $geosite = __DIR__ . '/xray-dnstap-geosite.php';
+    if (!function_exists('xray_geosite_render_assignments') && is_readable($geosite)) {
+        require_once $geosite;
+    }
+    if (!function_exists('xray_dnstap_geodat_cat_path') || !function_exists('xray_geosite_render_assignments')) {
+        return;
+    }
+    $dir = xray_dnstap_geodat_cat_dir();
+    if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
+        echo "dnstap: cannot mkdir {$dir}\n";
+        return;
+    }
+    $path = xray_dnstap_geodat_cat_path($url);
+    $have = [];
+    if (is_readable($path) && function_exists('xray_geosite_parse_assignments')) {
+        $have = xray_geosite_parse_assignments((string)file_get_contents($path));
+    }
+    $map = $have;
+    $added = 0;
+    foreach (XRAY_DNSTAP_DEFAULT_GEODAT_CATEGORIES as $name => $action) {
+        $key = strtolower(trim((string)$name));
+        if ($key === '' || isset($map[$key])) {
+            continue;
+        }
+        $map[$key] = $action;
+        $added++;
+    }
+    if ($added === 0 && is_file($path)) {
+        return;
+    }
+    $body = xray_geosite_render_assignments($map, $url);
+    if (@file_put_contents($path, $body) !== false) {
+        @chmod($path, 0644);
+        echo "dnstap: seeded {$added} default geodat categor" . ($added === 1 ? 'y' : 'ies')
+            . " for {$url}\n";
     }
 }
 

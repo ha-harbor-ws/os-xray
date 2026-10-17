@@ -1861,6 +1861,19 @@ function xray_dnstap_ensure_bird_policy(\SimpleXMLElement $xray, int $localAs): 
         xray_xml_set_child($comm, 'communities', $commVal);
     }
     $commUuid = (string)$comm['uuid'];
+    $directName = 'community_DNSTAP_DIRECT';
+    $directVal  = $localAs . ':555';
+    $directComm = xray_xml_find_named($xray->bgpcommunities, 'community', $directName);
+    if ($directComm === null) {
+        $directComm = $xray->bgpcommunities->addChild('community');
+        $directComm->addAttribute('uuid', xray_xml_new_uuid());
+        $directComm->addChild('enabled', '1');
+        $directComm->addChild('name', $directName);
+        $directComm->addChild('communities', $directVal);
+    } else {
+        xray_xml_set_child($directComm, 'enabled', '1');
+        xray_xml_set_child($directComm, 'communities', $directVal);
+    }
     $blockName = 'community_DNSTAP_BLOCK';
     $blockVal  = $localAs . ':888';
     $blockComm = xray_xml_find_named($xray->bgpcommunities, 'community', $blockName);

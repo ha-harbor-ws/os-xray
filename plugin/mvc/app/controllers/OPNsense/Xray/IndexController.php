@@ -18,6 +18,8 @@ class IndexController extends \OPNsense\Base\IndexController
             (new BgpCommunity())->seedDefaultCommunitiesIfEmpty();
             (new BgpCommunity())->migrateCommunityFileNames();
             (new BgpCommunity())->ensureDnstapBlockedCommunity();
+            (new BgpCommunity())->ensureDnstapDirectCommunity();
+            (new BgpCommunity())->ensureDnstapBlockCommunity();
             (new BgpFilter())->seedDefaultFiltersIfEmpty();
             (new BgpFilter())->migrateAcceptFilterNames();
             (new BgpFilter())->ensureDnstapFilters();

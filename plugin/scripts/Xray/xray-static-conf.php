@@ -14,6 +14,7 @@
  *   xray-static-conf.php fetchone   — ✔: download one URL into cache
  *   xray-static-conf.php fetch      — daily: refresh enabled URL caches
  *   xray-static-conf.php geodatcats
+ *   xray-static-conf.php seed       — default geodat URL + categories
  */
 
 $xray_config_inc = '/usr/local/etc/inc/config.inc';
@@ -71,6 +72,16 @@ const XRAY_STATIC_SOURCE_KEYS = [
         'direct' => ['v6_direct', 'v6_direct_geodat'],
         'block'  => ['v6_block', 'v6_block_geodat'],
     ],
+];
+
+/** Default Geodat IP list URL (geoip.dat) for Static tab. */
+const XRAY_STATIC_DEFAULT_GEODAT_URLS = [
+    'https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geoip/release/geoip.dat',
+];
+/** Default geoip category → proxy|direct|block for XRAY_STATIC_DEFAULT_GEODAT_URLS[0]. */
+const XRAY_STATIC_DEFAULT_GEODAT_CATEGORIES = [
+    'direct'    => 'direct',
+    'whitelist' => 'direct',
 ];
 
 function xray_static_read_file(string $path): string
@@ -619,6 +630,99 @@ function xray_static_geodat_assign_for_url(string $url): array
     return xray_geosite_parse_assignments(xray_static_read_file(xray_static_geodat_cat_path($url)));
 }
 
+/**
+ * Ensure default geoip.dat URL(s) exist in static-geodat-urls.json (enabled).
+ * Existing rows are kept; only missing URLs are appended.
+ *
+ * @return array{rows:array,added:int}
+ */
+function xray_static_seed_default_geodat_urls(bool $verbose = false): array
+{
+    $rows = xray_static_load_url_rows('geodat');
+    $have = [];
+    foreach ($rows as $row) {
+        $u = strtolower(trim((string)($row['value'] ?? $row['url'] ?? '')));
+        if ($u !== '') {
+            $have[$u] = true;
+        }
+    }
+    $added = 0;
+    foreach (XRAY_STATIC_DEFAULT_GEODAT_URLS as $url) {
+        $url = trim((string)$url);
+        if ($url === '' || !preg_match('#^https?://#i', $url)) {
+            continue;
+        }
+        if (isset($have[strtolower($url)])) {
+            continue;
+        }
+        $rows[] = [
+            'key'     => 'url',
+            'value'   => $url,
+            'enabled' => '1',
+        ];
+        $have[strtolower($url)] = true;
+        $added++;
+    }
+    if ($added > 0) {
+        xray_static_save_url_rows('geodat', $rows);
+        if ($verbose) {
+            echo "static: seeded {$added} default geodat URL(s)\n";
+        }
+    }
+    return ['rows' => $rows, 'added' => $added];
+}
+
+/**
+ * Seed default category assignments for the default hydraponique geoip.dat URL.
+ * Existing assignments are kept; only missing category names are added.
+ */
+function xray_static_seed_default_geodat_categories(bool $verbose = false): int
+{
+    $url = XRAY_STATIC_DEFAULT_GEODAT_URLS[0] ?? '';
+    if ($url === '' || !function_exists('xray_geosite_render_assignments')) {
+        return 0;
+    }
+    $dir = xray_static_geodat_cat_dir();
+    if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
+        if ($verbose) {
+            echo "static: cannot mkdir {$dir}\n";
+        }
+        return 0;
+    }
+    $path = xray_static_geodat_cat_path($url);
+    $have = is_readable($path)
+        ? xray_geosite_parse_assignments(xray_static_read_file($path))
+        : [];
+    $map = $have;
+    $added = 0;
+    foreach (XRAY_STATIC_DEFAULT_GEODAT_CATEGORIES as $name => $action) {
+        $key = strtolower(trim((string)$name));
+        if ($key === '' || isset($map[$key])) {
+            continue;
+        }
+        $map[$key] = $action;
+        $added++;
+    }
+    if ($added === 0 && is_file($path)) {
+        return 0;
+    }
+    $body = xray_geosite_render_assignments($map, $url);
+    if (!xray_static_write_file($path, $body)) {
+        return 0;
+    }
+    if ($verbose) {
+        echo "static: seeded {$added} default geodat categor" . ($added === 1 ? 'y' : 'ies')
+            . " for {$url}\n";
+    }
+    return $added;
+}
+
+function xray_static_seed_defaults(bool $verbose = false): void
+{
+    xray_static_seed_default_geodat_urls($verbose);
+    xray_static_seed_default_geodat_categories($verbose);
+}
+
 function xray_static_geodat_has_any_assign(array $urlRows): bool
 {
     foreach (xray_static_url_list($urlRows, true) as $url) {
@@ -889,6 +993,11 @@ if (PHP_SAPI !== 'cli' || realpath((string)($_SERVER['SCRIPT_FILENAME'] ?? '')) 
 
 $op = strtolower(trim((string)($argv[1] ?? 'get')));
 
+if ($op === 'seed') {
+    xray_static_seed_defaults(true);
+    exit(0);
+}
+
 if ($op === 'geodatcats') {
     $raw = is_readable(XRAY_STATIC_GEODAT_STAGED)
         ? (string)file_get_contents(XRAY_STATIC_GEODAT_STAGED)
@@ -1127,6 +1236,7 @@ if ($op === 'write') {
 }
 
 // get
+xray_static_seed_defaults();
 $proxyUrls  = xray_static_load_url_rows('proxy');
 $directUrls = xray_static_load_url_rows('direct');
 $blockUrls  = xray_static_load_url_rows('block');

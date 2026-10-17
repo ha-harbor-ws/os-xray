@@ -28,6 +28,11 @@ class BgpCommunity extends BaseModel
             ],
             [
                 'enabled'      => '1',
+                'name'         => 'community_DNSTAP_DIRECT',
+                'communities'  => '65103:555',
+            ],
+            [
+                'enabled'      => '1',
                 'name'         => 'community_DNSTAP_BLOCK',
                 'communities'  => '65103:888',
             ],
@@ -129,6 +134,32 @@ class BgpCommunity extends BaseModel
     public function ensureDnstapBlockedCommunity(): string
     {
         return $this->ensureDnstapProxyCommunity();
+    }
+
+    public function ensureDnstapDirectCommunity(): string
+    {
+        $want = 'community_DNSTAP_DIRECT';
+        if (method_exists($this->community, 'iterateItems')) {
+            foreach ($this->community->iterateItems() as $uuid => $item) {
+                if (strcasecmp(trim((string)$item->name), $want) === 0) {
+                    return (string)$uuid;
+                }
+            }
+        }
+        if (!method_exists($this->community, 'add')) {
+            return '';
+        }
+        $uuid = $this->community->add();
+        $node = $this->community->{$uuid};
+        if ($node !== null && method_exists($node, 'setNodes')) {
+            $node->setNodes([
+                'enabled'     => '1',
+                'name'        => $want,
+                'communities' => '65103:555',
+            ]);
+        }
+        $this->persistConfig();
+        return (string)$uuid;
     }
 
     public function ensureDnstapBlockCommunity(): string

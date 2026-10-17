@@ -310,9 +310,10 @@ function xray_gateways_routing_strategy(): string
 {
     try {
         $g = \OPNsense\Core\Config::getInstance()->object()->OPNsense->xray->general ?? null;
-        return trim((string)($g->routing_strategy ?? 'block_proxy_direct'));
+        $s = trim((string)($g->routing_strategy ?? 'system_policy'));
+        return $s !== '' ? $s : 'system_policy';
     } catch (\Throwable $e) {
-        return 'block_proxy_direct';
+        return 'system_policy';
     }
 }
 

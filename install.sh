@@ -8,8 +8,11 @@
 # Branch:     develop
 #
 # Usage:
-#   sh install.sh            — install
-#   sh install.sh uninstall  — remove
+#   sh install.sh              — install
+#   sh install.sh uninstall    — remove plugin (packages only if installed by os-xray)
+#   sh install.sh fulluninstall — remove plugin + all created configs/logs/startup
+#                                 scripts + packages (bird2, os-dnstap-bgp, tun2socks,
+#                                 xray-core). Keeps unbound and /conf/config.xml.
 #
 # Remote install:
 #   cd /tmp
@@ -194,6 +197,39 @@ xray_seed_dnstap_proxy_url() {
         printf '%s\n' "$_default" >> "$_urls"
         echo "[OK]  $_urls += $_default"
     done
+}
+
+# Default hydraponique geosite.dat category assignments (PROXY/DIRECT/BLOCK).
+# Requires plugin scripts already installed under /usr/local/opnsense/scripts/Xray.
+xray_seed_dnstap_geodat_categories() {
+    if xray_keep_config; then
+        echo "[SKIP] dnstap geodat categories (reinstall — keep configuration)"
+        return 0
+    fi
+    _script="/usr/local/opnsense/scripts/Xray/xray-dnstap-unbound.php"
+    if [ ! -f "$_script" ]; then
+        warn "$_script missing — skip geodat category seed"
+        return 0
+    fi
+    /usr/local/bin/php -r "require_once '$_script'; xray_dnstap_seed_default_geodat_categories();" \
+        && echo "[OK]  dnstap default geodat categories seeded" \
+        || warn "dnstap geodat category seed failed"
+}
+
+# Default Static Geodat IP list URL (geoip.dat) + category assignments.
+xray_seed_static_geodat_defaults() {
+    if xray_keep_config; then
+        echo "[SKIP] static geodat defaults (reinstall — keep configuration)"
+        return 0
+    fi
+    _script="/usr/local/opnsense/scripts/Xray/xray-static-conf.php"
+    if [ ! -f "$_script" ]; then
+        warn "$_script missing — skip static geodat seed"
+        return 0
+    fi
+    /usr/local/bin/php "$_script" seed \
+        && echo "[OK]  static default geodat URL/categories seeded" \
+        || warn "static geodat seed failed"
 }
 
 xray_detect_wan_if() {
@@ -815,14 +851,17 @@ xray_restart_bird_log_services() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# UNINSTALL
+# UNINSTALL / FULLUNINSTALL helpers
 # ─────────────────────────────────────────────────────────────────────────────
-if [ "${1:-}" = "uninstall" ]; then
+xray_stop_plugin_services() {
     echo "==> Stopping services..."
     /usr/local/opnsense/scripts/Xray/xray-service-control.php stop 2>/dev/null || true
+    service dnstap_bgp onestop >/dev/null 2>&1 || true
+    service bird onestop >/dev/null 2>&1 || true
+}
 
+xray_uninstall_runtime_files() {
     echo "==> Cleaning runtime files..."
-    # v2.0.0: per-instance PID, lock, flag, config files
     rm -f /var/run/xray_core_*.pid /var/run/tun2socks_*.pid
     rm -f /var/run/xray_start_*.lock /var/run/xray_stopped_*.flag
     rm -f /var/run/xray_autoroute.last /var/run/xray_autoroute_state.json
@@ -830,42 +869,16 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f /var/run/xray_birdactivetun_status.json
     rm -f /usr/local/etc/xray-core/config-*.json
     rm -f /usr/local/tun2socks/config-*.yaml
-    # v1.x legacy files
     rm -f /var/run/xray_core.pid /var/run/tun2socks.pid
     rm -f /var/run/xray_start.lock /var/run/xray_stopped.flag
+}
 
+xray_uninstall_plugin_files() {
     echo "==> Removing plugin files..."
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-service-control.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-testconnect.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-watchdog.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-if-health.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-if-test.inc.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-ifstats.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-peers.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-active-tun.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-gateways.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-wan-static-routes.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-boot-log.inc.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-log.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-log.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-bird-loglevel.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-log.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-conf.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-unbound.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-dnstap-geosite.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-static-conf.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-static-geoip.php
-    rm -f  /usr/local/opnsense/scripts/Xray/xray-domain-route.php
-    rmdir  /usr/local/opnsense/scripts/Xray 2>/dev/null || true
-    # BUG-11: удаляем конфиг ротации логов newsyslog
+    rm -rf /usr/local/opnsense/scripts/Xray
     rm -f  /etc/newsyslog.conf.d/xray.conf
-    # Legacy /tmp logs; /var/log/xray-*.log leave for history
-    rm -f  /tmp/xray_syshook.log /tmp/xray_syshook.log.0
-    rm -f  /tmp/xray_autoroute.log /tmp/xray_autoroute.log.0
-    # Логи xray-core/boot/autoroute/watchdog оставляем для истории:
-    # rm -f /var/log/xray-core.log /var/log/xray-boot.log /var/log/xray-autoroute.log /var/log/xray-watchdog.log
     rm -f  /usr/local/opnsense/service/conf/actions.d/actions_xray.conf
-    rm -rf /usr/local/opnsense/mvc/app/models/OPNsense/Xray       # включает ACL/, Menu/, version.txt
+    rm -rf /usr/local/opnsense/mvc/app/models/OPNsense/Xray
     rm -rf /usr/local/opnsense/mvc/app/controllers/OPNsense/Xray
     rm -rf /usr/local/opnsense/mvc/app/views/OPNsense/Xray
     rm -rf /usr/local/opnsense/www/fonts/xray
@@ -873,56 +886,45 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/etc/rc.syshook.d/start/50-xray
     rm -f  /usr/local/etc/rc.syshook.d/start/10-xray-bird-hold
     rm -f  /usr/local/etc/rc.syshook.d/start/99-xray-bird
+}
+
+# Soft uninstall: only plugin-owned BIRD includes (leave bird.conf / other includes if bird kept).
+xray_uninstall_bird_plugin_includes() {
     rm -f  /usr/local/etc/bird/bgp.conf
     rm -f  /usr/local/etc/bird/peers.inc
     rm -f  /usr/local/etc/bird/peer-*.inc
+    rm -f  /usr/local/etc/bird/peer_*.inc
     rm -f  /usr/local/etc/bird/refilter.inc
     rm -f  /usr/local/etc/bird/antifilter_download.inc
     rm -f  /usr/local/etc/bird/antifilter_network.inc
-    rm -f  /usr/local/etc/bird/peer_refilter.inc
-    rm -f  /usr/local/etc/bird/peer_antifilter_download.inc
-    rm -f  /usr/local/etc/bird/peer_antifilter_network.inc
     rm -f  /usr/local/etc/bird/ANTIFILTER_DOWNLOAD.inc
     rm -f  /usr/local/etc/bird/ANTIFILTER_NETWORK.inc
     rm -f  /usr/local/etc/bird/community_ANTIFILTER_DOWNLOAD.inc
     rm -f  /usr/local/etc/bird/community_ANTIFILTER_NETWORK.inc
+    rm -f  /usr/local/etc/bird/community_DNSTAP_PROXY.inc
     rm -f  /usr/local/etc/bird/communities.inc
     rm -f  /usr/local/etc/bird/filters.inc
+    rm -f  /usr/local/etc/bird/filter_*.inc
+    rm -f  /usr/local/etc/bird/accept_*.inc
     rm -f  /usr/local/etc/bird/router_id.inc
-    rm -f  /usr/local/etc/bird/accept_refilter.inc
-    rm -f  /usr/local/etc/bird/accept_antifilter_download.inc
-    rm -f  /usr/local/etc/bird/accept_antifilter_network_v4.inc
-    rm -f  /usr/local/etc/bird/accept_antifilter_network_v6.inc
-    rm -f  /usr/local/etc/bird/filter_accept_refilter.inc
-    rm -f  /usr/local/etc/bird/filter_accept_antifilter_download.inc
-    rm -f  /usr/local/etc/bird/filter_accept_antifilter_network_v4.inc
-    rm -f  /usr/local/etc/bird/filter_accept_antifilter_network_v6.inc
-    rm -f  /usr/local/etc/bird/filter_refilter.inc
-    rm -f  /usr/local/etc/bird/filter_antifilter_download.inc
-    rm -f  /usr/local/etc/bird/filter_antifilter_network_v4.inc
-    rm -f  /usr/local/etc/bird/filter_antifilter_network_v6.inc
-    rm -f  /usr/local/etc/bird/community_antifilter_download.inc
-    rm -f  /usr/local/etc/bird/community_antifilter_network.inc
     rm -f  /usr/local/etc/bird/.xray-bgp-generated
     rm -f  /usr/local/etc/bird/direct_ifs.inc
+    rm -f  /usr/local/etc/bird/wan_if.inc
+    rm -f  /usr/local/etc/bird/active_tun_v4.inc
+    rm -f  /usr/local/etc/bird/active_tun_v6.inc
+    rm -f  /usr/local/etc/bird/static_protocols.inc
+    rm -f  /usr/local/etc/bird/routes_static_*.inc
+    rm -f  /usr/local/etc/bird/static-*.json
+    rm -rf /usr/local/etc/bird/static-cache
+    rm -rf /usr/local/etc/bird/static-geodat-categories
+}
 
-    echo "==> Removing BIRD / dnstap-bgp syslog-ng / newsyslog configs..."
-    xray_remove_bird_log_configs
-    xray_remove_dnstap_log_configs
-
-    xray_uninstall_managed_packages
-
-    # Only syslog-ng: bird includes were just removed, so bird onerestart would fail
-    # with a broken config (and leave a noisy [WARN]). If bird2 was pre-installed and
-    # kept running, leave the process alone — operator can fix/reload bird.conf later.
+xray_uninstall_finish_common() {
     echo "==> Restarting syslog-ng..."
     if service syslog-ng restart >/dev/null 2>&1; then
         echo "[OK]  syslog-ng restarted"
     else
         warn "syslog-ng restart failed"
-    fi
-    if service bird onestatus >/dev/null 2>&1; then
-        echo "[INFO] bird still running (plugin includes removed) — not restarting"
     fi
 
     echo "==> Restarting configd..."
@@ -930,11 +932,121 @@ if [ "${1:-}" = "uninstall" ]; then
 
     echo "==> Clearing cache..."
     rm -f /var/lib/php/tmp/opnsense_menu_cache.xml
+}
+
+# fulluninstall: wipe configs/logs/startup + packages except unbound; never touch config.xml
+xray_fulluninstall_all() {
+    echo "==> fulluninstall: removing ALL os-xray configs, logs, startup scripts and packages"
+    echo "    (keeping unbound package and /conf/config.xml)"
+
+    # Logs (including rotations)
+    echo "==> Removing logs..."
+    rm -f /tmp/xray_syshook.log /tmp/xray_syshook.log.0
+    rm -f /tmp/xray_autoroute.log /tmp/xray_autoroute.log.0
+    rm -f /var/log/xray-core.log /var/log/xray-core.log.*
+    rm -f /var/log/xray-boot.log /var/log/xray-boot.log.*
+    rm -f /var/log/xray-autoroute.log /var/log/xray-autoroute.log.*
+    rm -f /var/log/xray-watchdog.log /var/log/xray-watchdog.log.*
+    rm -rf /var/log/bird
+    rm -rf /var/log/dnstap-bgp
+
+    # BIRD: package + all configs + rc
+    echo "==> Removing bird2 and BIRD configs/startup..."
+    service bird onestop >/dev/null 2>&1 || true
+    if pkg info -e bird2 >/dev/null 2>&1; then
+        pkg delete -y bird2 || true
+        echo "[OK]  removed bird2 package"
+    fi
+    rm -f /usr/local/etc/bird.conf
+    rm -rf /usr/local/etc/bird
+    rm -f /usr/local/etc/rc.conf.d/bird /usr/local/etc/rc.conf.d/bird2
+    rm -f /usr/local/etc/rc.d/bird /etc/rc.d/bird
+    xray_rc_delete_var_all bird_enable
+    rm -f /var/run/bird.ctl /var/run/bird.pid
+    xray_remove_bird_log_configs
+    echo "[OK]  removed BIRD configs and startup scripts"
+
+    # dnstap-bgp: package + configs + rc (unbound package kept)
+    echo "==> Removing os-dnstap-bgp and configs/startup (unbound package kept)..."
+    service dnstap_bgp onestop >/dev/null 2>&1 || true
+    if pkg info -e os-dnstap-bgp >/dev/null 2>&1; then
+        pkg delete -y os-dnstap-bgp || true
+        echo "[OK]  removed os-dnstap-bgp package"
+    fi
+    rm -rf /usr/local/etc/dnstap-bgp
+    rm -f /usr/local/etc/rc.conf.d/dnstap_bgp /usr/local/etc/rc.conf.d/dnstap_bgp.sample
+    rm -f /usr/local/etc/rc.d/dnstap_bgp /etc/rc.d/dnstap_bgp
+    xray_rc_delete_var_all dnstap_bgp_enable
+    xray_rc_delete_var_all dnstap_bgp_host_ip
+    xray_rc_delete_var_all dnstap_bgp_jail_ip
+    rm -f /usr/local/etc/unbound.opnsense.d/dnstap.conf
+    rm -rf /var/run/dnstap-bgp /var/run/dnstap_bgp.pid /var/run/dnstap-bgp.pid
+    rm -rf /var/unbound/var/run/dnstap-bgp
+    xray_remove_dnstap_log_configs
+    echo "[OK]  removed dnstap-bgp configs and startup scripts"
+    echo "[OK]  unbound package left installed"
+
+    # tun2socks + xray-core binaries and working dirs
+    echo "==> Removing tun2socks and xray-core..."
+    rm -f "$T2S_BIN"
+    rm -rf "$T2S_DIR"
+    rm -f /usr/local/bin/xray-core /usr/local/bin/xray
+    rm -rf /usr/local/etc/xray-core
+    echo "[OK]  removed tun2socks and xray-core"
+
+    rm -f "$XRAY_PKG_BASELINE"
+    rmdir "$(dirname "$XRAY_PKG_BASELINE")" 2>/dev/null || true
+}
+
+if [ "${1:-}" = "uninstall" ]; then
+    xray_stop_plugin_services
+    xray_uninstall_runtime_files
+    xray_uninstall_plugin_files
+
+    # Soft uninstall keeps /var/log/xray-*.log for history
+    rm -f /tmp/xray_syshook.log /tmp/xray_syshook.log.0
+    rm -f /tmp/xray_autoroute.log /tmp/xray_autoroute.log.0
+
+    xray_uninstall_bird_plugin_includes
+
+    echo "==> Removing BIRD / dnstap-bgp syslog-ng / newsyslog configs..."
+    xray_remove_bird_log_configs
+    xray_remove_dnstap_log_configs
+
+    xray_uninstall_managed_packages
+
+    # Only syslog-ng: bird includes were just removed; if bird2 was pre-installed and
+    # kept running, leave the process alone — operator can fix/reload bird.conf later.
+    if service bird onestatus >/dev/null 2>&1; then
+        echo "[INFO] bird still running (plugin includes removed) — not restarting"
+    fi
+
+    xray_uninstall_finish_common
 
     echo ""
     echo "=============================="
     echo "  os-xray plugin removed."
     echo "=============================="
+    echo "Refresh browser with Ctrl+F5."
+    echo "For a full wipe (configs/logs/packages except unbound):"
+    echo "  sh install.sh fulluninstall"
+    exit 0
+fi
+
+if [ "${1:-}" = "fulluninstall" ]; then
+    xray_stop_plugin_services
+    xray_uninstall_runtime_files
+    xray_uninstall_plugin_files
+    xray_fulluninstall_all
+    xray_uninstall_finish_common
+
+    echo ""
+    echo "========================================"
+    echo "  os-xray fulluninstall complete."
+    echo "========================================"
+    echo "Removed: plugin, bird2, os-dnstap-bgp, tun2socks, xray-core,"
+    echo "         BIRD/dnstap configs, logs, startup scripts."
+    echo "Kept:    unbound package, /conf/config.xml"
     echo "Refresh browser with Ctrl+F5."
     exit 0
 fi
@@ -1279,6 +1391,19 @@ $instUuid = sprintf(
 $inst->addAttribute('uuid', $instUuid);
 
 $x->general->enabled    = '1';
+// Defaults: BGP / DNStap BGP / Auto route off; Routing strategy = System policy
+foreach ([
+    'bgp_enabled' => '0',
+    'dnstap_bgp_enabled' => '0',
+    'bgp_auto_route' => '0',
+    'routing_strategy' => 'system_policy',
+] as $_gk => $_gv) {
+    if (!isset($x->general->{$_gk})) {
+        $x->general->addChild($_gk, $_gv);
+    } else {
+        $x->general->{$_gk} = $_gv;
+    }
+}
 $importName = trim((string)($d['server'] ?? ''));
 if ($importName === '') {
     $importName = 'imported';
@@ -1757,6 +1882,11 @@ install -d /usr/local/opnsense/scripts/Xray
 install_tree "$PLUGIN_DIR/scripts/Xray" \
              "/usr/local/opnsense/scripts/Xray" 0755
 
+echo "==> Seeding DNStap default geodat categories..."
+xray_seed_dnstap_geodat_categories
+echo "==> Seeding Static default geodat URL/categories..."
+xray_seed_static_geodat_defaults
+
 # configd actions
 install -d /usr/local/opnsense/service/conf/actions.d
 install_tree "$PLUGIN_DIR/service/conf/actions.d" \
@@ -2154,6 +2284,64 @@ fi
 
 # ── Шаг 4.9: Seed default BGP peers (disabled) ────────────────────────────────
 echo ""
+echo "==> Step 4.8b: Default General toggles (BGP/DNStap/Auto route off, System policy)..."
+if xray_keep_config; then
+    echo "[SKIP] General defaults (reinstall — keep configuration)"
+else
+_SEED_GENERAL_OK=$(php << 'PHPEOF'
+<?php
+set_include_path('/usr/local/etc/inc' . PATH_SEPARATOR . get_include_path());
+require_once('config.inc');
+
+$cfg = OPNsense\Core\Config::getInstance();
+$obj = $cfg->object();
+if (!isset($obj->OPNsense)) { $obj->addChild('OPNsense'); }
+if (!isset($obj->OPNsense->xray)) { $obj->OPNsense->addChild('xray'); }
+$x = $obj->OPNsense->xray;
+if (!isset($x->general)) { $x->addChild('general'); }
+$g = $x->general;
+$changed = false;
+$defaults = [
+    'bgp_enabled' => '0',
+    'dnstap_bgp_enabled' => '0',
+    'bgp_auto_route' => '0',
+];
+foreach ($defaults as $k => $v) {
+    if (!isset($g->{$k})) {
+        $g->addChild($k, $v);
+        $changed = true;
+    } elseif (trim((string)$g->{$k}) === '') {
+        $g->{$k} = $v;
+        $changed = true;
+    }
+}
+// Missing/empty strategy only — do not overwrite an explicit user choice.
+$strat = isset($g->routing_strategy) ? trim((string)$g->routing_strategy) : '';
+if ($strat === '') {
+    if (!isset($g->routing_strategy)) {
+        $g->addChild('routing_strategy', 'system_policy');
+    } else {
+        $g->routing_strategy = 'system_policy';
+    }
+    $changed = true;
+}
+if ($changed) {
+    $cfg->save();
+    echo "OK";
+} else {
+    echo "SKIP";
+}
+PHPEOF
+) || true
+    if [ "$_SEED_GENERAL_OK" = "OK" ]; then
+        echo "[OK]  General defaults applied (BGP/DNStap/Auto route off; strategy if empty → System policy)."
+    elif [ "$_SEED_GENERAL_OK" = "SKIP" ]; then
+        echo "[SKIP] General defaults already set."
+    else
+        warn "General defaults seed failed."
+    fi
+fi
+
 echo "==> Step 4.9: Seeding default BGP peers if none exist..."
 if xray_keep_config; then
     echo "[SKIP] BGP peer seed (reinstall — keep configuration)"
@@ -2315,6 +2503,8 @@ $changed = xray_seed_array_if_empty($xray->bgpcommunities, 'community', [
     ['enabled' => '1', 'name' => 'community_ANTIFILTER_DOWNLOAD', 'communities' => '65432:500'],
     ['enabled' => '1', 'name' => 'community_ANTIFILTER_NETWORK', 'communities' => $networkComm],
     ['enabled' => '1', 'name' => 'community_DNSTAP_PROXY', 'communities' => '65103:777'],
+    ['enabled' => '1', 'name' => 'community_DNSTAP_DIRECT', 'communities' => '65103:555'],
+    ['enabled' => '1', 'name' => 'community_DNSTAP_BLOCK', 'communities' => '65103:888'],
 ]) || $changed;
 
 $script = '/usr/local/opnsense/scripts/Xray/xray-bird-peers.php';
@@ -2523,5 +2713,7 @@ echo "       Source:      LAN net"
 echo "       Destination: <your alias>"
 echo "       Gateway:     PROXYTUN_GW"
 echo ""
-echo "  To uninstall: sh install.sh uninstall"
+echo "  To uninstall:     sh install.sh uninstall"
+echo "  Full wipe:        sh install.sh fulluninstall"
+echo "                    (configs/logs/packages except unbound; keeps config.xml)"
 echo ""

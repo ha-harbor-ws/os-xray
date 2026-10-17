@@ -14,6 +14,8 @@ class BgppeerController extends ApiMutableModelControllerBase
     {
         try {
             (new \OPNsense\Xray\BgpCommunity())->ensureDnstapBlockedCommunity();
+            (new \OPNsense\Xray\BgpCommunity())->ensureDnstapDirectCommunity();
+            (new \OPNsense\Xray\BgpCommunity())->ensureDnstapBlockCommunity();
             (new \OPNsense\Xray\BgpFilter())->seedDefaultFiltersIfEmpty();
             (new \OPNsense\Xray\BgpFilter())->migrateAcceptFilterNames();
             (new \OPNsense\Xray\BgpFilter())->ensureDnstapFilters();
