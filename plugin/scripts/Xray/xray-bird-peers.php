@@ -120,7 +120,8 @@ function xray_wan_default_gateway4(): string
 
 /**
  * IPv6 WAN default gateway for BIRD (address only, no %scope).
- * Link-local next hops use "via IPv6_GATEWAY dev WAN6_IF" in static/filter.
+ * Static DIRECT: via WAN6_IF { gw = IPv6_GATEWAY; }
+ * Filters: ifname = WAN6_IF; gw = IPv6_GATEWAY;
  * Do not put fe80::x%if into define — '%' is modulo in BIRD expressions.
  */
 function xray_wan_default_gateway6(): string
