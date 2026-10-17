@@ -466,8 +466,7 @@ function xray_static_merge_sources(string $family): array
 function xray_static_render_apply(string $family, array $proxy, array $direct, array $block): string
 {
     $viaProxy = ($family === 'ipv6') ? 'ACTIVE_TUN6_IF' : 'ACTIVE_TUN4_IF';
-    // IPv6 link-local: expand via fe80::x%if in the route line (BIRD docs).
-    // Never put %scope into define IPv6_GATEWAY (% = modulo there).
+    // IPv6 DIRECT: route P device "igc3";
     $viaDirect = ($family === 'ipv6')
         ? xray_bird_ipv6_direct_via_clause()
         : 'via IPv4_GATEWAY;';

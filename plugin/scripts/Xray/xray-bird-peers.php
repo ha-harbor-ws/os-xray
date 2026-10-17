@@ -983,32 +983,20 @@ function xray_bird_sanitize_ifname(string $if, string $fallback = ''): string
 }
 
 /**
- * BIRD "via …;" for IPv6 static DIRECT routes.
- * Link-local needs interface scope in the via clause (docs: via fe80::10%eth0),
- * not in define IPv6_GATEWAY (there '%' is modulo → syntax error).
+ * Tail for IPv6 static DIRECT routes: route P device "igc3";
  */
 function xray_bird_ipv6_direct_via_clause(): string
 {
-    $gw = xray_wan_default_gateway6();
-    if ($gw === '') {
-        return 'via IPv6_GATEWAY;';
-    }
-    if (strncasecmp($gw, 'fe80:', 5) !== 0) {
-        return 'via IPv6_GATEWAY;';
-    }
     $if = xray_bird_wan6_dev();
     if ($if === '') {
         $if = xray_route_default_info('inet6')['if'];
     }
     $if = xray_bird_sanitize_ifname($if, '');
     if ($if === '') {
-        return 'via IPv6_GATEWAY;';
+        return 'device WAN6_IF;';
     }
-    // via fe80::10%eth0  or  via fe80::20%'eth1.60'
-    if (preg_match('/^[A-Za-z0-9_]+$/', $if)) {
-        return 'via ' . $gw . '%' . $if . ';';
-    }
-    return 'via ' . $gw . "%'" . $if . "';";
+    // route 2001:db8:100::/64 device "igc3";
+    return 'device "' . $if . '";';
 }
 
 function xray_bird_write_wan_if(): void
