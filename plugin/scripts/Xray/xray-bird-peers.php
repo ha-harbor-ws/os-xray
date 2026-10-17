@@ -59,13 +59,18 @@ function xray_route_default_info(string $family = 'inet'): array
     $if = '';
     foreach ($out as $line) {
         if (preg_match('/^\s*gateway:\s+(\S+)/', $line, $m)) {
-            $gw = explode('%', $m[1])[0];
+            // Keep %if scope for IPv6 link-local (BIRD needs it); strip only for matching helpers.
+            $gw = $m[1];
         }
         if (preg_match('/^\s*interface:\s+(\S+)/', $line, $m)) {
             $if = $m[1];
         }
     }
-    return ['gw' => $gw, 'if' => $if];
+    if ($gw !== '' && strpos($gw, '%') === false && $if !== ''
+        && strncasecmp(explode('%', $gw)[0], 'fe80:', 5) === 0) {
+        $gw .= '%' . $if;
+    }
+    return ['gw' => explode('%', $gw)[0], 'if' => $if, 'gw_scoped' => $gw];
 }
 
 function xray_route_default_if(string $family = 'inet'): string
@@ -118,6 +123,11 @@ function xray_wan_default_gateway4(): string
     return $cached;
 }
 
+/**
+ * IPv6 WAN default gateway for BIRD.
+ * Link-local next hops must include interface scope (fe80::x%igc3), otherwise
+ * BIRD logs "Invalid next hop fe80::… of static route …".
+ */
 function xray_wan_default_gateway6(): string
 {
     static $cached = null;
@@ -125,25 +135,67 @@ function xray_wan_default_gateway6(): string
         return $cached;
     }
     $cached = '';
+    $want = function_exists('xray_bird_wan6_dev') ? xray_bird_wan6_dev() : '';
+
+    $scopeLl = static function (string $raw, string $if) use ($want): string {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return '';
+        }
+        $ip = explode('%', $raw)[0];
+        $scope = '';
+        if (strpos($raw, '%') !== false) {
+            $scope = explode('%', $raw, 2)[1];
+        }
+        if (!xray_is_gateway_ip($ip, true)) {
+            return '';
+        }
+        if (strncasecmp($ip, 'fe80:', 5) !== 0) {
+            return $ip;
+        }
+        if ($scope === '') {
+            $scope = $if !== '' ? $if : $want;
+        }
+        if ($scope === '') {
+            return '';
+        }
+        // BIRD: via fe80::1%igc3  (quote if iface has non-alnum)
+        if (preg_match('/^[A-Za-z0-9._-]+$/', $scope)) {
+            return $ip . '%' . $scope;
+        }
+        return $ip . "%'" . str_replace("'", '', $scope) . "'";
+    };
+
     if (function_exists('get_interface_gatewayv6')) {
         try {
-            $ip = explode('%', trim((string)get_interface_gatewayv6('wan')))[0];
-            if (xray_is_gateway_ip($ip, true)) {
-                $cached = $ip;
+            $raw = trim((string)get_interface_gatewayv6('wan'));
+            $if  = '';
+            if (function_exists('get_real_interface')) {
+                $if = trim((string)get_real_interface('wan', 'inet6'));
+                if ($if === '') {
+                    $if = trim((string)get_real_interface('wan'));
+                }
+            }
+            $scoped = $scopeLl($raw, $if !== '' ? $if : $want);
+            if ($scoped !== '') {
+                $cached = $scoped;
                 return $cached;
             }
         } catch (\Throwable $e) {
         }
     }
     $info = xray_route_default_info('inet6');
-    $want = function_exists('xray_bird_wan6_dev') ? xray_bird_wan6_dev() : '';
-    if (xray_is_gateway_ip($info['gw'], true)
-        && ($want === '' || $info['if'] === '' || strcasecmp($info['if'], $want) === 0)) {
-        $cached = $info['gw'];
-        return $cached;
+    $scopedRaw = (string)($info['gw_scoped'] ?? $info['gw']);
+    if ($want === '' || $info['if'] === '' || strcasecmp($info['if'], $want) === 0) {
+        $scoped = $scopeLl($scopedRaw, $info['if']);
+        if ($scoped !== '') {
+            $cached = $scoped;
+            return $cached;
+        }
     }
-    if (xray_is_gateway_ip($info['gw'], true)) {
-        $cached = $info['gw'];
+    $scoped = $scopeLl($scopedRaw, $info['if'] !== '' ? $info['if'] : $want);
+    if ($scoped !== '') {
+        $cached = $scoped;
     }
     return $cached;
 }
