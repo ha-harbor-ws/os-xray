@@ -42,6 +42,7 @@ tun2socks → TUN (proxytun2socksN)
     ↓
 OPNsense Gateways (WAN_GW + instance *_GW)
 BIRD2: BGP + static PROXY/DIRECT/BLOCK → ACTIVE_TUN* / WAN
+Unbound (DNStap) → dnstap-bgp → BIRD communities (PROXY/DIRECT/BLOCK)
 Firewall / policy routing
 ```
 
@@ -56,7 +57,8 @@ Firewall / policy routing
 | xray-core | 24.x+ (рекомендуется) |
 | tun2socks | Актуальный FreeBSD amd64 |
 | bird2 | FreeBSD pkg (ставит install.sh) |
-| os-dnstap-bgp | GitHub pkg (опционально) |
+| unbound | OPNsense / FreeBSD pkg |
+| dnstap-bgp (os-dnstap-bgp) | GitHub pkg (опционально) |
 
 ---
 
