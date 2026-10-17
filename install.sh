@@ -30,7 +30,7 @@ VERSION_FILE="/usr/local/opnsense/mvc/app/models/OPNsense/Xray/version.txt"
 XRAY_PKG_BASELINE="/var/db/os-xray/pkg-baseline"
 UNBOUND_DNSTAP_PKG_URL="https://github.com/ha-harbor-ws/os-unbound/releases/latest/download/unbound-latest.pkg"
 DTAP_GH_REPO="ha-harbor-ws/dnstap-bgp"
-DTAP_PKG_FALLBACK="https://github.com/${DTAP_GH_REPO}/releases/download/v1.5.0/os-dnstap-bgp-1.5.0-opnsense26.7-freebsd15-amd64.pkg"
+DTAP_PKG_URL="https://github.com/${DTAP_GH_REPO}/releases/download/v1.5.0/os-dnstap-bgp-1.5.0-opnsense26.7-freebsd15-amd64.pkg"
 T2S_BIN="/usr/local/tun2socks/tun2socks"
 T2S_DIR="/usr/local/tun2socks"
 T2S_GH_REPO="xjasonlyu/tun2socks"
@@ -673,41 +673,12 @@ xray_ensure_unbound_dnstap() {
     xray_unbound_install_github || true
 }
 
-xray_github_dnstap_pkg_url() {
-    _json="/tmp/os-dnstap-bgp-latest.json"
-    _url=""
-    if fetch -o "$_json" "https://api.github.com/repos/${DTAP_GH_REPO}/releases/latest" 2>/dev/null; then
-        _url=$(php -r '
-$j = json_decode((string)file_get_contents($argv[1]), true);
-if (!is_array($j)) { exit(1); }
-foreach (($j["assets"] ?? []) as $a) {
-    $n = (string)($a["name"] ?? "");
-    if (preg_match("/^os-dnstap-bgp-.*\\.pkg\$/", $n)) {
-        echo (string)($a["browser_download_url"] ?? "");
-        exit(0);
-    }
-}
-exit(1);
-' "$_json" 2>/dev/null || true)
-    fi
-    rm -f "$_json"
-    if [ -n "$_url" ]; then
-        echo "$_url"
-        return 0
-    fi
-    echo "$DTAP_PKG_FALLBACK"
-}
-
 xray_ensure_os_dnstap_bgp() {
     echo "==> Checking os-dnstap-bgp from https://github.com/${DTAP_GH_REPO} ..."
     DTAP_FRESH_INSTALL=0
     DTAP_PKG="/tmp/os-dnstap-bgp.pkg"
-    DTAP_URL=$(xray_github_dnstap_pkg_url)
-    if [ "$DTAP_URL" = "$DTAP_PKG_FALLBACK" ]; then
-        warn "GitHub API unavailable — using $DTAP_URL"
-    fi
-    if ! fetch -o "$DTAP_PKG" "$DTAP_URL" 2>/dev/null; then
-        warn "Failed to fetch os-dnstap-bgp from $DTAP_URL"
+    if ! fetch -o "$DTAP_PKG" "$DTAP_PKG_URL" 2>/dev/null; then
+        warn "Failed to fetch os-dnstap-bgp from $DTAP_PKG_URL"
         if ! pkg info -e os-dnstap-bgp >/dev/null 2>&1; then
             BINARIES_OK=0
         fi
