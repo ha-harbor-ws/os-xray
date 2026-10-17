@@ -119,10 +119,9 @@ function xray_wan_default_gateway4(): string
 }
 
 /**
- * IPv6 WAN default gateway for BIRD (address only, no %scope).
- * Static DIRECT: via WAN6_IF { gw = IPv6_GATEWAY; }
- * Filters: ifname = WAN6_IF; gw = IPv6_GATEWAY;
- * Do not put fe80::x%if into define — '%' is modulo in BIRD expressions.
+ * IPv6 WAN default gateway for BIRD define (address only, no %scope).
+ * '%' in define is modulo — scope belongs only in "via" literals
+ * (see xray_bird_ipv6_direct_via_clause). Filters: ifname + gw.
  */
 function xray_wan_default_gateway6(): string
 {
@@ -981,6 +980,35 @@ function xray_bird_sanitize_ifname(string $if, string $fallback = ''): string
 {
     $if = preg_replace('/[^A-Za-z0-9._-]/', '', $if) ?? '';
     return $if !== '' ? $if : $fallback;
+}
+
+/**
+ * BIRD "via …;" for IPv6 static DIRECT routes.
+ * Link-local needs interface scope in the via clause (docs: via fe80::10%eth0),
+ * not in define IPv6_GATEWAY (there '%' is modulo → syntax error).
+ */
+function xray_bird_ipv6_direct_via_clause(): string
+{
+    $gw = xray_wan_default_gateway6();
+    if ($gw === '') {
+        return 'via IPv6_GATEWAY;';
+    }
+    if (strncasecmp($gw, 'fe80:', 5) !== 0) {
+        return 'via IPv6_GATEWAY;';
+    }
+    $if = xray_bird_wan6_dev();
+    if ($if === '') {
+        $if = xray_route_default_info('inet6')['if'];
+    }
+    $if = xray_bird_sanitize_ifname($if, '');
+    if ($if === '') {
+        return 'via IPv6_GATEWAY;';
+    }
+    // via fe80::10%eth0  or  via fe80::20%'eth1.60'
+    if (preg_match('/^[A-Za-z0-9_]+$/', $if)) {
+        return 'via ' . $gw . '%' . $if . ';';
+    }
+    return 'via ' . $gw . "%'" . $if . "';";
 }
 
 function xray_bird_write_wan_if(): void
