@@ -560,12 +560,32 @@ function xray_static_write_protocols_inc(?bool $enabled = null): void
 }
 
 /**
+ * Ensure wan_if.inc (IPv4_GATEWAY / IPv6_GATEWAY / WAN*_IF) exists before apply.inc.
+ * bird.conf includes wan_if.inc before static_protocols.inc; this refreshes defines first.
+ */
+function xray_static_ensure_wan_defines(): void
+{
+    if (function_exists('xray_bird_write_wan_if')) {
+        xray_bird_write_wan_if();
+        return;
+    }
+    $peers = __DIR__ . '/xray-bird-peers.php';
+    if (is_readable($peers)) {
+        require_once $peers;
+        if (function_exists('xray_bird_write_wan_if')) {
+            xray_bird_write_wan_if();
+        }
+    }
+}
+
+/**
  * Rebuild final *_apply.inc from all intermediate prefix sources.
  *
  * @return array{proxy:int,direct:int,block:int}
  */
 function xray_static_build_apply(string $family): array
 {
+    xray_static_ensure_wan_defines();
     $merged = xray_static_merge_sources($family);
     $path = ($family === 'ipv6') ? XRAY_STATIC_FILES['v6_apply'] : XRAY_STATIC_FILES['v4_apply'];
     xray_static_write_file(

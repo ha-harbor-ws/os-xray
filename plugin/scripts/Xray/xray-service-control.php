@@ -897,7 +897,13 @@ function xray_static_apply_general(): void
     }
     $on = function_exists('xray_static_enabled') && xray_static_enabled();
     if ($on && function_exists('xray_static_build_apply')) {
-        // Rebuild route lines (DIRECT via WAN gw / iface; PROXY via ACTIVE_TUN*).
+        // wan_if.inc (IPv4_GATEWAY) must exist before routes_static_v*_apply.inc
+        if (function_exists('xray_static_ensure_wan_defines')) {
+            xray_static_ensure_wan_defines();
+        } elseif (function_exists('xray_bird_write_wan_if')) {
+            xray_bird_write_wan_if();
+        }
+        // Rebuild route lines (DIRECT via IPv4_GATEWAY / IPv6 device; PROXY via ACTIVE_TUN*).
         xray_static_build_apply('ipv4');
         xray_static_build_apply('ipv6');
     }

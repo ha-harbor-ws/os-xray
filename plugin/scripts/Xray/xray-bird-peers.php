@@ -88,6 +88,89 @@ function xray_is_gateway_ip(string $ip, bool $v6): bool
     return xray_is_ipv4_addr($ip);
 }
 
+/**
+ * FreeBSD device names of Xray instance TUNs (must not be treated as WAN).
+ *
+ * @return array<string,string> lowercase => original
+ */
+function xray_instance_tun_devices(): array
+{
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+    $cached = [];
+    try {
+        if (!class_exists('OPNsense\\Core\\Config')) {
+            return $cached;
+        }
+        $ins = \OPNsense\Core\Config::getInstance()->object()->OPNsense->xray->instances ?? null;
+        if ($ins === null || !isset($ins->instance)) {
+            return $cached;
+        }
+        foreach ($ins->instance as $inst) {
+            $tun = trim((string)($inst->tun_interface ?? ''));
+            if ($tun !== '') {
+                $cached[strtolower($tun)] = $tun;
+            }
+        }
+    } catch (\Throwable $e) {
+    }
+    return $cached;
+}
+
+function xray_is_instance_tun_device(string $if): bool
+{
+    $if = trim($if);
+    if ($if === '') {
+        return false;
+    }
+    return isset(xray_instance_tun_devices()[strtolower($if)]);
+}
+
+/**
+ * Logical OPNsense iface (wan/optN) for configured WAN4/WAN6 FreeBSD device.
+ */
+function xray_wan_logical_iface(bool $v6 = false): string
+{
+    $dev = $v6
+        ? trim((string)xray_bird_general_device('bgp_if_wan6', ''))
+        : trim((string)xray_bird_general_device('bgp_if_wan4', ''));
+    if ($dev === '') {
+        $dev = $v6
+            ? (function_exists('xray_bird_wan6_dev') ? xray_bird_wan6_dev() : '')
+            : (function_exists('xray_bird_wan4_dev') ? xray_bird_wan4_dev() : '');
+    }
+    if ($dev !== '' && function_exists('xray_gateways_logical_if_for_device')) {
+        $logical = xray_gateways_logical_if_for_device($dev);
+        if ($logical !== '') {
+            return $logical;
+        }
+    }
+    return 'wan';
+}
+
+/**
+ * OPNsense /tmp/{iface}_router[v6] — per-interface upstream, not system default.
+ */
+function xray_wan_gateway_from_tmp(string $logical, bool $v6): string
+{
+    $logical = trim($logical);
+    if ($logical === '') {
+        return '';
+    }
+    $file = $v6 ? ('/tmp/' . $logical . '_routerv6') : ('/tmp/' . $logical . '_router');
+    if (!is_readable($file)) {
+        return '';
+    }
+    $ip = explode('%', trim((string)@file_get_contents($file)))[0];
+    return xray_is_gateway_ip($ip, $v6) ? $ip : '';
+}
+
+/**
+ * WAN upstream IPv4 for IPv4_GATEWAY / DIRECT — never system default via instance TUN.
+ * (BLOCK→PROXY→DIRECT makes default go through PROXY; that must not become IPv4_GATEWAY.)
+ */
 function xray_wan_default_gateway4(): string
 {
     static $cached = null;
@@ -95,9 +178,32 @@ function xray_wan_default_gateway4(): string
         return $cached;
     }
     $cached = '';
+    $logical = xray_wan_logical_iface(false);
+    $wantDev = trim((string)xray_bird_general_device('bgp_if_wan4', ''));
+    if ($wantDev === '' && function_exists('xray_bird_wan4_dev')) {
+        $wantDev = xray_bird_wan4_dev();
+    }
+
+    // 1) OPNsense interface gateway for WAN logical (not global default route)
     if (function_exists('get_interface_gateway')) {
+        foreach (array_unique([$logical, 'wan']) as $iface) {
+            if ($iface === '') {
+                continue;
+            }
+            try {
+                $ip = trim((string)get_interface_gateway($iface));
+                if (xray_is_gateway_ip($ip, false)) {
+                    $cached = $ip;
+                    return $cached;
+                }
+            } catch (\Throwable $e) {
+            }
+        }
+    }
+    if (class_exists('\\OPNsense\\Routing\\Gateways')) {
         try {
-            $ip = trim((string)get_interface_gateway('wan'));
+            $gws = new \OPNsense\Routing\Gateways();
+            $ip = trim((string)$gws->getInterfaceGateway($logical, 'inet'));
             if (xray_is_gateway_ip($ip, false)) {
                 $cached = $ip;
                 return $cached;
@@ -105,23 +211,38 @@ function xray_wan_default_gateway4(): string
         } catch (\Throwable $e) {
         }
     }
+
+    // 2) Per-interface DHCP/PPPoE router file
+    $tmp = xray_wan_gateway_from_tmp($logical, false);
+    if ($tmp !== '') {
+        $cached = $tmp;
+        return $cached;
+    }
+    if ($logical !== 'wan') {
+        $tmp = xray_wan_gateway_from_tmp('wan', false);
+        if ($tmp !== '') {
+            $cached = $tmp;
+            return $cached;
+        }
+    }
+
+    // 3) System default ONLY if it exits via WAN4 device (never via instance TUN)
     $info = xray_route_default_info('inet');
-    $want = function_exists('xray_bird_wan4_dev') ? xray_bird_wan4_dev() : '';
     if (xray_is_gateway_ip($info['gw'], false)
-        && ($want === '' || $info['if'] === '' || strcasecmp($info['if'], $want) === 0)) {
+        && $info['if'] !== ''
+        && !xray_is_instance_tun_device($info['if'])
+        && $wantDev !== ''
+        && strcasecmp($info['if'], $wantDev) === 0) {
         $cached = $info['gw'];
         return $cached;
     }
-    if (xray_is_gateway_ip($info['gw'], false)) {
-        $cached = $info['gw'];
-    }
+
     return $cached;
 }
 
 /**
- * IPv6 WAN default gateway for BIRD define (address only, no %scope).
- * '%' in define is modulo — scope belongs only in "via" literals
- * (see xray_bird_ipv6_direct_via_clause). Filters: ifname + gw.
+ * IPv6 WAN upstream for IPv6_GATEWAY / filters (address only, no %scope).
+ * Same rule as IPv4: never take system default when it is via instance TUN.
  */
 function xray_wan_default_gateway6(): string
 {
@@ -130,11 +251,34 @@ function xray_wan_default_gateway6(): string
         return $cached;
     }
     $cached = '';
-    $want = function_exists('xray_bird_wan6_dev') ? xray_bird_wan6_dev() : '';
+    $logical = xray_wan_logical_iface(true);
+    $wantDev = trim((string)xray_bird_general_device('bgp_if_wan6', ''));
+    if ($wantDev === '') {
+        $wantDev = trim((string)xray_bird_general_device('bgp_if_wan4', ''));
+    }
+    if ($wantDev === '' && function_exists('xray_bird_wan6_dev')) {
+        $wantDev = xray_bird_wan6_dev();
+    }
 
     if (function_exists('get_interface_gatewayv6')) {
+        foreach (array_unique([$logical, 'wan']) as $iface) {
+            if ($iface === '') {
+                continue;
+            }
+            try {
+                $ip = explode('%', trim((string)get_interface_gatewayv6($iface)))[0];
+                if (xray_is_gateway_ip($ip, true)) {
+                    $cached = $ip;
+                    return $cached;
+                }
+            } catch (\Throwable $e) {
+            }
+        }
+    }
+    if (class_exists('\\OPNsense\\Routing\\Gateways')) {
         try {
-            $ip = explode('%', trim((string)get_interface_gatewayv6('wan')))[0];
+            $gws = new \OPNsense\Routing\Gateways();
+            $ip = explode('%', trim((string)$gws->getInterfaceGateway($logical, 'inet6')))[0];
             if (xray_is_gateway_ip($ip, true)) {
                 $cached = $ip;
                 return $cached;
@@ -142,15 +286,30 @@ function xray_wan_default_gateway6(): string
         } catch (\Throwable $e) {
         }
     }
+
+    $tmp = xray_wan_gateway_from_tmp($logical, true);
+    if ($tmp !== '') {
+        $cached = $tmp;
+        return $cached;
+    }
+    if ($logical !== 'wan') {
+        $tmp = xray_wan_gateway_from_tmp('wan', true);
+        if ($tmp !== '') {
+            $cached = $tmp;
+            return $cached;
+        }
+    }
+
     $info = xray_route_default_info('inet6');
     if (xray_is_gateway_ip($info['gw'], true)
-        && ($want === '' || $info['if'] === '' || strcasecmp($info['if'], $want) === 0)) {
+        && $info['if'] !== ''
+        && !xray_is_instance_tun_device($info['if'])
+        && $wantDev !== ''
+        && strcasecmp($info['if'], $wantDev) === 0) {
         $cached = $info['gw'];
         return $cached;
     }
-    if (xray_is_gateway_ip($info['gw'], true)) {
-        $cached = $info['gw'];
-    }
+
     return $cached;
 }
 
@@ -392,51 +551,56 @@ function xray_bird_general_device(string $key, string $default): string
 }
 
 /**
- * Detect FreeBSD WAN device for IPv4 (default route, then OPNsense wan).
+ * Detect FreeBSD WAN device for IPv4.
+ * Prefer OPNsense wan real iface; use default-route iface only if it is not an instance TUN.
  */
 function xray_bird_detect_wan4_dev(): string
 {
-    $rif = xray_route_default_if('inet');
-    if ($rif !== '') {
-        return xray_bird_sanitize_ifname($rif, '');
-    }
     if (function_exists('get_real_interface')) {
         try {
             $v4 = trim((string)get_real_interface('wan'));
-            if ($v4 !== '') {
+            if ($v4 !== '' && !xray_is_instance_tun_device($v4)) {
                 return xray_bird_sanitize_ifname($v4, '');
             }
         } catch (\Throwable $e) {
         }
     }
+    $rif = xray_route_default_if('inet');
+    if ($rif !== '' && !xray_is_instance_tun_device($rif)) {
+        return xray_bird_sanitize_ifname($rif, '');
+    }
     $devs = xray_wan_devices();
-    return isset($devs[0]) ? xray_bird_sanitize_ifname($devs[0], '') : '';
+    foreach ($devs as $d) {
+        if ($d !== '' && !xray_is_instance_tun_device($d)) {
+            return xray_bird_sanitize_ifname($d, '');
+        }
+    }
+    return '';
 }
 
 /**
- * Detect FreeBSD WAN device for IPv6 (inet6 default route, then wan inet6/inet4).
+ * Detect FreeBSD WAN device for IPv6 (skip instance TUN default routes).
  */
 function xray_bird_detect_wan6_dev(): string
 {
-    $rif = xray_route_default_if('inet6');
-    if ($rif !== '') {
-        return xray_bird_sanitize_ifname($rif, '');
-    }
     if (function_exists('get_real_interface')) {
         try {
             $v6 = trim((string)get_real_interface('wan', 'inet6'));
-            if ($v6 !== '') {
+            if ($v6 !== '' && !xray_is_instance_tun_device($v6)) {
                 return xray_bird_sanitize_ifname($v6, '');
             }
             $v4 = trim((string)get_real_interface('wan'));
-            if ($v4 !== '') {
+            if ($v4 !== '' && !xray_is_instance_tun_device($v4)) {
                 return xray_bird_sanitize_ifname($v4, '');
             }
         } catch (\Throwable $e) {
         }
     }
-    $w4 = xray_bird_detect_wan4_dev();
-    return $w4;
+    $rif = xray_route_default_if('inet6');
+    if ($rif !== '' && !xray_is_instance_tun_device($rif)) {
+        return xray_bird_sanitize_ifname($rif, '');
+    }
+    return xray_bird_detect_wan4_dev();
 }
 
 function xray_bird_wan4_dev(): string
