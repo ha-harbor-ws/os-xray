@@ -461,12 +461,12 @@ function xray_static_merge_sources(string $family): array
 
 /**
  * Final apply.inc: route statements from merged sources.
- * PROXY → ACTIVE_TUN*_IF, DIRECT → IPv4_GATEWAY / IPv6 device "iface", BLOCK → blackhole.
+ * PROXY → ACTIVE_TUN*_IF, DIRECT → IPv4_GATEWAY / IPv6 via iface|gw, BLOCK → blackhole.
  */
 function xray_static_render_apply(string $family, array $proxy, array $direct, array $block): string
 {
     $viaProxy = ($family === 'ipv6') ? 'ACTIVE_TUN6_IF' : 'ACTIVE_TUN4_IF';
-    // IPv6 DIRECT: route P device "igc3";
+    // IPv6 DIRECT: via "igc3" / via fe80::x%igc3 (not "device")
     $viaDirect = ($family === 'ipv6')
         ? xray_bird_ipv6_direct_via_clause()
         : 'via IPv4_GATEWAY;';

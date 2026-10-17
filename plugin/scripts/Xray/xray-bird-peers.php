@@ -1148,20 +1148,38 @@ function xray_bird_sanitize_ifname(string $if, string $fallback = ''): string
 }
 
 /**
- * Tail for IPv6 static DIRECT routes: route P device "igc3";
+ * Tail for IPv6 static DIRECT routes.
+ * BIRD static uses "via …", not "device …" (DEVICE is a protocol keyword → syntax error).
+ * Prefer: via fe80::x%iface | via global | via "iface".
  */
 function xray_bird_ipv6_direct_via_clause(): string
 {
     $if = xray_bird_wan6_dev();
-    if ($if === '') {
-        $if = xray_route_default_info('inet6')['if'] ?? '';
+    if ($if === '' || xray_is_instance_tun_device($if)) {
+        $rif = xray_route_default_info('inet6')['if'] ?? '';
+        if ($rif !== '' && !xray_is_instance_tun_device($rif)) {
+            $if = $rif;
+        } else {
+            $if = '';
+        }
     }
     $if = xray_bird_sanitize_ifname($if, '');
-    if ($if === '') {
-        return 'device WAN6_IF;';
+    $gw = xray_wan_default_gateway6();
+
+    if ($gw !== '') {
+        if (stripos($gw, 'fe80:') === 0) {
+            if ($if !== '') {
+                // %scope only in via literal (not in define)
+                return 'via ' . $gw . '%' . $if . ';';
+            }
+            return 'via WAN6_IF;';
+        }
+        return 'via ' . $gw . ';';
     }
-    // route 2001:db8:100::/64 device "igc3";
-    return 'device "' . $if . '";';
+    if ($if !== '') {
+        return 'via "' . $if . '";';
+    }
+    return 'via WAN6_IF;';
 }
 
 function xray_bird_write_wan_if(): void
