@@ -990,7 +990,7 @@ function xray_bird_ipv6_direct_via_clause(): string
 {
     $if = xray_bird_wan6_dev();
     if ($if === '') {
-        $if = xray_route_default_info('inet6')['if'];
+        $if = xray_route_default_info('inet6')['if'] ?? '';
     }
     $if = xray_bird_sanitize_ifname($if, '');
     if ($if === '') {

@@ -2418,10 +2418,24 @@ else
     echo "[SKIP] No empty placeholder left"
 fi
 
-# ── Шаг 8: Автостарт enabled-инстансов после переустановки ───────────────────
+# ── Шаг 8: Проверка/починка gateway_item для instance (defaultgw/fargw) ───────
+echo ""
+echo "==> Step 8: Verify instance gateways in config.xml..."
+_GW_SCRIPT="/usr/local/opnsense/scripts/Xray/xray-gateways.php"
+if [ -f "$_GW_SCRIPT" ]; then
+    if /usr/local/bin/php "$_GW_SCRIPT" repair 2>&1; then
+        echo "[OK]  instance gateways checked"
+    else
+        echo "[WARN] gateway repair failed — check System → Gateways manually"
+    fi
+else
+    echo "[SKIP] $_GW_SCRIPT not found"
+fi
+
+# ── Шаг 9: Автостарт enabled-инстансов после переустановки ───────────────────
 # Раньше после reinstall сервисы не поднимались, пока не нажмут Start All / Apply.
 echo ""
-echo "==> Step 8: Auto-start enabled instances (if Enable Xray is on)..."
+echo "==> Step 9: Auto-start enabled instances (if Enable Xray is on)..."
 _XRAY_EN=$(php -r '
 set_include_path("/usr/local/etc/inc" . PATH_SEPARATOR . get_include_path());
 require_once("config.inc");

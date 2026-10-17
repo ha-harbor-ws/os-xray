@@ -461,7 +461,7 @@ function xray_static_merge_sources(string $family): array
 
 /**
  * Final apply.inc: route statements from merged sources.
- * PROXY → ACTIVE_TUN*_IF, DIRECT → IPv*_GATEWAY, BLOCK → blackhole.
+ * PROXY → ACTIVE_TUN*_IF, DIRECT → IPv4_GATEWAY / IPv6 device "iface", BLOCK → blackhole.
  */
 function xray_static_render_apply(string $family, array $proxy, array $direct, array $block): string
 {

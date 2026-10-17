@@ -897,7 +897,7 @@ function xray_static_apply_general(): void
     }
     $on = function_exists('xray_static_enabled') && xray_static_enabled();
     if ($on && function_exists('xray_static_build_apply')) {
-        // Rebuild route lines (e.g. IPv6 DIRECT via WAN6_IF { gw = … }) from caches.
+        // Rebuild route lines (DIRECT via WAN gw / iface; PROXY via ACTIVE_TUN*).
         xray_static_build_apply('ipv4');
         xray_static_build_apply('ipv6');
     }

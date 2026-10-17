@@ -317,25 +317,27 @@ function xray_gateways_routing_strategy(): string
 }
 
 /**
- * Priorities by routing strategy.
+ * Priorities / flags by routing strategy.
  *
- * system_policy / block_direct_proxy: WAN=100, instances=255
- * block_proxy_direct: active_tun_v4/v6 GW=100, other instances + WAN=255
+ * system_policy / block_direct_proxy: WAN=100, instances=255, inst defaultgw=0
+ * block_proxy_direct: active_tun GW=100, other instances + WAN=255, inst defaultgw=1
  *
- * @return array{wan:int,inst:int,prefer_active:bool}
+ * @return array{wan:int,inst:int,prefer_active:bool,inst_defaultgw:bool}
  */
 function xray_gateways_priority_plan(): array
 {
     $s = xray_gateways_routing_strategy();
     if ($s === 'block_proxy_direct') {
-        return ['wan' => 255, 'inst' => 255, 'prefer_active' => true];
+        return ['wan' => 255, 'inst' => 255, 'prefer_active' => true, 'inst_defaultgw' => true];
     }
     // system_policy, block_direct_proxy, …
-    return ['wan' => 100, 'inst' => 255, 'prefer_active' => false];
+    return ['wan' => 100, 'inst' => 255, 'prefer_active' => false, 'inst_defaultgw' => false];
 }
 
 /**
  * Ensure one gateway_item exists. Returns true if created or updated.
+ *
+ * @param bool $updatePriority when false, leave priority on existing items unchanged
  */
 function xray_gateways_ensure_item(
     string $logical,
@@ -345,7 +347,8 @@ function xray_gateways_ensure_item(
     bool $defaultgw = false,
     bool $fargw = true,
     int $priority = 255,
-    bool $createOnly = false
+    bool $createOnly = false,
+    bool $updatePriority = true
 ): bool {
     if ($priority < 1) {
         $priority = 1;
@@ -399,25 +402,26 @@ function xray_gateways_ensure_item(
                 $changed = true;
                 $cur = $gatewayIp;
             }
-            // Far Gateway + Upstream (defaultgw candidate) as requested
-            if ($fargw) {
-                $setChild($existing, 'fargw', '1');
+            // Far Gateway + Upstream (defaultgw) — always sync both flags
+            $setChild($existing, 'fargw', $fargw ? '1' : '0');
+            $setChild($existing, 'defaultgw', $defaultgw ? '1' : '0');
+            if ($updatePriority) {
+                $setChild($existing, 'priority', $prioStr);
             }
-            if ($defaultgw) {
-                $setChild($existing, 'defaultgw', '1');
-            }
-            $setChild($existing, 'priority', $prioStr);
             $setChild($existing, 'monitor_disable', '1');
             $setChild($existing, 'force_down', '0');
+            $prioLog = $updatePriority
+                ? $prioStr
+                : trim((string)($existing->priority ?? ''));
             if ($changed) {
                 $cnf->save();
                 echo "gateways: updated {$name} ({$logical}/{$ipproto}) → {$cur}"
-                    . " priority={$prioStr}"
-                    . ($fargw ? ' fargw=1' : '')
-                    . ($defaultgw ? ' defaultgw=1' : '')
+                    . " priority={$prioLog}"
+                    . ' fargw=' . ($fargw ? '1' : '0')
+                    . ' defaultgw=' . ($defaultgw ? '1' : '0')
                     . "\n";
             } else {
-                echo "gateways: OK {$name} ({$logical}/{$ipproto}) {$cur} priority={$prioStr}\n";
+                echo "gateways: OK {$name} ({$logical}/{$ipproto}) {$cur} priority={$prioLog}\n";
             }
             return $changed;
         }
@@ -539,7 +543,7 @@ function xray_gateways_ensure_wan(int $wanPriority = 100): bool
 }
 
 /**
- * @param array{wan:int,inst:int,prefer_active:bool} $plan
+ * @param array{wan:int,inst:int,prefer_active:bool,inst_defaultgw?:bool} $plan
  * @return bool true if config.xml changed
  */
 function xray_gateways_ensure_instances(array $plan): bool
@@ -554,6 +558,7 @@ function xray_gateways_ensure_instances(array $plan): bool
         : '';
     $prefer = !empty($plan['prefer_active']);
     $instPrio = (int)($plan['inst'] ?? 255);
+    $instDefaultgw = !empty($plan['inst_defaultgw']);
 
     try {
         $cfg = \OPNsense\Core\Config::getInstance()->object();
@@ -580,14 +585,22 @@ function xray_gateways_ensure_instances(array $plan): bool
             $use6 = (string)($inst->use_ipv6 ?? '0') === '1';
             $base = xray_gateways_sanitize_name($name !== '' ? $name : $logical, 'INST');
 
-            // Instance GWs: Far Gateway + Upstream (default gateway candidate).
+            // Instance GWs: fargw always; defaultgw only for BLOCK→PROXY→DIRECT.
             if ($use4) {
                 $peer4 = xray_gateways_instance_peer($logical, $tun, false);
                 if ($peer4 !== '') {
                     $prio4 = ($prefer && $active4 !== '' && strcasecmp($tun, $active4) === 0)
                         ? 100
                         : $instPrio;
-                    if (xray_gateways_ensure_item($logical, 'inet', $peer4, $base . '_GW', true, true, $prio4)) {
+                    if (xray_gateways_ensure_item(
+                        $logical,
+                        'inet',
+                        $peer4,
+                        $base . '_GW',
+                        $instDefaultgw,
+                        true,
+                        $prio4
+                    )) {
                         $changed = true;
                     }
                 } else {
@@ -600,7 +613,15 @@ function xray_gateways_ensure_instances(array $plan): bool
                     $prio6 = ($prefer && $active6 !== '' && strcasecmp($tun, $active6) === 0)
                         ? 100
                         : $instPrio;
-                    if (xray_gateways_ensure_item($logical, 'inet6', $peer6, $base . '_GW_IPv6', true, true, $prio6)) {
+                    if (xray_gateways_ensure_item(
+                        $logical,
+                        'inet6',
+                        $peer6,
+                        $base . '_GW_IPv6',
+                        $instDefaultgw,
+                        true,
+                        $prio6
+                    )) {
                         $changed = true;
                     }
                 } else {
@@ -729,6 +750,8 @@ function xray_gateways_ensure_missing_instances_pre_autoroute(): bool
     $ipv6On = xray_gateways_ipv6_enabled();
     // Temporary priority; autoroute will set 100 / 201+ and then routes configure.
     $instPrio = 255;
+    $plan = xray_gateways_priority_plan();
+    $instDefaultgw = !empty($plan['inst_defaultgw']);
 
     try {
         $cfg = \OPNsense\Core\Config::getInstance()->object();
@@ -768,7 +791,7 @@ function xray_gateways_ensure_missing_instances_pre_autoroute(): bool
                         'inet',
                         $peer4,
                         $base . '_GW',
-                        true,
+                        $instDefaultgw,
                         true,
                         $instPrio,
                         true
@@ -790,7 +813,7 @@ function xray_gateways_ensure_missing_instances_pre_autoroute(): bool
                         'inet6',
                         $peer6,
                         $base . '_GW_IPv6',
-                        true,
+                        $instDefaultgw,
                         true,
                         $instPrio,
                         true
@@ -815,14 +838,23 @@ function xray_gateways_ensure_missing_instances_pre_autoroute(): bool
 }
 
 /**
- * After Auto route: active TUN GW → priority 100;
+ * After Auto route (only BLOCK→PROXY→DIRECT): active TUN GW → priority 100;
  * other instance GWs → 200+n by rising HTTP latency (best remaining = 201, then 202, …).
+ * Other routing strategies: skip (WAN/instance priorities from strategy / ensure_all).
  *
  * @param list<array{tun?:string,name?:string,v4_ok?:bool,v4_time?:float,v6_ok?:bool,v6_time?:float}> $rows
  */
 function xray_gateways_apply_autoroute_priorities(string $active4, string $active6, array $rows): void
 {
+    $strat = xray_gateways_routing_strategy();
+    if ($strat !== 'block_proxy_direct') {
+        echo "==> Gateways priorities after Auto route — skipped"
+            . " (routing_strategy={$strat}, only for BLOCK→PROXY→DIRECT)\n";
+        return;
+    }
+
     echo "==> Gateways priorities after Auto route"
+        . " strategy={$strat}"
         . " active4=" . ($active4 !== '' ? $active4 : 'none')
         . " active6=" . ($active6 !== '' ? $active6 : 'none') . "\n";
 
@@ -945,5 +977,137 @@ function xray_gateways_ensure_all(): void
         xray_gateways_apply_routing();
     } else {
         echo "gateways: no XML changes — routes configure skipped\n";
+    }
+}
+
+/**
+ * Install / repair: validate instance gateway_item entries.
+ * Syncs defaultgw by strategy (1 only for BLOCK→PROXY→DIRECT, else 0), fargw=1,
+ * monitor_disable, force_down; creates missing GWs.
+ * Does not overwrite priority on existing items (autoroute / strategy keep theirs).
+ *
+ * @return bool true if config.xml changed
+ */
+function xray_gateways_repair_instances(bool $applyRouting = true): bool
+{
+    $plan = xray_gateways_priority_plan();
+    $instDefaultgw = !empty($plan['inst_defaultgw']);
+    echo "==> Repair instance gateways"
+        . " (defaultgw=" . ($instDefaultgw ? '1' : '0')
+        . " by strategy; keep existing priority)...\n";
+    $changed = false;
+    $ipv6On = xray_gateways_ipv6_enabled();
+    $instPrio = 255;
+
+    try {
+        $cfg = \OPNsense\Core\Config::getInstance()->object();
+        $ins = $cfg->OPNsense->xray->instances ?? null;
+        if ($ins === null || !isset($ins->instance)) {
+            echo "gateways: repair — no instances in config\n";
+            return false;
+        }
+        $parent = xray_gateways_parent($cfg);
+        foreach ($ins->instance as $inst) {
+            if ((string)($inst->enabled ?? '1') !== '1') {
+                continue;
+            }
+            $name = trim((string)($inst->name ?? ''));
+            $tun = trim((string)($inst->tun_interface ?? ''));
+            if ($tun === '') {
+                continue;
+            }
+            $logical = xray_gateways_logical_if_for_device($tun);
+            if ($logical === '') {
+                echo "gateways: repair skip " . ($name !== '' ? $name : $tun)
+                    . " — TUN {$tun} not assigned\n";
+                continue;
+            }
+            $base = xray_gateways_sanitize_name($name !== '' ? $name : $logical, 'INST');
+            $use4 = (string)($inst->use_ipv4 ?? '1') === '1';
+            $use6 = (string)($inst->use_ipv6 ?? '0') === '1';
+
+            if ($use4) {
+                $existing = xray_gateways_find_item($parent, $logical, 'inet');
+                $peer4 = xray_gateways_instance_peer($logical, $tun, false);
+                if ($peer4 === '' && $existing !== null) {
+                    $peer4 = explode('%', trim((string)($existing->gateway ?? '')))[0];
+                }
+                if ($peer4 === '') {
+                    echo "gateways: repair skip {$base} IPv4 — no peer IP\n";
+                } elseif (xray_gateways_ensure_item(
+                    $logical,
+                    'inet',
+                    $peer4,
+                    $base . '_GW',
+                    $instDefaultgw,
+                    true,
+                    $instPrio,
+                    false,
+                    false
+                )) {
+                    $changed = true;
+                    $parent = xray_gateways_parent(\OPNsense\Core\Config::getInstance()->object());
+                }
+            }
+            if ($use6 && $ipv6On) {
+                $existing6 = xray_gateways_find_item($parent, $logical, 'inet6');
+                $peer6 = xray_gateways_instance_peer($logical, $tun, true);
+                if ($peer6 === '' && $existing6 !== null) {
+                    $peer6 = explode('%', trim((string)($existing6->gateway ?? '')))[0];
+                }
+                if ($peer6 === '') {
+                    echo "gateways: repair skip {$base} IPv6 — no peer IP\n";
+                } elseif (xray_gateways_ensure_item(
+                    $logical,
+                    'inet6',
+                    $peer6,
+                    $base . '_GW_IPv6',
+                    $instDefaultgw,
+                    true,
+                    $instPrio,
+                    false,
+                    false
+                )) {
+                    $changed = true;
+                    $parent = xray_gateways_parent(\OPNsense\Core\Config::getInstance()->object());
+                }
+            }
+        }
+    } catch (\Throwable $e) {
+        echo 'gateways: repair ERROR ' . $e->getMessage() . "\n";
+        return false;
+    }
+
+    if ($changed) {
+        echo "gateways: repair — XML updated\n";
+        if ($applyRouting) {
+            xray_gateways_apply_routing();
+        }
+    } else {
+        echo "gateways: repair — instance GWs already OK\n";
+    }
+    return $changed;
+}
+
+// CLI: php xray-gateways.php repair|ensure
+if (PHP_SAPI === 'cli' && isset($argv[0]) && @realpath($argv[0]) === @realpath(__FILE__)) {
+    if (!class_exists('OPNsense\\Core\\Config')) {
+        $cfgInc = '/usr/local/etc/inc/config.inc';
+        if (is_readable($cfgInc)) {
+            require_once $cfgInc;
+        }
+    }
+    $bird = __DIR__ . '/xray-bird-peers.php';
+    if (is_readable($bird)) {
+        require_once $bird;
+    }
+    $cmd = $argv[1] ?? 'repair';
+    if ($cmd === 'repair') {
+        xray_gateways_repair_instances(true);
+    } elseif ($cmd === 'ensure') {
+        xray_gateways_ensure_all();
+    } else {
+        echo "Usage: xray-gateways.php [repair|ensure]\n";
+        exit(1);
     }
 }
