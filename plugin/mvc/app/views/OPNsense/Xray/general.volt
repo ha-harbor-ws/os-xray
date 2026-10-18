@@ -102,7 +102,7 @@
     </li>
     <li><a data-toggle="tab" href="#dnstap">{{ lang._('DNStap') }}</a></li>
     <li><a data-toggle="tab" href="#general">{{ lang._('General') }}</a></li>
-    <li><a data-toggle="tab" href="#domains">{{ lang._('Domains') }}</a></li>
+    <li><a data-toggle="tab" href="#domains">{{ lang._('Extra Domain IP') }}</a></li>
     <li><a data-toggle="tab" href="#logs">{{ lang._('Log') }}</a></li>
 </ul>
 

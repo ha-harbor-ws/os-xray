@@ -15,6 +15,11 @@
         #domains .dnstap-row-edit .btn {
             flex-shrink: 0;
         }
+        #domains .dnstap-row-edit .domains-extra-save {
+            flex-shrink: 0;
+            min-width: 28px;
+            padding: 2px 6px;
+        }
         #domains .xray-block {
             margin-bottom: 8px;
         }
@@ -96,6 +101,9 @@
                                 <div class="dnstap-row-edit">
                                     <input type="text" class="form-control" id="domainsProxyInput"
                                            placeholder="{{ lang._('example.com') }}"/>
+                                    <button type="button" class="btn btn-xs btn-default domains-extra-save"
+                                            data-extra="domain" data-kind="proxy"
+                                            title="{{ lang._('Save') }}">✔</button>
                                 </div>
                             </td>
                         </tr>
@@ -143,6 +151,9 @@
                                 <div class="dnstap-row-edit">
                                     <input type="text" class="form-control" id="domainsDirectInput"
                                            placeholder="{{ lang._('example.com') }}"/>
+                                    <button type="button" class="btn btn-xs btn-default domains-extra-save"
+                                            data-extra="domain" data-kind="direct"
+                                            title="{{ lang._('Save') }}">✔</button>
                                 </div>
                             </td>
                         </tr>
@@ -190,6 +201,9 @@
                                 <div class="dnstap-row-edit">
                                     <input type="text" class="form-control" id="domainsBlockInput"
                                            placeholder="{{ lang._('example.com') }}"/>
+                                    <button type="button" class="btn btn-xs btn-default domains-extra-save"
+                                            data-extra="domain" data-kind="block"
+                                            title="{{ lang._('Save') }}">✔</button>
                                 </div>
                             </td>
                         </tr>
@@ -215,6 +229,156 @@
                 </table>
                 <div class="hidden" data-for="help_for_domains_block" style="padding: 8px 0 0;">
                     <small class="text-muted">{{ lang._('Add a domain to the extra BLOCK list. If a name is also in PROXY or DIRECT, BLOCK wins.') }}</small>
+                </div>
+            </div>
+
+            <div class="xray-block">
+                <table class="table table-condensed table-hover table-striped">
+                    <thead>
+                        <tr>
+                            <th>
+                                <a href="#" class="xray-showhelp" id="help_for_domains_ip_proxy">
+                                    <i class="fa fa-info-circle"></i>
+                                </a>
+                                {{ lang._('Extra PROXY IP') }}
+                                <span id="domainsIpProxyCount" class="label label-info" style="font-size:11px; margin-left:8px; display:none;"></span>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>
+                                <div class="dnstap-row-edit">
+                                    <input type="text" class="form-control" id="domainsIpProxyInput"
+                                           placeholder="{{ lang._('1.2.3.4 or 2001:db8::/32') }}"/>
+                                    <button type="button" class="btn btn-xs btn-default domains-extra-save"
+                                            data-extra="ip" data-kind="proxy"
+                                            title="{{ lang._('Save') }}">✔</button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td>
+                                <button type="button" class="btn btn-xs btn-primary" id="domainsIpProxyAdd"
+                                        title="{{ lang._('Add') }}">
+                                    <span class="fa fa-fw fa-plus"></span>
+                                </button>
+                                <button type="button" class="btn btn-xs btn-default" id="domainsIpProxyRemove"
+                                        title="{{ lang._('Remove') }}">
+                                    <span class="fa fa-fw fa-minus"></span>
+                                </button>
+                                <button type="button" class="btn btn-xs btn-default" id="domainsIpProxySearch"
+                                        title="{{ lang._('Show PROXY IPs') }}">
+                                    <span class="fa fa-fw fa-search"></span>
+                                </button>
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+                <div class="hidden" data-for="help_for_domains_ip_proxy" style="padding: 8px 0 0;">
+                    <small class="text-muted">{{ lang._('Add an IPv4/IPv6 address or subnet to the extra PROXY list. Save only stores it in the list. Apply rebuilds BIRD static routes the same way as the Static tab. Routes are installed only while Enable static route is on. BLOCK overrides PROXY, PROXY overrides DIRECT.') }}</small>
+                </div>
+            </div>
+
+            <div class="xray-block">
+                <table class="table table-condensed table-hover table-striped">
+                    <thead>
+                        <tr>
+                            <th>
+                                <a href="#" class="xray-showhelp" id="help_for_domains_ip_direct">
+                                    <i class="fa fa-info-circle"></i>
+                                </a>
+                                {{ lang._('Extra DIRECT IP') }}
+                                <span id="domainsIpDirectCount" class="label label-info" style="font-size:11px; margin-left:8px; display:none;"></span>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>
+                                <div class="dnstap-row-edit">
+                                    <input type="text" class="form-control" id="domainsIpDirectInput"
+                                           placeholder="{{ lang._('1.2.3.4 or 2001:db8::/32') }}"/>
+                                    <button type="button" class="btn btn-xs btn-default domains-extra-save"
+                                            data-extra="ip" data-kind="direct"
+                                            title="{{ lang._('Save') }}">✔</button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td>
+                                <button type="button" class="btn btn-xs btn-primary" id="domainsIpDirectAdd"
+                                        title="{{ lang._('Add') }}">
+                                    <span class="fa fa-fw fa-plus"></span>
+                                </button>
+                                <button type="button" class="btn btn-xs btn-default" id="domainsIpDirectRemove"
+                                        title="{{ lang._('Remove') }}">
+                                    <span class="fa fa-fw fa-minus"></span>
+                                </button>
+                                <button type="button" class="btn btn-xs btn-default" id="domainsIpDirectSearch"
+                                        title="{{ lang._('Show DIRECT IPs') }}">
+                                    <span class="fa fa-fw fa-search"></span>
+                                </button>
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+                <div class="hidden" data-for="help_for_domains_ip_direct" style="padding: 8px 0 0;">
+                    <small class="text-muted">{{ lang._('Add an IPv4/IPv6 address or subnet to the extra DIRECT list. Save only stores it in the list. Apply rebuilds BIRD static routes. A prefix also listed as BLOCK or PROXY is not installed as DIRECT.') }}</small>
+                </div>
+            </div>
+
+            <div class="xray-block">
+                <table class="table table-condensed table-hover table-striped">
+                    <thead>
+                        <tr>
+                            <th>
+                                <a href="#" class="xray-showhelp" id="help_for_domains_ip_block">
+                                    <i class="fa fa-info-circle"></i>
+                                </a>
+                                {{ lang._('Extra BLOCK IP') }}
+                                <span id="domainsIpBlockCount" class="label label-info" style="font-size:11px; margin-left:8px; display:none;"></span>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>
+                                <div class="dnstap-row-edit">
+                                    <input type="text" class="form-control" id="domainsIpBlockInput"
+                                           placeholder="{{ lang._('1.2.3.4 or 2001:db8::/32') }}"/>
+                                    <button type="button" class="btn btn-xs btn-default domains-extra-save"
+                                            data-extra="ip" data-kind="block"
+                                            title="{{ lang._('Save') }}">✔</button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td>
+                                <button type="button" class="btn btn-xs btn-primary" id="domainsIpBlockAdd"
+                                        title="{{ lang._('Add') }}">
+                                    <span class="fa fa-fw fa-plus"></span>
+                                </button>
+                                <button type="button" class="btn btn-xs btn-default" id="domainsIpBlockRemove"
+                                        title="{{ lang._('Remove') }}">
+                                    <span class="fa fa-fw fa-minus"></span>
+                                </button>
+                                <button type="button" class="btn btn-xs btn-default" id="domainsIpBlockSearch"
+                                        title="{{ lang._('Show BLOCK IPs') }}">
+                                    <span class="fa fa-fw fa-search"></span>
+                                </button>
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+                <div class="hidden" data-for="help_for_domains_ip_block" style="padding: 8px 0 0;">
+                    <small class="text-muted">{{ lang._('Add an IPv4/IPv6 address or subnet to the extra BLOCK list. Save only stores it in the list. Apply rebuilds BIRD static routes (blackhole). BLOCK overrides PROXY and DIRECT.') }}</small>
                 </div>
             </div>
         </section>

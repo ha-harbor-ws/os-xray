@@ -6,6 +6,7 @@
  * Sources (comma-separated prefixes, one per line):
  *   routes_static_v{4,6}_{PROXY,DIRECT,BLOCK}.inc          — IP list URLs
  *   routes_static_v{4,6}_{PROXY,DIRECT,BLOCK}_geodat.inc   — geoip.dat categories
+ *   routes_static_v{4,6}_{PROXY,DIRECT,BLOCK}_extra.inc    — ручные Extra IP (вкладка Domain)
  * Final (route statements, included by bird.conf):
  *   routes_static_v{4,6}_apply.inc
  *
@@ -13,6 +14,8 @@
  *   xray-static-conf.php write
  *   xray-static-conf.php fetchone   — ✔: download one URL into cache
  *   xray-static-conf.php fetch      — daily: refresh enabled URL caches
+ *   xray-static-conf.php extra      — add/remove one Extra IP and rebuild
+ *   xray-static-conf.php extrawrite — replace Extra IP lists and rebuild (Domain Apply)
  *   xray-static-conf.php geodatcats
  *   xray-static-conf.php seed       — default geodat URL + categories
  */
@@ -29,6 +32,7 @@ require_once __DIR__ . '/xray-bird-peers.php';
 
 const XRAY_STATIC_STAGED = '/tmp/xray_static_write.json';
 const XRAY_STATIC_FETCHONE_STAGED = '/tmp/xray_static_fetchone.json';
+const XRAY_STATIC_EXTRA_STAGED = '/tmp/xray_static_extra.json';
 const XRAY_STATIC_GEODAT_STAGED = '/tmp/xray_static_geodat.json';
 const XRAY_STATIC_MAX_BODY = 67108864;
 const XRAY_STATIC_BIRD_DIR = '/usr/local/etc/bird';
@@ -55,6 +59,12 @@ const XRAY_STATIC_FILES = [
     'v6_proxy_geodat'  => '/usr/local/etc/bird/routes_static_v6_PROXY_geodat.inc',
     'v6_direct_geodat' => '/usr/local/etc/bird/routes_static_v6_DIRECT_geodat.inc',
     'v6_block_geodat'  => '/usr/local/etc/bird/routes_static_v6_BLOCK_geodat.inc',
+    'v4_proxy_extra'   => '/usr/local/etc/bird/routes_static_v4_PROXY_extra.inc',
+    'v4_direct_extra'  => '/usr/local/etc/bird/routes_static_v4_DIRECT_extra.inc',
+    'v4_block_extra'   => '/usr/local/etc/bird/routes_static_v4_BLOCK_extra.inc',
+    'v6_proxy_extra'   => '/usr/local/etc/bird/routes_static_v6_PROXY_extra.inc',
+    'v6_direct_extra'  => '/usr/local/etc/bird/routes_static_v6_DIRECT_extra.inc',
+    'v6_block_extra'   => '/usr/local/etc/bird/routes_static_v6_BLOCK_extra.inc',
     'v4_apply'         => '/usr/local/etc/bird/routes_static_v4_apply.inc',
     'v6_apply'         => '/usr/local/etc/bird/routes_static_v6_apply.inc',
     'protocols'        => '/usr/local/etc/bird/static_protocols.inc',
@@ -63,14 +73,14 @@ const XRAY_STATIC_FILES = [
 /** Intermediate prefix sources per family → keys in XRAY_STATIC_FILES */
 const XRAY_STATIC_SOURCE_KEYS = [
     'ipv4' => [
-        'proxy'  => ['v4_proxy', 'v4_proxy_geodat'],
-        'direct' => ['v4_direct', 'v4_direct_geodat'],
-        'block'  => ['v4_block', 'v4_block_geodat'],
+        'proxy'  => ['v4_proxy', 'v4_proxy_geodat', 'v4_proxy_extra'],
+        'direct' => ['v4_direct', 'v4_direct_geodat', 'v4_direct_extra'],
+        'block'  => ['v4_block', 'v4_block_geodat', 'v4_block_extra'],
     ],
     'ipv6' => [
-        'proxy'  => ['v6_proxy', 'v6_proxy_geodat'],
-        'direct' => ['v6_direct', 'v6_direct_geodat'],
-        'block'  => ['v6_block', 'v6_block_geodat'],
+        'proxy'  => ['v6_proxy', 'v6_proxy_geodat', 'v6_proxy_extra'],
+        'direct' => ['v6_direct', 'v6_direct_geodat', 'v6_direct_extra'],
+        'block'  => ['v6_block', 'v6_block_geodat', 'v6_block_extra'],
     ],
 ];
 
@@ -430,6 +440,308 @@ function xray_static_load_prefix_file(string $path): array
     $parsed = xray_static_parse_prefix_text(xray_static_read_file($path));
     // parse_prefix_text returns both v4 and v6; callers pick by file family
     return $parsed['v4'] + $parsed['v6'];
+}
+
+/**
+ * Канонический CIDR: сжатый адрес и обнулённые хостовые биты.
+ * 1.2.3.5/24 → 1.2.3.0/24, 2001:0db8::1 → 2001:db8::1/128.
+ *
+ * @param array{cidr:string,v6:bool} $p
+ * @return array{cidr:string,v6:bool}
+ */
+function xray_static_canonical_prefix(array $p): array
+{
+    $slash = strrpos($p['cidr'], '/');
+    if ($slash === false) {
+        return $p;
+    }
+    $ip = substr($p['cidr'], 0, $slash);
+    $len = (int)substr($p['cidr'], $slash + 1);
+    $bin = @inet_pton($ip);
+    if ($bin === false) {
+        return $p;
+    }
+    $max = strlen($bin) * 8;
+    if ($len < 0 || $len > $max) {
+        return $p;
+    }
+    $bytes = strlen($bin);
+    $full = intdiv($len, 8);
+    $rem = $len % 8;
+    $masked = str_repeat("\0", $bytes);
+    if ($full > 0) {
+        $masked = substr($bin, 0, $full) . substr($masked, $full);
+    }
+    if ($rem > 0 && $full < $bytes) {
+        $maskByte = chr(ord($bin[$full]) & (0xFF << (8 - $rem)) & 0xFF);
+        $masked = substr($masked, 0, $full) . $maskByte . substr($masked, $full + 1);
+    }
+    $norm = @inet_ntop($masked);
+    if ($norm === false || $norm === '') {
+        return $p;
+    }
+    if ($p['v6']) {
+        $norm = strtolower($norm);
+    }
+    return ['cidr' => $norm . '/' . $len, 'v6' => $p['v6']];
+}
+
+/**
+ * Снять скобки у IPv6 ([2001:db8::1] или [2001:db8::1]/64) перед разбором.
+ */
+function xray_static_strip_ip_brackets(string $raw): string
+{
+    $s = trim($raw);
+    if (preg_match('/^\[([^\]]+)\](?:\/(\d{1,3}))?$/', $s, $m)) {
+        $s = $m[1] . (isset($m[2]) && $m[2] !== '' ? '/' . $m[2] : '');
+    }
+    return trim($s);
+}
+
+/**
+ * Extra-префиксы одного вида, разложенные по семьям.
+ * Префикс не из «своего» файла попадает в правильную семью.
+ *
+ * @return array{v4:array<string,true>,v6:array<string,true>}
+ */
+function xray_static_extra_sets(string $kind): array
+{
+    $v4 = [];
+    $v6 = [];
+    foreach (['v4', 'v6'] as $fam) {
+        $key = $fam . '_' . $kind . '_extra';
+        if (!isset(XRAY_STATIC_FILES[$key])) {
+            continue;
+        }
+        $parsed = xray_static_parse_prefix_text(xray_static_read_file(XRAY_STATIC_FILES[$key]));
+        foreach ($parsed['v4'] as $c => $_) {
+            $canon = xray_static_canonical_prefix(['cidr' => $c, 'v6' => false]);
+            $v4[$canon['cidr']] = true;
+        }
+        foreach ($parsed['v6'] as $c => $_) {
+            $canon = xray_static_canonical_prefix(['cidr' => $c, 'v6' => true]);
+            $v6[$canon['cidr']] = true;
+        }
+    }
+    return ['v4' => $v4, 'v6' => $v6];
+}
+
+/**
+ * @return array{proxy:string[],direct:string[],block:string[]}
+ */
+function xray_static_extra_lists(): array
+{
+    $out = [];
+    foreach (['proxy', 'direct', 'block'] as $kind) {
+        $sets = xray_static_extra_sets($kind);
+        $v4 = array_keys($sets['v4']);
+        $v6 = array_keys($sets['v6']);
+        sort($v4, SORT_STRING);
+        sort($v6, SORT_STRING);
+        $out[$kind] = array_values(array_merge($v4, $v6));
+    }
+    return $out;
+}
+
+/**
+ * Записать extra-файлы одного вида. Пустой набор становится "#\n".
+ *
+ * @param array{v4:array<string,true>,v6:array<string,true>} $sets
+ */
+function xray_static_extra_save(string $kind, array $sets): bool
+{
+    $ok4 = xray_static_write_file(
+        XRAY_STATIC_FILES['v4_' . $kind . '_extra'],
+        xray_static_render_prefix_list(array_keys($sets['v4']))
+    );
+    $ok6 = xray_static_write_file(
+        XRAY_STATIC_FILES['v6_' . $kind . '_extra'],
+        xray_static_render_prefix_list(array_keys($sets['v6']))
+    );
+    return $ok4 && $ok6;
+}
+
+/**
+ * Совпадает ли файл на диске с каноническим набором (пустой файл = "#\n").
+ *
+ * @param array{v4:array<string,true>,v6:array<string,true>} $sets
+ */
+function xray_static_extra_disk_matches(string $kind, array $sets): bool
+{
+    $want4 = xray_static_render_prefix_list(array_keys($sets['v4']));
+    $want6 = xray_static_render_prefix_list(array_keys($sets['v6']));
+    $have4 = xray_static_read_file(XRAY_STATIC_FILES['v4_' . $kind . '_extra']);
+    $have6 = xray_static_read_file(XRAY_STATIC_FILES['v6_' . $kind . '_extra']);
+    if ($have4 === '') {
+        $have4 = "#\n";
+    }
+    if ($have6 === '') {
+        $have6 = "#\n";
+    }
+    return $have4 === $want4 && $have6 === $want6;
+}
+
+/**
+ * Добавить или удалить один Extra IP и при изменении пересобрать static.
+ *
+ * @return array{ok:bool,message:string,changed:bool,prefix:string,kind:string}
+ */
+function xray_static_extra_mutate(string $action, string $kind, string $prefix): array
+{
+    $action = strtolower(trim($action));
+    $kind = strtolower(trim($kind));
+    $empty = ['ok' => false, 'message' => '', 'changed' => false, 'prefix' => '', 'kind' => $kind];
+    if (!in_array($action, ['add', 'remove'], true)) {
+        $empty['message'] = 'action must be add or remove';
+        return $empty;
+    }
+    if (!in_array($kind, ['proxy', 'direct', 'block'], true)) {
+        $empty['message'] = 'kind must be proxy, direct or block';
+        return $empty;
+    }
+    $parsed = xray_static_parse_prefix(xray_static_strip_ip_brackets($prefix));
+    if ($parsed === null) {
+        $empty['message'] = 'Enter an IPv4/IPv6 address or subnet';
+        return $empty;
+    }
+    $parsed = xray_static_canonical_prefix($parsed);
+    $cidr = $parsed['cidr'];
+    $fam = $parsed['v6'] ? 'v6' : 'v4';
+    $sets = xray_static_extra_sets($kind);
+    $has = isset($sets[$fam][$cidr]);
+    if ($action === 'add') {
+        if ($has && xray_static_extra_disk_matches($kind, $sets)) {
+            return [
+                'ok' => true,
+                'message' => 'Prefix already in the extra list',
+                'changed' => false,
+                'prefix' => $cidr,
+                'kind' => $kind,
+            ];
+        }
+        $sets[$fam][$cidr] = true;
+        $message = $has
+            ? 'Prefix already in the extra list'
+            : 'Added prefix and rebuilt static routes';
+    } else {
+        if (!$has) {
+            return [
+                'ok' => true,
+                'message' => 'Prefix is not in the extra list',
+                'changed' => false,
+                'prefix' => $cidr,
+                'kind' => $kind,
+            ];
+        }
+        unset($sets[$fam][$cidr]);
+        $message = 'Removed prefix and rebuilt static routes';
+    }
+    if (!xray_static_extra_save($kind, $sets)) {
+        return [
+            'ok' => false,
+            'message' => 'Cannot write extra prefix file',
+            'changed' => false,
+            'prefix' => $cidr,
+            'kind' => $kind,
+        ];
+    }
+    return [
+        'ok' => true,
+        'message' => $message,
+        'changed' => true,
+        'prefix' => $cidr,
+        'kind' => $kind,
+    ];
+}
+
+/**
+ * Разобрать список Extra IP одного вида в канонические v4/v6.
+ *
+ * @param array<int,mixed> $rawList
+ * @return array{v4:array<string,true>,v6:array<string,true>,bad:string[]}
+ */
+function xray_static_extra_collect(array $rawList): array
+{
+    $v4 = [];
+    $v6 = [];
+    $bad = [];
+    foreach ($rawList as $raw) {
+        if (is_array($raw)) {
+            $raw = $raw['value'] ?? $raw['prefix'] ?? '';
+        }
+        $s = trim((string)$raw);
+        if ($s === '') {
+            continue;
+        }
+        $parsed = xray_static_parse_prefix(xray_static_strip_ip_brackets($s));
+        if ($parsed === null) {
+            $bad[] = $s;
+            continue;
+        }
+        $parsed = xray_static_canonical_prefix($parsed);
+        if ($parsed['v6']) {
+            $v6[$parsed['cidr']] = true;
+        } else {
+            $v4[$parsed['cidr']] = true;
+        }
+    }
+    return ['v4' => $v4, 'v6' => $v6, 'bad' => $bad];
+}
+
+/**
+ * Заменить все Extra IP списки. Сборку BIRD делает вызывающий (Apply).
+ *
+ * @param array{proxy?:array,direct?:array,block?:array} $lists
+ * @return array{ok:bool,message:string}
+ */
+function xray_static_extra_replace(array $lists): array
+{
+    $parsed = [];
+    foreach (['proxy', 'direct', 'block'] as $kind) {
+        $items = $lists[$kind] ?? [];
+        if (!is_array($items)) {
+            $items = [];
+        }
+        $col = xray_static_extra_collect($items);
+        if ($col['bad'] !== []) {
+            return [
+                'ok' => false,
+                'message' => 'Invalid prefix: ' . $col['bad'][0],
+            ];
+        }
+        $parsed[$kind] = $col;
+    }
+    foreach (['proxy', 'direct', 'block'] as $kind) {
+        if (!xray_static_extra_save($kind, ['v4' => $parsed[$kind]['v4'], 'v6' => $parsed[$kind]['v6']])) {
+            return [
+                'ok' => false,
+                'message' => 'Cannot write extra prefix file',
+            ];
+        }
+    }
+    return [
+        'ok' => true,
+        'message' => 'Extra IP lists saved and static routes rebuilt',
+    ];
+}
+
+/**
+ * Счётчики префиксов в итоговом apply.inc (после приоритета BLOCK > PROXY > DIRECT).
+ *
+ * @return array{proxy4:int,proxy6:int,direct4:int,direct6:int,block4:int,block6:int}
+ */
+function xray_static_apply_counts(): array
+{
+    $m4 = xray_static_merge_sources('ipv4');
+    $m6 = xray_static_merge_sources('ipv6');
+    return [
+        'proxy4'  => count($m4['proxy']),
+        'proxy6'  => count($m6['proxy']),
+        'direct4' => count($m4['direct']),
+        'direct6' => count($m6['direct']),
+        'block4'  => count($m4['block']),
+        'block6'  => count($m6['block']),
+    ];
 }
 
 /**
@@ -1235,6 +1547,98 @@ if ($op === 'write') {
     exit(0);
 }
 
+if ($op === 'extra') {
+    $raw = is_readable(XRAY_STATIC_EXTRA_STAGED)
+        ? (string)file_get_contents(XRAY_STATIC_EXTRA_STAGED)
+        : '';
+    @unlink(XRAY_STATIC_EXTRA_STAGED);
+    $j = json_decode($raw, true);
+    if (!is_array($j)) {
+        echo json_encode(['result' => 'failed', 'message' => 'No staged extra request'], JSON_UNESCAPED_SLASHES) . "\n";
+        exit(1);
+    }
+    // birdc и предупреждения не должны ломать JSON для UI
+    ob_start();
+    $res = xray_static_extra_mutate(
+        (string)($j['action'] ?? ''),
+        (string)($j['kind'] ?? ''),
+        (string)($j['prefix'] ?? '')
+    );
+    if ($res['changed']) {
+        xray_static_refresh(
+            xray_static_load_url_rows('proxy'),
+            xray_static_load_url_rows('direct'),
+            xray_static_load_url_rows('block'),
+            xray_static_load_url_rows('geodat')
+        );
+        xray_static_bird_reload();
+    }
+    $noise = trim((string)ob_get_clean());
+    $message = $res['message'];
+    if ($noise !== '') {
+        $message = trim($message . "\n" . $noise);
+    }
+    echo json_encode([
+        'result'  => $res['ok'] ? 'ok' : 'failed',
+        'message' => $message,
+        'changed' => $res['changed'],
+        'prefix'  => $res['prefix'],
+        'kind'    => $res['kind'],
+        'extra'   => xray_static_extra_lists(),
+        'counts'  => xray_static_apply_counts(),
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+    exit($res['ok'] ? 0 : 1);
+}
+
+if ($op === 'extrawrite') {
+    $raw = is_readable(XRAY_STATIC_EXTRA_STAGED)
+        ? (string)file_get_contents(XRAY_STATIC_EXTRA_STAGED)
+        : '';
+    @unlink(XRAY_STATIC_EXTRA_STAGED);
+    $j = json_decode($raw, true);
+    if (!is_array($j)) {
+        echo json_encode(['result' => 'failed', 'message' => 'No staged extra write'], JSON_UNESCAPED_SLASHES) . "\n";
+        exit(1);
+    }
+    $decodeList = static function ($value): array {
+        if (is_array($value)) {
+            return $value;
+        }
+        if (is_string($value) && $value !== '') {
+            $decoded = json_decode($value, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+        return [];
+    };
+    ob_start();
+    $res = xray_static_extra_replace([
+        'proxy'  => $decodeList($j['proxy'] ?? []),
+        'direct' => $decodeList($j['direct'] ?? []),
+        'block'  => $decodeList($j['block'] ?? []),
+    ]);
+    if ($res['ok']) {
+        xray_static_refresh(
+            xray_static_load_url_rows('proxy'),
+            xray_static_load_url_rows('direct'),
+            xray_static_load_url_rows('block'),
+            xray_static_load_url_rows('geodat')
+        );
+        xray_static_bird_reload();
+    }
+    $noise = trim((string)ob_get_clean());
+    $message = $res['message'];
+    if ($noise !== '') {
+        $message = trim($message . "\n" . $noise);
+    }
+    echo json_encode([
+        'result'  => $res['ok'] ? 'ok' : 'failed',
+        'message' => $message,
+        'extra'   => xray_static_extra_lists(),
+        'counts'  => xray_static_apply_counts(),
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+    exit($res['ok'] ? 0 : 1);
+}
+
 // get
 xray_static_seed_defaults();
 $proxyUrls  = xray_static_load_url_rows('proxy');
@@ -1242,8 +1646,6 @@ $directUrls = xray_static_load_url_rows('direct');
 $blockUrls  = xray_static_load_url_rows('block');
 $geodatUrls = xray_static_load_url_rows('geodat');
 
-$m4 = xray_static_merge_sources('ipv4');
-$m6 = xray_static_merge_sources('ipv6');
 echo json_encode([
     'result'      => 'ok',
     'enabled'     => xray_static_enabled() ? '1' : '0',
@@ -1251,12 +1653,6 @@ echo json_encode([
     'direct_urls' => $directUrls,
     'block_urls'  => $blockUrls,
     'geodat_urls' => $geodatUrls,
-    'counts'      => [
-        'proxy4'  => count($m4['proxy']),
-        'proxy6'  => count($m6['proxy']),
-        'direct4' => count($m4['direct']),
-        'direct6' => count($m6['direct']),
-        'block4'  => count($m4['block']),
-        'block6'  => count($m6['block']),
-    ],
+    'extra'       => xray_static_extra_lists(),
+    'counts'      => xray_static_apply_counts(),
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";

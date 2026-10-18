@@ -803,6 +803,7 @@
                 staticBlockUrlsCache = staticCollectKv($('#staticBlockUrlsKv'));
                 staticGeodatUrlsCache = staticCollectKv($('#staticGeodatUrlsKv'));
                 staticSetCounts(data.counts);
+                staticApplyExtra(data);
             });
         }
 
@@ -996,6 +997,13 @@
         var dnstapGeodatUrlsCache = [];
         var dnstapGeodatActiveUrl = '';
         var domainsListKind = 'proxy';
+        var domainsListMode = 'domain';
+        var staticExtraProxy = [];
+        var staticExtraDirect = [];
+        var staticExtraBlock = [];
+        var staticExtraDirty = false;
+        var staticExtraBusy = false;
+        var staticExtraSeq = 0;
 
         function dnstapNormalizeDomain(raw) {
             var v = String(raw || '').replace(/^\uFEFF/, '').split('#')[0].trim().toLowerCase();
@@ -1327,6 +1335,7 @@
         });
         $('a[data-toggle="tab"][href="#domains"]').on('shown.bs.tab', function () {
             loadDnstapConf();
+            loadStaticExtra();
         });
         $('a[data-toggle="tab"][href="#routing-static"]').on('shown.bs.tab', function () {
             loadStaticConf();
@@ -1811,6 +1820,7 @@
         }
 
         function dnstapOpenDomainList(kind) {
+            domainsListMode = 'domain';
             domainsListKind = kind;
             var title = '{{ lang._("Extra PROXY domains") }}';
             if (kind === 'direct') {
@@ -1872,6 +1882,232 @@
             }
         });
 
+        function staticExtraList(kind) {
+            if (kind === 'direct') {
+                return staticExtraDirect;
+            }
+            if (kind === 'block') {
+                return staticExtraBlock;
+            }
+            return staticExtraProxy;
+        }
+
+        function staticExtraInput(kind) {
+            if (kind === 'direct') {
+                return $('#domainsIpDirectInput');
+            }
+            if (kind === 'block') {
+                return $('#domainsIpBlockInput');
+            }
+            return $('#domainsIpProxyInput');
+        }
+
+        function staticApplyExtra(data, force) {
+            if (staticExtraDirty && !force) {
+                return;
+            }
+            if (!data || !data.extra) {
+                return;
+            }
+            var extra = data.extra;
+            staticExtraProxy = $.isArray(extra.proxy) ? extra.proxy.slice() : [];
+            staticExtraDirect = $.isArray(extra.direct) ? extra.direct.slice() : [];
+            staticExtraBlock = $.isArray(extra.block) ? extra.block.slice() : [];
+            domainsIpRefreshCounts();
+        }
+
+        function staticExtraSet(kind, list) {
+            if (kind === 'direct') {
+                staticExtraDirect = list;
+            } else if (kind === 'block') {
+                staticExtraBlock = list;
+            } else {
+                staticExtraProxy = list;
+            }
+        }
+
+        function staticPrefixNormalize(raw) {
+            var s = String(raw || '').trim().replace(/,+$/, '');
+            var bracket = s.match(/^\[([^\]]+)\](?:\/(\d{1,3}))?$/);
+            if (bracket) {
+                s = bracket[1] + (bracket[2] ? '/' + bracket[2] : '');
+            }
+            if (s.indexOf(':') >= 0) {
+                s = s.toLowerCase();
+                if (s.indexOf('/') < 0) {
+                    s += '/128';
+                }
+                return s;
+            }
+            if (s.indexOf('/') < 0) {
+                s += '/32';
+            }
+            return s;
+        }
+
+        function staticExtraWritePayload() {
+            return {
+                proxy: JSON.stringify(staticExtraProxy),
+                direct: JSON.stringify(staticExtraDirect),
+                block: JSON.stringify(staticExtraBlock)
+            };
+        }
+
+        function domainsIpSetCount($el, n) {
+            n = parseInt(n, 10);
+            if (n > 0) {
+                $el.text(String(n)).attr('title', '{{ lang._("Extra prefixes in the list") }}').show();
+            } else {
+                $el.text('').hide();
+            }
+        }
+
+        function domainsIpRefreshCounts() {
+            domainsIpSetCount($('#domainsIpProxyCount'), staticExtraProxy.length);
+            domainsIpSetCount($('#domainsIpDirectCount'), staticExtraDirect.length);
+            domainsIpSetCount($('#domainsIpBlockCount'), staticExtraBlock.length);
+        }
+
+        function loadStaticExtra() {
+            if (staticExtraBusy) {
+                return;
+            }
+            var seq = ++staticExtraSeq;
+            ajaxGet('/api/xray/service/staticconf', {}, function (data) {
+                if (seq !== staticExtraSeq || !data || data.result === 'failed') {
+                    return;
+                }
+                staticApplyExtra(data);
+                staticSetCounts(data.counts);
+            });
+        }
+
+        function staticPrefixLooksValid(raw) {
+            var s = String(raw || '').trim().replace(/,+$/, '');
+            var bracket = s.match(/^\[([^\]]+)\](?:\/(\d{1,3}))?$/);
+            if (bracket) {
+                s = bracket[1] + (bracket[2] ? '/' + bracket[2] : '');
+            }
+            if (!s || /[\s,]/.test(s)) {
+                return false;
+            }
+            if (s.indexOf(':') >= 0) {
+                var bits6 = s.split('/');
+                if (bits6.length > 2) {
+                    return false;
+                }
+                if (bits6.length === 2 && (!/^\d{1,3}$/.test(bits6[1]) || parseInt(bits6[1], 10) > 128)) {
+                    return false;
+                }
+                return /^[0-9a-fA-F:]+$/.test(bits6[0]) && bits6[0].indexOf(':') >= 0;
+            }
+            var m = s.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?:\/(\d{1,2}))?$/);
+            if (!m) {
+                return false;
+            }
+            for (var i = 1; i <= 4; i++) {
+                if (parseInt(m[i], 10) > 255 || /^0\d/.test(m[i])) {
+                    return false;
+                }
+            }
+            return !(m[5] != null && parseInt(m[5], 10) > 32);
+        }
+
+        function staticExtraSetBusy(on) {
+            staticExtraBusy = on;
+            $('#domainsIpProxyAdd, #domainsIpProxyRemove, #domainsIpProxySearch,'
+                + '#domainsIpDirectAdd, #domainsIpDirectRemove, #domainsIpDirectSearch,'
+                + '#domainsIpBlockAdd, #domainsIpBlockRemove, #domainsIpBlockSearch,'
+                + '.domains-extra-save[data-extra="ip"]')
+                .prop('disabled', on);
+        }
+
+        function staticExtraMutate(action, kind, explicit) {
+            var raw = explicit != null ? String(explicit) : String(staticExtraInput(kind).val() || '');
+            raw = $.trim(raw);
+            if (!staticPrefixLooksValid(raw)) {
+                alert('{{ lang._("Enter an IPv4/IPv6 address or subnet.") }}');
+                return;
+            }
+            var prefix = staticPrefixNormalize(raw);
+            var list = staticExtraList(kind).slice();
+            var $inp = staticExtraInput(kind);
+            if (action === 'add') {
+                if (list.indexOf(prefix) === -1) {
+                    list.push(prefix);
+                }
+                $inp.val(prefix);
+            } else {
+                list = list.filter(function (x) {
+                    return x !== raw && x !== prefix && staticPrefixNormalize(x) !== prefix;
+                });
+                var cur = $.trim($inp.val() || '');
+                if (cur === raw || cur === prefix || (cur && staticPrefixNormalize(cur) === prefix)) {
+                    $inp.val('');
+                }
+            }
+            staticExtraSet(kind, list);
+            staticExtraDirty = true;
+            domainsIpRefreshCounts();
+            if ($('#domainsListModal').is(':visible') && domainsListMode === 'ip' && domainsListKind === kind) {
+                staticRenderIpList($('#domainsListFilter').val());
+            }
+        }
+
+        function staticRenderIpList(filter) {
+            var list = staticExtraList(domainsListKind);
+            var q = String(filter || '').toLowerCase();
+            var shown = 0;
+            var $tb = $('#domainsListRows').empty();
+            list.slice().forEach(function (p) {
+                if (q && String(p).toLowerCase().indexOf(q) === -1) {
+                    return;
+                }
+                shown++;
+                var $tr = $('<tr/>').css('cursor', 'pointer');
+                $tr.append($('<td/>').text(p));
+                var $rm = $('<button type="button" class="btn btn-xs btn-default"/>')
+                    .attr('title', '{{ lang._("Remove") }}')
+                    .prop('disabled', staticExtraBusy)
+                    .append($('<span class="fa fa-fw fa-minus"/>'));
+                $rm.on('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    staticExtraMutate('remove', domainsListKind, p);
+                });
+                $tr.append($('<td/>').css({'width': '2.5em', 'text-align': 'right', 'white-space': 'nowrap'}).append($rm));
+                $tr.on('click', function () {
+                    staticExtraInput(domainsListKind).val(p);
+                    $('#domainsListModal').modal('hide');
+                });
+                $tb.append($tr);
+            });
+            $('#domainsListCount').text(shown + ' / ' + list.length);
+        }
+
+        function staticOpenIpList(kind) {
+            domainsListMode = 'ip';
+            domainsListKind = kind;
+            var title = '{{ lang._("Extra PROXY IP") }}';
+            if (kind === 'direct') {
+                title = '{{ lang._("Extra DIRECT IP") }}';
+            } else if (kind === 'block') {
+                title = '{{ lang._("Extra BLOCK IP") }}';
+            }
+            $('#domainsListModalTitle').text(title);
+            $('#domainsListFilter').val('');
+            staticRenderIpList('');
+            $('#domainsListModal').modal('show');
+        }
+
+        $(document).on('click', '.domains-extra-save', function () {
+            var kind = String($(this).attr('data-kind') || 'proxy');
+            if ($(this).attr('data-extra') === 'ip') {
+                staticExtraMutate('add', kind);
+                return;
+            }
+            dnstapExtraAdd(kind);
+        });
         $(document).on('click', '#domainsProxyAdd', function () { dnstapExtraAdd('proxy'); });
         $(document).on('click', '#domainsDirectAdd', function () { dnstapExtraAdd('direct'); });
         $(document).on('click', '#domainsBlockAdd', function () { dnstapExtraAdd('block'); });
@@ -1881,8 +2117,21 @@
         $(document).on('click', '#domainsProxySearch', function () { dnstapOpenDomainList('proxy'); });
         $(document).on('click', '#domainsDirectSearch', function () { dnstapOpenDomainList('direct'); });
         $(document).on('click', '#domainsBlockSearch', function () { dnstapOpenDomainList('block'); });
+        $(document).on('click', '#domainsIpProxyAdd', function () { staticExtraMutate('add', 'proxy'); });
+        $(document).on('click', '#domainsIpDirectAdd', function () { staticExtraMutate('add', 'direct'); });
+        $(document).on('click', '#domainsIpBlockAdd', function () { staticExtraMutate('add', 'block'); });
+        $(document).on('click', '#domainsIpProxyRemove', function () { staticExtraMutate('remove', 'proxy'); });
+        $(document).on('click', '#domainsIpDirectRemove', function () { staticExtraMutate('remove', 'direct'); });
+        $(document).on('click', '#domainsIpBlockRemove', function () { staticExtraMutate('remove', 'block'); });
+        $(document).on('click', '#domainsIpProxySearch', function () { staticOpenIpList('proxy'); });
+        $(document).on('click', '#domainsIpDirectSearch', function () { staticOpenIpList('direct'); });
+        $(document).on('click', '#domainsIpBlockSearch', function () { staticOpenIpList('block'); });
         $(document).on('input', '#domainsListFilter', function () {
-            dnstapRenderDomainList($(this).val());
+            if (domainsListMode === 'ip') {
+                staticRenderIpList($(this).val());
+            } else {
+                dnstapRenderDomainList($(this).val());
+            }
         });
         $('#domainsProxyInput').on('keydown', function (e) {
             if (e.key === 'Enter') {
@@ -1900,6 +2149,24 @@
             if (e.key === 'Enter') {
                 e.preventDefault();
                 dnstapExtraAdd('block');
+            }
+        });
+        $('#domainsIpProxyInput').on('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                staticExtraMutate('add', 'proxy');
+            }
+        });
+        $('#domainsIpDirectInput').on('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                staticExtraMutate('add', 'direct');
+            }
+        });
+        $('#domainsIpBlockInput').on('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                staticExtraMutate('add', 'block');
             }
         });
 
@@ -2045,7 +2312,36 @@
                             }
                             dnstapExtrasDirty = false;
                             loadDnstapConf();
-                            dfObj.resolve();
+                            if (!isDomainsTab() || !staticExtraDirty) {
+                                dfObj.resolve();
+                                return;
+                            }
+                            $.ajax({
+                                url: '/api/xray/service/staticextrawrite',
+                                type: 'POST',
+                                dataType: 'json',
+                                timeout: 180000,
+                                data: staticExtraWritePayload(),
+                                success: function (extraData) {
+                                    if (!extraData || extraData.result === 'failed') {
+                                        alert('{{ lang._("Failed to write Extra IP lists:") }} '
+                                            + ((extraData && extraData.message) || 'unknown error'));
+                                        dfObj.reject();
+                                        return;
+                                    }
+                                    staticExtraDirty = false;
+                                    staticApplyExtra(extraData, true);
+                                    staticSetCounts(extraData.counts);
+                                    if (extraData.message && /configure failed|ERROR/i.test(extraData.message)) {
+                                        alert(extraData.message);
+                                    }
+                                    dfObj.resolve();
+                                },
+                                error: function (xhr) {
+                                    alert('{{ lang._("HTTP error:") }} ' + xhr.status);
+                                    dfObj.reject();
+                                }
+                            });
                         },
                         error: function (xhr) {
                             alert('{{ lang._("HTTP error:") }} ' + xhr.status);
@@ -2812,7 +3108,7 @@
             'routing-static': '{{ lang._("Static") }}',
             'dnstap': '{{ lang._("DNStap") }}',
             'general': '{{ lang._("General") }}',
-            'domains': '{{ lang._("Domains") }}',
+            'domains': '{{ lang._("Extra Domain IP") }}',
             'logs': '{{ lang._("Log") }}'
         };
 

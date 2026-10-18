@@ -723,6 +723,103 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
+     * POST /api/xray/service/staticextra — add/remove one Extra IP and rebuild static routes.
+     */
+    public function staticextraAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+
+        $action = $this->request->getPost('action');
+        $kind   = $this->request->getPost('kind');
+        $prefix = $this->request->getPost('prefix');
+        if ($action === null && $kind === null && $prefix === null) {
+            $json = $this->request->getJsonRawBody();
+            if (is_object($json)) {
+                $action = $json->action ?? null;
+                $kind   = $json->kind ?? null;
+                $prefix = $json->prefix ?? null;
+            } elseif (is_array($json)) {
+                $action = $json['action'] ?? null;
+                $kind   = $json['kind'] ?? null;
+                $prefix = $json['prefix'] ?? null;
+            }
+        }
+
+        $staged = '/tmp/xray_static_extra.json';
+        $payload = json_encode([
+            'action' => is_string($action) ? $action : (string)$action,
+            'kind'   => is_string($kind) ? $kind : (string)$kind,
+            'prefix' => is_string($prefix) ? $prefix : (string)$prefix,
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($payload === false || file_put_contents($staged, $payload) === false) {
+            return ['result' => 'failed', 'message' => 'Cannot stage extra prefix'];
+        }
+        @chmod($staged, 0600);
+
+        $raw = trim((string)(new Backend())->configdRun('xray staticextra'));
+        $decoded = $this->decodeConfigdJson($raw);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+        return [
+            'result'  => (stripos($raw, 'failed') !== false || stripos($raw, 'ERROR') !== false) ? 'failed' : 'ok',
+            'message' => $raw !== '' ? $raw : 'No response from configd',
+        ];
+    }
+
+    /**
+     * POST /api/xray/service/staticextrawrite — replace Extra IP lists and rebuild static routes.
+     */
+    public function staticextrawriteAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+
+        $proxy  = $this->request->getPost('proxy');
+        $direct = $this->request->getPost('direct');
+        $block  = $this->request->getPost('block');
+        if ($proxy === null && $direct === null && $block === null) {
+            $json = $this->request->getJsonRawBody();
+            if (is_object($json)) {
+                $proxy  = $json->proxy ?? null;
+                $direct = $json->direct ?? null;
+                $block  = $json->block ?? null;
+            } elseif (is_array($json)) {
+                $proxy  = $json['proxy'] ?? null;
+                $direct = $json['direct'] ?? null;
+                $block  = $json['block'] ?? null;
+            }
+        }
+        if ($proxy === null && $direct === null && $block === null) {
+            return ['result' => 'ok', 'message' => 'Nothing to write'];
+        }
+
+        $staged = '/tmp/xray_static_extra.json';
+        $payload = json_encode([
+            'proxy'  => $proxy,
+            'direct' => $direct,
+            'block'  => $block,
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($payload === false || file_put_contents($staged, $payload) === false) {
+            return ['result' => 'failed', 'message' => 'Cannot stage extra prefix lists'];
+        }
+        @chmod($staged, 0600);
+
+        $raw = trim((string)(new Backend())->configdRun('xray staticextrawrite'));
+        $decoded = $this->decodeConfigdJson($raw);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+        return [
+            'result'  => (stripos($raw, 'failed') !== false || stripos($raw, 'ERROR') !== false) ? 'failed' : 'ok',
+            'message' => $raw !== '' ? $raw : 'No response from configd',
+        ];
+    }
+
+    /**
      * POST /api/xray/service/staticfetchone — ✔ download one Static URL into cache and save it.
      */
     public function staticfetchoneAction()
