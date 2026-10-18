@@ -320,19 +320,32 @@ function xray_gateways_routing_strategy(): string
 /**
  * Priorities / flags by routing strategy.
  *
- * system_policy / block_direct_proxy: WAN=100, instances=255, inst defaultgw=0
- * block_proxy_direct: active_tun GW=100, other instances + WAN=255, inst defaultgw=1
+ * system_policy / block_direct_proxy: WAN=100 + Upstream, instances=255, inst defaultgw=0
+ * block_proxy_direct: active_tun GW=100 + Upstream, other instances=255 Upstream,
+ *                     WAN=255 without Upstream (otherwise UI (active) and netstat diverge)
  *
- * @return array{wan:int,inst:int,prefer_active:bool,inst_defaultgw:bool}
+ * @return array{wan:int,inst:int,prefer_active:bool,inst_defaultgw:bool,wan_defaultgw:bool}
  */
 function xray_gateways_priority_plan(): array
 {
     $s = xray_gateways_routing_strategy();
     if ($s === 'block_proxy_direct') {
-        return ['wan' => 255, 'inst' => 255, 'prefer_active' => true, 'inst_defaultgw' => true];
+        return [
+            'wan' => 255,
+            'inst' => 255,
+            'prefer_active' => true,
+            'inst_defaultgw' => true,
+            'wan_defaultgw' => false,
+        ];
     }
     // system_policy, block_direct_proxy, …
-    return ['wan' => 100, 'inst' => 255, 'prefer_active' => false, 'inst_defaultgw' => false];
+    return [
+        'wan' => 100,
+        'inst' => 255,
+        'prefer_active' => false,
+        'inst_defaultgw' => false,
+        'wan_defaultgw' => true,
+    ];
 }
 
 /**
@@ -491,8 +504,10 @@ function xray_gateways_ensure_item(
     }
 }
 
-/** @return bool true if config.xml changed */
-function xray_gateways_ensure_wan(int $wanPriority = 100): bool
+/**
+ * @return bool true if config.xml changed
+ */
+function xray_gateways_ensure_wan(int $wanPriority = 100, bool $wanDefaultgw = true): bool
 {
     $changed = false;
     $want4 = function_exists('xray_bird_wan4_dev') ? xray_bird_wan4_dev() : '';
@@ -509,7 +524,16 @@ function xray_gateways_ensure_wan(int $wanPriority = 100): bool
         }
     }
     if ($gw4 !== '') {
-        if (xray_gateways_ensure_item($logical4, 'inet', $gw4, 'WAN_GW', true, false, $wanPriority)) {
+        // WAN IPv4: Upstream only when strategy says so; never Far Gateway
+        if (xray_gateways_ensure_item(
+            $logical4,
+            'inet',
+            $gw4,
+            'WAN_GW',
+            $wanDefaultgw,
+            false,
+            $wanPriority
+        )) {
             $changed = true;
         }
     } else {
@@ -534,7 +558,16 @@ function xray_gateways_ensure_wan(int $wanPriority = 100): bool
         }
     }
     if ($gw6 !== '') {
-        if (xray_gateways_ensure_item($logical6, 'inet6', $gw6, 'DefaultGW_IPv6', true, true, $wanPriority)) {
+        // WAN IPv6: same Upstream flag as IPv4; Far Gateway stays on (typical for link-local gw)
+        if (xray_gateways_ensure_item(
+            $logical6,
+            'inet6',
+            $gw6,
+            'DefaultGW_IPv6',
+            $wanDefaultgw,
+            true,
+            $wanPriority
+        )) {
             $changed = true;
         }
     } else {
@@ -980,18 +1013,22 @@ function xray_gateways_ensure_all(): void
 {
     $strat = xray_gateways_routing_strategy();
     $plan = xray_gateways_priority_plan();
+    $wanDefaultgw = !empty($plan['wan_defaultgw']);
     echo "==> Ensuring OPNsense gateways (WAN + instances)"
-        . " strategy={$strat} wan_prio={$plan['wan']} inst_prio={$plan['inst']}"
+        . " strategy={$strat} wan_prio={$plan['wan']} wan_defaultgw=" . ($wanDefaultgw ? '1' : '0')
+        . " inst_prio={$plan['inst']} inst_defaultgw=" . (!empty($plan['inst_defaultgw']) ? '1' : '0')
         . ($plan['prefer_active'] ? ' active_tun_prio=100' : '')
         . "...\n";
     $changed = false;
-    if (xray_gateways_ensure_wan((int)$plan['wan'])) {
+    if (xray_gateways_ensure_wan((int)$plan['wan'], $wanDefaultgw)) {
         $changed = true;
     }
     if (xray_gateways_ensure_instances($plan)) {
         $changed = true;
     }
-    if ($changed) {
+    // Always re-apply: UI (active) can diverge from netstat when Upstream/priority
+    // already match XML but the kernel default was left on WAN (no gateway switching).
+    if ($changed || $strat === 'block_proxy_direct') {
         xray_gateways_apply_routing();
     } else {
         echo "gateways: no XML changes — routes configure skipped\n";

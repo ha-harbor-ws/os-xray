@@ -382,8 +382,11 @@ function xray_wan_routes_sync_all(bool $applyRouting = true): bool
     if (function_exists('xray_gateways_ensure_wan')) {
         $plan = function_exists('xray_gateways_priority_plan')
             ? xray_gateways_priority_plan()
-            : ['wan' => 100];
-        xray_gateways_ensure_wan((int)($plan['wan'] ?? 100));
+            : ['wan' => 100, 'wan_defaultgw' => true];
+        xray_gateways_ensure_wan(
+            (int)($plan['wan'] ?? 100),
+            !array_key_exists('wan_defaultgw', $plan) || !empty($plan['wan_defaultgw'])
+        );
     }
 
     $desired = xray_wan_routes_collect_desired();

@@ -118,7 +118,8 @@ configctl xray version
 Диалог: Import VLESS, Validate Config. После add/set/del — sync WAN static routes на server IP/hostname.
 
 **Gateway instance (System → Gateways):** создаются/чинятся при BGP Apply, install repair, ensure.  
-`fargw=1` всегда; **`defaultgw=1` только при Routing strategy = BLOCK→PROXY→DIRECT**, иначе `0`.
+`fargw=1` всегда; **`defaultgw=1` только при Routing strategy = BLOCK→PROXY→DIRECT**, иначе `0`.  
+При PROXY-first у WAN снимается Upstream (`defaultgw=0`), иначе UI может показывать instance как (active), а `netstat -rn` — default через WAN.
 
 ---
 
@@ -141,11 +142,11 @@ configctl xray version
 
 #### Routing strategy → шлюзы
 
-| Strategy | WAN priority | Instance priority | Instance `defaultgw` | Auto route → priority 100/201+ |
-|----------|--------------|-------------------|----------------------|--------------------------------|
-| **System policy** | 100 | 255 | **0** | нет |
-| **BLOCK→DIRECT→PROXY** | 100 | 255 | **0** | нет |
-| **BLOCK→PROXY→DIRECT** | 255 | 255 (active TUN → 100 при ensure) | **1** | **да** (active=100, остальные 201, 202, … по latency) |
+| Strategy | WAN priority | WAN `defaultgw` | Instance priority | Instance `defaultgw` | Auto route → priority 100/201+ |
+|----------|--------------|-----------------|-------------------|----------------------|--------------------------------|
+| **System policy** | 100 | **1** | 255 | **0** | нет |
+| **BLOCK→DIRECT→PROXY** | 100 | **1** | 255 | **0** | нет |
+| **BLOCK→PROXY→DIRECT** | 255 | **0** | 255 (active TUN → 100 при ensure) | **1** | **да** (active=100, остальные 201, 202, … по latency) |
 
 Меньше priority в OPNsense = выше предпочтение.
 

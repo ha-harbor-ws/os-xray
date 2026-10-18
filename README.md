@@ -120,7 +120,8 @@ Grid: xray/tun2socks status, Active TUN v4/v6, Test, Start/Stop.
 Dialog: Import VLESS, Validate Config. After add/set/del → sync WAN host-routes for the server IP/hostname.
 
 **Instance gateways (System → Gateways):** created/repaired on BGP Apply, install repair, ensure.  
-`fargw=1` always; **`defaultgw=1` only when Routing strategy = BLOCK→PROXY→DIRECT**, otherwise `0`.
+`fargw=1` always; **`defaultgw=1` only when Routing strategy = BLOCK→PROXY→DIRECT**, otherwise `0`.  
+For PROXY-first, WAN Upstream is cleared (`defaultgw=0`); otherwise the UI can show an instance as (active) while `netstat -rn` still has default via WAN.
 
 ---
 
@@ -143,11 +144,11 @@ Dialog: Import VLESS, Validate Config. After add/set/del → sync WAN host-route
 
 #### Routing strategy → gateways
 
-| Strategy | WAN prio | Instance prio | Instance `defaultgw` | Autoroute prio 100/201+ |
-|----------|----------|---------------|----------------------|-------------------------|
-| **System policy** | 100 | 255 | **0** | no |
-| **BLOCK→DIRECT→PROXY** | 100 | 255 | **0** | no |
-| **BLOCK→PROXY→DIRECT** | 255 | 255 (active TUN → 100 on ensure) | **1** | **yes** (active=100, others 201, 202, … by latency) |
+| Strategy | WAN prio | WAN `defaultgw` | Instance prio | Instance `defaultgw` | Autoroute prio 100/201+ |
+|----------|----------|-----------------|---------------|----------------------|-------------------------|
+| **System policy** | 100 | **1** | 255 | **0** | no |
+| **BLOCK→DIRECT→PROXY** | 100 | **1** | 255 | **0** | no |
+| **BLOCK→PROXY→DIRECT** | 255 | **0** | 255 (active TUN → 100 on ensure) | **1** | **yes** (active=100, others 201, 202, … by latency) |
 
 Lower OPNsense priority number = preferred.
 
