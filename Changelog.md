@@ -7,7 +7,7 @@ Format: [Semantic Versioning](https://semver.org/).
 
 ## [3.1.0] - TBD
 ### Fixed
-- PROXY-first — `ensure_kernel_default` больше не сносит default через TUN в пользу WAN после uninstall/reinstall (netstat снова совпадает с instance GW prio 100)
+- PROXY-first — `ensure_kernel_default` не сносит TUN→WAN и не делает raw `route add` на Far Gateway peer (Invalid argument); default ставит OPNsense routes configure
 - reinstall — `xray start` снова поднимает DNStap/BGP по флагам General (раньше только Apply/reconfigure); install Step 9b для DNStap если Xray off
 - Instances — Test result синхронизируется с ACTIVE TUN SOCKS-пробами (после uninstall колонка не пустая до cron ifhealth)
 - uninstall — WAN Upstream в UI без default в `netstat`: restore до и после stop TUN, `force_down` на instance GW, явная установка kernel default

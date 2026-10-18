@@ -878,28 +878,16 @@ function xray_gateways_ensure_kernel_default(?bool $forceWan = null): void
     $missing = ($curGw === '');
 
     if (!$forceWan) {
-        // PROXY-first: keep TUN default; if missing/WAN — install via ACTIVE_TUN peer.
+        // PROXY-first: never raw `route add` via TUN peer — Far Gateway needs host
+        // route + ifa (OPNsense system_routing_configure). Only avoid stealing TUN→WAN.
         if ($viaTun) {
             echo "[OK]  kernel default inet via TUN {$curIf} (PROXY-first)\n";
+        } elseif ($missing) {
+            echo "gateways: PROXY-first — no inet default yet; relying on routes configure"
+                . " (Far Gateway / ACTIVE_TUN)\n";
         } else {
-            $tunGw = xray_gateways_active_tun_peer(false);
-            if ($tunGw !== '') {
-                if (!$missing) {
-                    exec('/sbin/route delete -inet default >/dev/null 2>&1');
-                }
-                $out = [];
-                $rc = 0;
-                exec('/sbin/route add -inet default ' . escapeshellarg($tunGw) . ' 2>&1', $out, $rc);
-                if ($rc === 0) {
-                    echo "[OK]  kernel default inet → {$tunGw} (PROXY-first ACTIVE_TUN)\n";
-                } else {
-                    echo 'gateways: WARN PROXY-first route add inet failed'
-                        . (count($out) ? (' ' . implode(' ', $out)) : '') . "\n";
-                }
-            } else {
-                echo "gateways: PROXY-first — no ACTIVE_TUN peer yet, leave inet default as-is"
-                    . ($curGw !== '' ? " ({$curGw} via {$curIf})" : ' (none)') . "\n";
-            }
+            echo "gateways: PROXY-first — inet default {$curGw} via {$curIf}"
+                . " (not forcing WAN; OPNsense picks Upstream by priority)\n";
         }
     } elseif (function_exists('xray_wan_default_gateway4')) {
         $gw4 = trim((string)xray_wan_default_gateway4());
@@ -943,33 +931,12 @@ function xray_gateways_ensure_kernel_default(?bool $forceWan = null): void
     if (!$forceWan) {
         if ($viaTun6) {
             echo "[OK]  kernel default inet6 via TUN {$curIf6} (PROXY-first)\n";
-            return;
-        }
-        $tunGw6 = xray_gateways_active_tun_peer(true);
-        if ($tunGw6 === '') {
-            echo "gateways: PROXY-first — no ACTIVE_TUN IPv6 peer yet, leave inet6 default as-is\n";
-            return;
-        }
-        $target = $tunGw6;
-        if (stripos($tunGw6, 'fe80:') === 0) {
-            $actTun = function_exists('xray_bird_active_tun_if')
-                ? trim((string)xray_bird_active_tun_if('ipv6'))
-                : '';
-            if ($actTun !== '') {
-                $target = $tunGw6 . '%' . $actTun;
-            }
-        }
-        if (!$missing6) {
-            exec('/sbin/route delete -inet6 default >/dev/null 2>&1');
-        }
-        $out = [];
-        $rc = 0;
-        exec('/sbin/route add -inet6 default ' . escapeshellarg($target) . ' 2>&1', $out, $rc);
-        if ($rc === 0) {
-            echo "[OK]  kernel default inet6 → {$target} (PROXY-first ACTIVE_TUN)\n";
+        } elseif ($missing6) {
+            echo "gateways: PROXY-first — no inet6 default yet; relying on routes configure"
+                . " (Far Gateway / ACTIVE_TUN)\n";
         } else {
-            echo 'gateways: WARN PROXY-first route add inet6 failed'
-                . (count($out) ? (' ' . implode(' ', $out)) : '') . "\n";
+            echo "gateways: PROXY-first — inet6 default {$curGw6} via {$curIf6}"
+                . " (not forcing WAN)\n";
         }
         return;
     }
