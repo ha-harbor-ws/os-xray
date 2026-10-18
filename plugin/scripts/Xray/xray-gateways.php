@@ -754,6 +754,83 @@ function xray_gateways_apply_routing(?bool $forceWanKernel = null): void
 }
 
 /**
+ * Logical OPNsense ifaces for all Xray instance TUNs (lowercase => name).
+ *
+ * @return array<string,string>
+ */
+function xray_gateways_instance_logicals(): array
+{
+    $logicals = [];
+    try {
+        $ins = \OPNsense\Core\Config::getInstance()->object()->OPNsense->xray->instances ?? null;
+        if ($ins === null || !isset($ins->instance)) {
+            return [];
+        }
+        foreach ($ins->instance as $inst) {
+            $tun = trim((string)($inst->tun_interface ?? ''));
+            if ($tun === '') {
+                continue;
+            }
+            $logical = xray_gateways_logical_if_for_device($tun);
+            if ($logical !== '') {
+                $logicals[strtolower($logical)] = $logical;
+            }
+        }
+    } catch (\Throwable $e) {
+    }
+    return $logicals;
+}
+
+/**
+ * Clear Mark Gateway as Down on every instance TUN gateway (inet + inet6).
+ * Needed after uninstall: force_down=1 stuck on GWs that ensure_item never touched
+ * (e.g. IPv6 peer missing briefly → only the “best” ACTIVE_TUN was updated).
+ *
+ * @return bool true if config.xml changed
+ */
+function xray_gateways_clear_instance_force_down(): bool
+{
+    $changed = false;
+    try {
+        $cnf = \OPNsense\Core\Config::getInstance();
+        $obj = $cnf->object();
+        $parent = xray_gateways_parent($obj);
+        if ($parent === null || !isset($parent->gateway_item)) {
+            return false;
+        }
+        $logicals = xray_gateways_instance_logicals();
+        if ($logicals === []) {
+            return false;
+        }
+        foreach ($parent->gateway_item as $item) {
+            $iface = strtolower(trim((string)($item->interface ?? '')));
+            if ($iface === '' || !isset($logicals[$iface])) {
+                continue;
+            }
+            if ((string)($item->force_down ?? '0') === '0') {
+                continue;
+            }
+            if (!isset($item->force_down)) {
+                $item->addChild('force_down', '0');
+            } else {
+                $item->force_down = '0';
+            }
+            $changed = true;
+            $name = trim((string)($item->name ?? $iface));
+            $fam = trim((string)($item->ipprotocol ?? 'inet'));
+            echo "gateways: clear force_down on {$name} ({$fam})\n";
+        }
+        if ($changed) {
+            $cnf->save();
+        }
+    } catch (\Throwable $e) {
+        echo 'gateways: clear force_down ERROR ' . $e->getMessage() . "\n";
+        return false;
+    }
+    return $changed;
+}
+
+/**
  * Mark instance TUN gateways offline so they cannot remain the calculated default
  * after TUN is destroyed (uninstall / leave PROXY-first cleanup).
  *
@@ -765,25 +842,11 @@ function xray_gateways_mark_instance_gateways_offline(): bool
     try {
         $cnf = \OPNsense\Core\Config::getInstance();
         $obj = $cnf->object();
-        $ins = $obj->OPNsense->xray->instances ?? null;
-        if ($ins === null || !isset($ins->instance)) {
-            return false;
-        }
         $parent = xray_gateways_parent($obj);
         if ($parent === null || !isset($parent->gateway_item)) {
             return false;
         }
-        $logicals = [];
-        foreach ($ins->instance as $inst) {
-            $tun = trim((string)($inst->tun_interface ?? ''));
-            if ($tun === '') {
-                continue;
-            }
-            $logical = xray_gateways_logical_if_for_device($tun);
-            if ($logical !== '') {
-                $logicals[strtolower($logical)] = $logical;
-            }
-        }
+        $logicals = xray_gateways_instance_logicals();
         if ($logicals === []) {
             return false;
         }
@@ -1284,6 +1347,8 @@ function xray_gateways_ensure_all(): void
         . " inst_prio={$plan['inst']} inst_defaultgw=" . (!empty($plan['inst_defaultgw']) ? '1' : '0')
         . ($plan['prefer_active'] ? ' active_tun_prio=100' : '')
         . "...\n";
+    // Drop uninstall leftover Mark Gateway as Down on all instance inet/inet6 GWs.
+    xray_gateways_clear_instance_force_down();
     xray_gateways_ensure_wan((int)$plan['wan'], $wanDefaultgw);
     xray_gateways_ensure_instances($plan);
     // Always re-apply so UI (active) and netstat stay aligned after strategy / BGP /
@@ -1344,7 +1409,7 @@ function xray_gateways_repair_instances(bool $applyRouting = true): bool
     echo "==> Repair instance gateways"
         . " (defaultgw=" . ($instDefaultgw ? '1' : '0')
         . " by strategy; keep existing priority)...\n";
-    $changed = false;
+    $changed = xray_gateways_clear_instance_force_down();
     $ipv6On = xray_gateways_ipv6_enabled();
     $instPrio = 255;
 

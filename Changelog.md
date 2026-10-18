@@ -7,6 +7,7 @@ Format: [Semantic Versioning](https://semver.org/).
 
 ## [3.1.0] - TBD
 ### Fixed
+- reinstall — сброс Mark Gateway as Down (`force_down`) у всех instance GW inet/inet6 (после uninstall флаг зависал на IPv6, кроме «лучшего» ACTIVE_TUN)
 - PROXY-first — `ensure_kernel_default` не сносит TUN→WAN и не делает raw `route add` на Far Gateway peer (Invalid argument); default ставит OPNsense routes configure
 - reinstall — `xray start` снова поднимает DNStap/BGP по флагам General (раньше только Apply/reconfigure); install Step 9b для DNStap если Xray off
 - Instances — Test result синхронизируется с ACTIVE TUN SOCKS-пробами (после uninstall колонка не пустая до cron ifhealth)
