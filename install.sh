@@ -860,6 +860,23 @@ xray_stop_plugin_services() {
     service bird onestop >/dev/null 2>&1 || true
 }
 
+# Before removing plugin scripts: put WAN back as Upstream default gateway.
+xray_restore_wan_defaultgw() {
+    local script="/usr/local/opnsense/scripts/Xray/xray-gateways.php"
+    if [ ! -f "$script" ]; then
+        echo "[INFO] gateways script missing — skip WAN defaultgw restore"
+        return 0
+    fi
+    echo "==> Restoring WAN Upstream (defaultgw) before uninstall..."
+    if command -v php >/dev/null 2>&1; then
+        php "$script" restore-wan 2>&1 || warn "WAN defaultgw restore failed"
+    elif [ -x /usr/local/bin/php ]; then
+        /usr/local/bin/php "$script" restore-wan 2>&1 || warn "WAN defaultgw restore failed"
+    else
+        warn "php not found — skip WAN defaultgw restore"
+    fi
+}
+
 xray_uninstall_runtime_files() {
     echo "==> Cleaning runtime files..."
     rm -f /var/run/xray_core_*.pid /var/run/tun2socks_*.pid
@@ -1000,6 +1017,7 @@ xray_fulluninstall_all() {
 
 if [ "${1:-}" = "uninstall" ]; then
     xray_stop_plugin_services
+    xray_restore_wan_defaultgw
     xray_uninstall_runtime_files
     xray_uninstall_plugin_files
 
@@ -1035,6 +1053,7 @@ fi
 
 if [ "${1:-}" = "fulluninstall" ]; then
     xray_stop_plugin_services
+    xray_restore_wan_defaultgw
     xray_uninstall_runtime_files
     xray_uninstall_plugin_files
     xray_fulluninstall_all

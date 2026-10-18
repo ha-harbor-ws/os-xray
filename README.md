@@ -121,7 +121,8 @@ Dialog: Import VLESS, Validate Config. After add/set/del → sync WAN host-route
 
 **Instance gateways (System → Gateways):** created/repaired on BGP Apply, install repair, ensure.  
 `fargw=1` always; **`defaultgw=1` only when Routing strategy = BLOCK→PROXY→DIRECT**, otherwise `0`.  
-For PROXY-first, WAN Upstream is cleared (`defaultgw=0`); otherwise the UI can show an instance as (active) while `netstat -rn` still has default via WAN.
+For PROXY-first (strategy + BGP + Auto route), WAN Upstream is cleared (`defaultgw=0`).  
+Disabling BGP/Auto route, switching to System/DIRECT-first, or uninstall restores WAN `defaultgw=1`.
 
 ---
 
@@ -144,11 +145,11 @@ For PROXY-first, WAN Upstream is cleared (`defaultgw=0`); otherwise the UI can s
 
 #### Routing strategy → gateways
 
-| Strategy | WAN prio | WAN `defaultgw` | Instance prio | Instance `defaultgw` | Autoroute prio 100/201+ |
-|----------|----------|-----------------|---------------|----------------------|-------------------------|
-| **System policy** | 100 | **1** | 255 | **0** | no |
-| **BLOCK→DIRECT→PROXY** | 100 | **1** | 255 | **0** | no |
-| **BLOCK→PROXY→DIRECT** | 255 | **0** | 255 (active TUN → 100 on ensure) | **1** | **yes** (active=100, others 201, 202, … by latency) |
+| Mode | WAN prio | WAN `defaultgw` | Instance prio | Instance `defaultgw` | Autoroute prio 100/201+ |
+|------|----------|-----------------|---------------|----------------------|-------------------------|
+| **System policy** / **BLOCK→DIRECT→PROXY** | 100 | **1** | 255 | **0** | no |
+| **BLOCK→PROXY→DIRECT** + BGP + Auto route | 255 | **0** | 255 (active TUN → 100) | **1** | **yes** |
+| PROXY-first but BGP or Auto route **off** / uninstall | 100 | **1** | 255 | **0** | no |
 
 Lower OPNsense priority number = preferred.
 

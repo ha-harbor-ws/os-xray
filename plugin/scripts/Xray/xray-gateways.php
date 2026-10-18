@@ -317,19 +317,54 @@ function xray_gateways_routing_strategy(): string
     }
 }
 
+/** General → Enable BGP. */
+function xray_gateways_bgp_enabled(): bool
+{
+    try {
+        $g = \OPNsense\Core\Config::getInstance()->object()->OPNsense->xray->general ?? null;
+        $v = strtolower(trim((string)($g->bgp_enabled ?? '0')));
+        return $v === '1' || $v === 'on' || $v === 'true' || $v === 'yes';
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+/** General → Auto route. */
+function xray_gateways_autoroute_enabled(): bool
+{
+    try {
+        $g = \OPNsense\Core\Config::getInstance()->object()->OPNsense->xray->general ?? null;
+        $v = strtolower(trim((string)($g->bgp_auto_route ?? '0')));
+        return $v === '1' || $v === 'on' || $v === 'true' || $v === 'yes';
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
 /**
- * Priorities / flags by routing strategy.
+ * PROXY-first GW mode: strategy BLOCK→PROXY→DIRECT and BGP + Auto route are on.
+ * Otherwise WAN must keep Upstream (defaultgw=1).
+ */
+function xray_gateways_proxy_first_active(): bool
+{
+    return xray_gateways_routing_strategy() === 'block_proxy_direct'
+        && xray_gateways_bgp_enabled()
+        && xray_gateways_autoroute_enabled();
+}
+
+/**
+ * Priorities / flags by routing strategy and BGP/Auto route.
  *
- * system_policy / block_direct_proxy: WAN=100 + Upstream, instances=255, inst defaultgw=0
- * block_proxy_direct: active_tun GW=100 + Upstream, other instances=255 Upstream,
- *                     WAN=255 without Upstream (otherwise UI (active) and netstat diverge)
+ * PROXY-first (strategy + BGP + Auto route): active_tun GW=100 + Upstream,
+ *   other instances=255 Upstream, WAN=255 without Upstream.
+ * Otherwise (system_policy / DIRECT-first / BGP off / Auto route off / uninstall):
+ *   WAN=100 + Upstream, instances=255, inst defaultgw=0.
  *
  * @return array{wan:int,inst:int,prefer_active:bool,inst_defaultgw:bool,wan_defaultgw:bool}
  */
 function xray_gateways_priority_plan(): array
 {
-    $s = xray_gateways_routing_strategy();
-    if ($s === 'block_proxy_direct') {
+    if (xray_gateways_proxy_first_active()) {
         return [
             'wan' => 255,
             'inst' => 255,
@@ -338,7 +373,7 @@ function xray_gateways_priority_plan(): array
             'wan_defaultgw' => false,
         ];
     }
-    // system_policy, block_direct_proxy, …
+    // system_policy, block_direct_proxy, or PROXY-first with BGP/autoroute off
     return [
         'wan' => 100,
         'inst' => 255,
@@ -898,9 +933,12 @@ function xray_gateways_ensure_missing_instances_pre_autoroute(): bool
 function xray_gateways_apply_autoroute_priorities(string $active4, string $active6, array $rows): void
 {
     $strat = xray_gateways_routing_strategy();
-    if ($strat !== 'block_proxy_direct') {
+    if (!xray_gateways_proxy_first_active()) {
         echo "==> Gateways priorities after Auto route — skipped"
-            . " (routing_strategy={$strat}, only for BLOCK→PROXY→DIRECT)\n";
+            . " (need strategy=BLOCK→PROXY→DIRECT + BGP + Auto route;"
+            . " now strategy={$strat}"
+            . " bgp=" . (xray_gateways_bgp_enabled() ? '1' : '0')
+            . " autoroute=" . (xray_gateways_autoroute_enabled() ? '1' : '0') . ")\n";
         return;
     }
 
@@ -1014,25 +1052,51 @@ function xray_gateways_ensure_all(): void
     $strat = xray_gateways_routing_strategy();
     $plan = xray_gateways_priority_plan();
     $wanDefaultgw = !empty($plan['wan_defaultgw']);
+    $proxyFirst = xray_gateways_proxy_first_active();
     echo "==> Ensuring OPNsense gateways (WAN + instances)"
-        . " strategy={$strat} wan_prio={$plan['wan']} wan_defaultgw=" . ($wanDefaultgw ? '1' : '0')
+        . " strategy={$strat}"
+        . " bgp=" . (xray_gateways_bgp_enabled() ? '1' : '0')
+        . " autoroute=" . (xray_gateways_autoroute_enabled() ? '1' : '0')
+        . " proxy_first=" . ($proxyFirst ? '1' : '0')
+        . " wan_prio={$plan['wan']} wan_defaultgw=" . ($wanDefaultgw ? '1' : '0')
         . " inst_prio={$plan['inst']} inst_defaultgw=" . (!empty($plan['inst_defaultgw']) ? '1' : '0')
         . ($plan['prefer_active'] ? ' active_tun_prio=100' : '')
         . "...\n";
+    xray_gateways_ensure_wan((int)$plan['wan'], $wanDefaultgw);
+    xray_gateways_ensure_instances($plan);
+    // Always re-apply so UI (active) and netstat stay aligned after strategy / BGP /
+    // Auto route changes (and when WAN Upstream is restored).
+    xray_gateways_apply_routing();
+}
+
+/**
+ * Force WAN Upstream back (defaultgw=1, priority=100) and clear instance Upstream.
+ * Used on uninstall and when leaving PROXY-first mode.
+ *
+ * @return bool true if config.xml changed
+ */
+function xray_gateways_restore_wan_default(bool $applyRouting = true): bool
+{
+    echo "==> Restoring WAN Upstream (defaultgw=1, priority=100); clear instance Upstream...\n";
     $changed = false;
-    if (xray_gateways_ensure_wan((int)$plan['wan'], $wanDefaultgw)) {
+    if (xray_gateways_ensure_wan(100, true)) {
         $changed = true;
     }
+    // Clear defaultgw on every enabled instance GW so WAN wins as system default.
+    $plan = [
+        'wan' => 100,
+        'inst' => 255,
+        'prefer_active' => false,
+        'inst_defaultgw' => false,
+        'wan_defaultgw' => true,
+    ];
     if (xray_gateways_ensure_instances($plan)) {
         $changed = true;
     }
-    // Always re-apply: UI (active) can diverge from netstat when Upstream/priority
-    // already match XML but the kernel default was left on WAN (no gateway switching).
-    if ($changed || $strat === 'block_proxy_direct') {
+    if ($applyRouting) {
         xray_gateways_apply_routing();
-    } else {
-        echo "gateways: no XML changes — routes configure skipped\n";
     }
+    return $changed;
 }
 
 /**
@@ -1161,8 +1225,10 @@ if (PHP_SAPI === 'cli' && isset($argv[0]) && @realpath($argv[0]) === @realpath(_
         xray_gateways_repair_instances(true);
     } elseif ($cmd === 'ensure') {
         xray_gateways_ensure_all();
+    } elseif ($cmd === 'restore-wan') {
+        xray_gateways_restore_wan_default(true);
     } else {
-        echo "Usage: xray-gateways.php [repair|ensure]\n";
+        echo "Usage: xray-gateways.php [repair|ensure|restore-wan]\n";
         exit(1);
     }
 }
