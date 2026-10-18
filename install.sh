@@ -33,7 +33,7 @@ VERSION_FILE="/usr/local/opnsense/mvc/app/models/OPNsense/Xray/version.txt"
 XRAY_PKG_BASELINE="/var/db/os-xray/pkg-baseline"
 UNBOUND_DNSTAP_PKG_URL="https://github.com/ha-harbor-ws/os-unbound/releases/latest/download/unbound-latest.pkg"
 DTAP_GH_REPO="ha-harbor-ws/dnstap-bgp"
-DTAP_PKG_URL="https://github.com/${DTAP_GH_REPO}/releases/download/v1.5.0/os-dnstap-bgp-1.5.0-opnsense26.7-freebsd15-amd64.pkg"
+DTAP_PKG_URL="https://github.com/${DTAP_GH_REPO}/releases/latest/download/os-dnstap-bgp-latest.pkg"
 T2S_BIN="/usr/local/tun2socks/tun2socks"
 T2S_DIR="/usr/local/tun2socks"
 T2S_GH_REPO="xjasonlyu/tun2socks"
@@ -122,7 +122,7 @@ xray_dnstap_mv_if_missing() {
     fi
 }
 
-# Align live files/keys with dnstap-bgp 1.5.0 (PROXY/DIRECT/BLOCK).
+# Align live files/keys with dnstap-bgp 1.5.x (PROXY/DIRECT/BLOCK).
 xray_migrate_dnstap_pkg() {
     _dir="/usr/local/etc/dnstap-bgp"
     [ -d "$_dir" ] || mkdir -p "$_dir"
@@ -171,7 +171,7 @@ xray_migrate_dnstap_pkg() {
             ' "$_conf" > "$_tmp" && mv "$_tmp" "$_conf"
             echo "[OK]  $_conf block_domains"
         fi
-        echo "[OK]  $_conf keys for dnstap-bgp 1.5.0"
+        echo "[OK]  $_conf keys for dnstap-bgp 1.5.x"
     fi
 }
 
@@ -1627,7 +1627,7 @@ if [ "$DTAP_FRESH_INSTALL" = "1" ]; then
     echo "==> Copying dnstap-bgp sample configs (first install only)..."
     xray_copy_dnstap_bgp_samples
 fi
-echo "==> Migrating DNStap files to PROXY/DIRECT/BLOCK (dnstap-bgp 1.5.0)..."
+echo "==> Migrating DNStap files to PROXY/DIRECT/BLOCK (dnstap-bgp 1.5.x)..."
 xray_migrate_dnstap_pkg
 echo "==> Seeding DNStap PROXY list URL..."
 xray_seed_dnstap_proxy_url

@@ -30,7 +30,7 @@ Format: [Semantic Versioning](https://semver.org/).
 - **DNStap PROXY/DIRECT** — списки, файлы и UI: `proxy.txt` / `direct.txt` (бывшие blocked/unblocked); community `community_DNSTAP_PROXY`
 - **DNStap Geodat** — URL `geosite.dat` (hydraponique по умолчанию) и кнопка Category: каждой категории PROXY или DIRECT; назначения в `geodat-categories/<sha1>.txt` на каждый URL; без признака категории не попадают в файлы; cron/Apply учитывают назначения
 - **Domains — Check domain route** — resolv домена, для каждого IP `birdcl show route for <ip> all`; таблица: domain, IP, BGP peer, Instance, интерфейс (`dev` или WAN), Active (`*` в BIRD; если Network not found — N/A / N/A / WAN / да)
-- **DNStap BGP 1.5.0** — третий класс **BLOCK**: `block.txt`, extra, URL, `bgp.block_communities` (`AS:888`); geosite Category PROXY/DIRECT/BLOCK; приоритет block > proxy > direct; установщик ставит os-dnstap-bgp **v1.5.0**
+- **DNStap BGP 1.5.x** — третий класс **BLOCK**: `block.txt`, extra, URL, `bgp.block_communities` (`AS:888`); geosite Category PROXY/DIRECT/BLOCK; приоритет block > proxy > direct; установщик ставит `os-dnstap-bgp-latest.pkg` с GitHub `releases/latest` (сейчас **v1.5.1**)
 - **DNStap domain files** — перед стартом создаются пустые `proxy.txt` / `direct.txt` (и extra/URL), если их нет
 - **DNStap URL cron** — каждый день в 04:15 скачиваются списки по URL и выполняется `service dnstap_bgp reload`
 - **DNStap ↔ Unbound** — при старте: `dnstap-enable: yes`, общий сокет (chroot `/var/run/dnstap-bgp/dnstap.sock` = хост `/var/unbound/var/run/dnstap-bgp/dnstap.sock`), `configctl unbound reload`, затем старт dnstap-bgp; при выключении: `dnstap-enable: no` и reload Unbound
@@ -53,7 +53,7 @@ Format: [Semantic Versioning](https://semver.org/).
 - DNStap IPv6 по умолчанию включён (`ipv6 = true`, BIRD peer ipv4+ipv6)
 - DNStap BIRD — community `community_DNSTAP_PROXY` (`AS:777`), фильтры `filter_dnstap_v4` / `filter_dnstap_v6` редистрибьют в ACTIVE_TUN4_IF / ACTIVE_TUN6_IF
 - Вкладка **Domains** — extra blocked/unblocked: одно поле, Add/Remove, лупа со списком; extra убраны с DNStap
-- `install.sh`: fallback-пакет os-dnstap-bgp — **v1.5.0**
+- `install.sh`: os-dnstap-bgp — `releases/latest/download/os-dnstap-bgp-latest.pkg`
 - Смена active TUN и Apply Routing — `birdc configure`, не `service bird restart`. Удалены birdstart/birdstop/birdrestart из actions/API
 - `birdsync` синхронизирует только «жив ли tun2socks», без выбора TUN и без SOCKS
 - Условный старт BIRD: один SOCKS-probe на семейство (не серия Auto route polls на Apply)
