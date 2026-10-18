@@ -723,8 +723,12 @@ function xray_gateways_ensure_instances(array $plan): bool
     return $changed;
 }
 
-/** Apply OPNsense routing after gateway XML changes. */
-function xray_gateways_apply_routing(): void
+/**
+ * Apply OPNsense routing after gateway XML changes.
+ *
+ * @param bool|null $forceWanKernel null = auto (WAN unless PROXY-first); true/false override
+ */
+function xray_gateways_apply_routing(?bool $forceWanKernel = null): void
 {
     echo "==> Applying OPNsense routing (configctl routes configure)...\n";
     $bin = '/usr/local/sbin/configctl';
@@ -733,7 +737,7 @@ function xray_gateways_apply_routing(): void
     }
     if (!is_executable($bin)) {
         echo "gateways: WARN configctl not found — routing not reloaded\n";
-        xray_gateways_ensure_kernel_default();
+        xray_gateways_ensure_kernel_default($forceWanKernel);
         return;
     }
     $out = [];
@@ -745,8 +749,8 @@ function xray_gateways_apply_routing(): void
         echo 'gateways: WARN routes configure rc=' . $rc
             . (count($out) ? (' ' . implode(' ', $out)) : '') . "\n";
     }
-    // UI (active) can disagree with netstat when gateway switching is off or TUN just vanished.
-    xray_gateways_ensure_kernel_default();
+    // Align netstat with strategy (do not steal TUN default under PROXY-first).
+    xray_gateways_ensure_kernel_default($forceWanKernel);
 }
 
 /**
@@ -819,54 +823,111 @@ function xray_gateways_mark_instance_gateways_offline(): bool
 }
 
 /**
- * Ensure kernel default route matches WAN upstream (not missing / not via TUN).
- * OPNsense UI "(active)" is calculated and can disagree with netstat.
+ * Peer IP for the current ACTIVE_TUN (instance GW), or ''.
  */
-function xray_gateways_ensure_kernel_default(): void
+function xray_gateways_active_tun_peer(bool $v6): string
 {
-    if (!function_exists('xray_wan_default_gateway4') || !function_exists('xray_route_default_info')) {
+    $fam = $v6 ? 'ipv6' : 'ipv4';
+    $tun = function_exists('xray_bird_active_tun_if')
+        ? trim((string)xray_bird_active_tun_if($fam))
+        : '';
+    if ($tun === '') {
+        return '';
+    }
+    $logical = xray_gateways_logical_if_for_device($tun);
+    if ($logical === '') {
+        return '';
+    }
+    $peer = xray_gateways_instance_peer($logical, $tun, $v6);
+    if ($peer !== '') {
+        return $peer;
+    }
+    try {
+        $parent = xray_gateways_parent(\OPNsense\Core\Config::getInstance()->object());
+        $item = xray_gateways_find_item($parent, $logical, $v6 ? 'inet6' : 'inet');
+        if ($item !== null) {
+            return explode('%', trim((string)($item->gateway ?? '')))[0];
+        }
+    } catch (\Throwable $e) {
+    }
+    return '';
+}
+
+/**
+ * Align kernel default with strategy.
+ * - PROXY-first (BLOCK→PROXY→DIRECT + BGP + Auto route): default via ACTIVE_TUN, never force WAN.
+ * - Otherwise / uninstall restore: WAN upstream (missing or still via TUN → WAN).
+ *
+ * @param bool|null $forceWan true = always prefer WAN; false = PROXY-first TUN; null = auto from plan
+ */
+function xray_gateways_ensure_kernel_default(?bool $forceWan = null): void
+{
+    if (!function_exists('xray_route_default_info')) {
         return;
     }
-    $wantDev4 = function_exists('xray_bird_wan4_dev') ? trim((string)xray_bird_wan4_dev()) : '';
-    $gw4 = trim((string)xray_wan_default_gateway4());
-    if ($gw4 !== '') {
-        $info = xray_route_default_info('inet');
-        $curGw = trim((string)($info['gw'] ?? ''));
-        $curIf = trim((string)($info['if'] ?? ''));
-        $viaTun = $curIf !== '' && function_exists('xray_is_instance_tun_device')
-            && xray_is_instance_tun_device($curIf);
-        $missing = ($curGw === '');
-        if ($missing || $viaTun) {
-            if (!$missing) {
-                exec('/sbin/route delete -inet default >/dev/null 2>&1');
-            }
-            $out = [];
-            $rc = 0;
-            exec('/sbin/route add -inet default ' . escapeshellarg($gw4) . ' 2>&1', $out, $rc);
-            if ($rc === 0) {
-                echo "[OK]  kernel default inet → {$gw4}"
-                    . ($wantDev4 !== '' ? " (WAN {$wantDev4})" : '') . "\n";
-            } else {
-                echo 'gateways: WARN route add default inet failed'
-                    . (count($out) ? (' ' . implode(' ', $out)) : '') . "\n";
-            }
-        } else {
-            echo "[OK]  kernel default inet already {$curGw} via {$curIf}\n";
-        }
-    } else {
-        echo "gateways: WARN no WAN IPv4 gateway — cannot install kernel default\n";
+    if ($forceWan === null) {
+        $forceWan = !xray_gateways_proxy_first_active();
     }
 
-    if (!xray_gateways_ipv6_enabled() || !function_exists('xray_wan_default_gateway6')) {
-        return;
+    $wantDev4 = function_exists('xray_bird_wan4_dev') ? trim((string)xray_bird_wan4_dev()) : '';
+    $info = xray_route_default_info('inet');
+    $curGw = trim((string)($info['gw'] ?? ''));
+    $curIf = trim((string)($info['if'] ?? ''));
+    $viaTun = $curIf !== '' && function_exists('xray_is_instance_tun_device')
+        && xray_is_instance_tun_device($curIf);
+    $missing = ($curGw === '');
+
+    if (!$forceWan) {
+        // PROXY-first: keep TUN default; if missing/WAN — install via ACTIVE_TUN peer.
+        if ($viaTun) {
+            echo "[OK]  kernel default inet via TUN {$curIf} (PROXY-first)\n";
+        } else {
+            $tunGw = xray_gateways_active_tun_peer(false);
+            if ($tunGw !== '') {
+                if (!$missing) {
+                    exec('/sbin/route delete -inet default >/dev/null 2>&1');
+                }
+                $out = [];
+                $rc = 0;
+                exec('/sbin/route add -inet default ' . escapeshellarg($tunGw) . ' 2>&1', $out, $rc);
+                if ($rc === 0) {
+                    echo "[OK]  kernel default inet → {$tunGw} (PROXY-first ACTIVE_TUN)\n";
+                } else {
+                    echo 'gateways: WARN PROXY-first route add inet failed'
+                        . (count($out) ? (' ' . implode(' ', $out)) : '') . "\n";
+                }
+            } else {
+                echo "gateways: PROXY-first — no ACTIVE_TUN peer yet, leave inet default as-is"
+                    . ($curGw !== '' ? " ({$curGw} via {$curIf})" : ' (none)') . "\n";
+            }
+        }
+    } elseif (function_exists('xray_wan_default_gateway4')) {
+        $gw4 = trim((string)xray_wan_default_gateway4());
+        if ($gw4 !== '') {
+            if ($missing || $viaTun) {
+                if (!$missing) {
+                    exec('/sbin/route delete -inet default >/dev/null 2>&1');
+                }
+                $out = [];
+                $rc = 0;
+                exec('/sbin/route add -inet default ' . escapeshellarg($gw4) . ' 2>&1', $out, $rc);
+                if ($rc === 0) {
+                    echo "[OK]  kernel default inet → {$gw4}"
+                        . ($wantDev4 !== '' ? " (WAN {$wantDev4})" : '') . "\n";
+                } else {
+                    echo 'gateways: WARN route add default inet failed'
+                        . (count($out) ? (' ' . implode(' ', $out)) : '') . "\n";
+                }
+            } else {
+                echo "[OK]  kernel default inet already {$curGw} via {$curIf}\n";
+            }
+        } else {
+            echo "gateways: WARN no WAN IPv4 gateway — cannot install kernel default\n";
+        }
     }
-    $gw6 = trim((string)xray_wan_default_gateway6());
-    if ($gw6 === '') {
+
+    if (!xray_gateways_ipv6_enabled()) {
         return;
-    }
-    $wantDev6 = function_exists('xray_bird_wan6_dev') ? trim((string)xray_bird_wan6_dev()) : '';
-    if ($wantDev6 === '') {
-        $wantDev6 = $wantDev4;
     }
     $info6 = xray_route_default_info('inet6');
     $curGw6 = trim((string)($info6['gw'] ?? ''));
@@ -874,12 +935,57 @@ function xray_gateways_ensure_kernel_default(): void
     $viaTun6 = $curIf6 !== '' && function_exists('xray_is_instance_tun_device')
         && xray_is_instance_tun_device($curIf6);
     $missing6 = ($curGw6 === '');
+    $wantDev6 = function_exists('xray_bird_wan6_dev') ? trim((string)xray_bird_wan6_dev()) : '';
+    if ($wantDev6 === '') {
+        $wantDev6 = $wantDev4;
+    }
+
+    if (!$forceWan) {
+        if ($viaTun6) {
+            echo "[OK]  kernel default inet6 via TUN {$curIf6} (PROXY-first)\n";
+            return;
+        }
+        $tunGw6 = xray_gateways_active_tun_peer(true);
+        if ($tunGw6 === '') {
+            echo "gateways: PROXY-first — no ACTIVE_TUN IPv6 peer yet, leave inet6 default as-is\n";
+            return;
+        }
+        $target = $tunGw6;
+        if (stripos($tunGw6, 'fe80:') === 0) {
+            $actTun = function_exists('xray_bird_active_tun_if')
+                ? trim((string)xray_bird_active_tun_if('ipv6'))
+                : '';
+            if ($actTun !== '') {
+                $target = $tunGw6 . '%' . $actTun;
+            }
+        }
+        if (!$missing6) {
+            exec('/sbin/route delete -inet6 default >/dev/null 2>&1');
+        }
+        $out = [];
+        $rc = 0;
+        exec('/sbin/route add -inet6 default ' . escapeshellarg($target) . ' 2>&1', $out, $rc);
+        if ($rc === 0) {
+            echo "[OK]  kernel default inet6 → {$target} (PROXY-first ACTIVE_TUN)\n";
+        } else {
+            echo 'gateways: WARN PROXY-first route add inet6 failed'
+                . (count($out) ? (' ' . implode(' ', $out)) : '') . "\n";
+        }
+        return;
+    }
+
+    if (!function_exists('xray_wan_default_gateway6')) {
+        return;
+    }
+    $gw6 = trim((string)xray_wan_default_gateway6());
+    if ($gw6 === '') {
+        return;
+    }
     if ($missing6 || $viaTun6) {
         if (!$missing6) {
             exec('/sbin/route delete -inet6 default >/dev/null 2>&1');
         }
         $target = $gw6;
-        // Link-local needs scope
         if (stripos($gw6, 'fe80:') === 0 && $wantDev6 !== '') {
             $target = $gw6 . '%' . $wantDev6;
         }
@@ -1250,7 +1356,8 @@ function xray_gateways_restore_wan_default(bool $applyRouting = true, bool $offl
         $changed = true;
     }
     if ($applyRouting) {
-        xray_gateways_apply_routing();
+        // Uninstall / leave PROXY-first: always put WAN back in the kernel table.
+        xray_gateways_apply_routing(true);
     }
     return $changed;
 }
