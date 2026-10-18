@@ -733,6 +733,7 @@ function xray_gateways_apply_routing(): void
     }
     if (!is_executable($bin)) {
         echo "gateways: WARN configctl not found — routing not reloaded\n";
+        xray_gateways_ensure_kernel_default();
         return;
     }
     $out = [];
@@ -743,6 +744,154 @@ function xray_gateways_apply_routing(): void
     } else {
         echo 'gateways: WARN routes configure rc=' . $rc
             . (count($out) ? (' ' . implode(' ', $out)) : '') . "\n";
+    }
+    // UI (active) can disagree with netstat when gateway switching is off or TUN just vanished.
+    xray_gateways_ensure_kernel_default();
+}
+
+/**
+ * Mark instance TUN gateways offline so they cannot remain the calculated default
+ * after TUN is destroyed (uninstall / leave PROXY-first cleanup).
+ *
+ * @return bool true if config.xml changed
+ */
+function xray_gateways_mark_instance_gateways_offline(): bool
+{
+    $changed = false;
+    try {
+        $cnf = \OPNsense\Core\Config::getInstance();
+        $obj = $cnf->object();
+        $ins = $obj->OPNsense->xray->instances ?? null;
+        if ($ins === null || !isset($ins->instance)) {
+            return false;
+        }
+        $parent = xray_gateways_parent($obj);
+        if ($parent === null || !isset($parent->gateway_item)) {
+            return false;
+        }
+        $logicals = [];
+        foreach ($ins->instance as $inst) {
+            $tun = trim((string)($inst->tun_interface ?? ''));
+            if ($tun === '') {
+                continue;
+            }
+            $logical = xray_gateways_logical_if_for_device($tun);
+            if ($logical !== '') {
+                $logicals[strtolower($logical)] = $logical;
+            }
+        }
+        if ($logicals === []) {
+            return false;
+        }
+        foreach ($parent->gateway_item as $item) {
+            $iface = strtolower(trim((string)($item->interface ?? '')));
+            if ($iface === '' || !isset($logicals[$iface])) {
+                continue;
+            }
+            $set = static function ($node, string $key, string $val) use (&$changed): void {
+                if ((string)($node->{$key} ?? '') === $val) {
+                    return;
+                }
+                if (!isset($node->{$key})) {
+                    $node->addChild($key, $val);
+                } else {
+                    $node->{$key} = $val;
+                }
+                $changed = true;
+            };
+            $before = $changed;
+            $set($item, 'defaultgw', '0');
+            $set($item, 'force_down', '1');
+            $set($item, 'priority', '255');
+            if ($changed !== $before) {
+                $name = trim((string)($item->name ?? $iface));
+                echo "gateways: offline instance GW {$name} (defaultgw=0 force_down=1)\n";
+            }
+        }
+        if ($changed) {
+            $cnf->save();
+        }
+    } catch (\Throwable $e) {
+        echo 'gateways: mark offline ERROR ' . $e->getMessage() . "\n";
+        return false;
+    }
+    return $changed;
+}
+
+/**
+ * Ensure kernel default route matches WAN upstream (not missing / not via TUN).
+ * OPNsense UI "(active)" is calculated and can disagree with netstat.
+ */
+function xray_gateways_ensure_kernel_default(): void
+{
+    if (!function_exists('xray_wan_default_gateway4') || !function_exists('xray_route_default_info')) {
+        return;
+    }
+    $wantDev4 = function_exists('xray_bird_wan4_dev') ? trim((string)xray_bird_wan4_dev()) : '';
+    $gw4 = trim((string)xray_wan_default_gateway4());
+    if ($gw4 !== '') {
+        $info = xray_route_default_info('inet');
+        $curGw = trim((string)($info['gw'] ?? ''));
+        $curIf = trim((string)($info['if'] ?? ''));
+        $viaTun = $curIf !== '' && function_exists('xray_is_instance_tun_device')
+            && xray_is_instance_tun_device($curIf);
+        $missing = ($curGw === '');
+        if ($missing || $viaTun) {
+            if (!$missing) {
+                exec('/sbin/route delete -inet default >/dev/null 2>&1');
+            }
+            $out = [];
+            $rc = 0;
+            exec('/sbin/route add -inet default ' . escapeshellarg($gw4) . ' 2>&1', $out, $rc);
+            if ($rc === 0) {
+                echo "[OK]  kernel default inet → {$gw4}"
+                    . ($wantDev4 !== '' ? " (WAN {$wantDev4})" : '') . "\n";
+            } else {
+                echo 'gateways: WARN route add default inet failed'
+                    . (count($out) ? (' ' . implode(' ', $out)) : '') . "\n";
+            }
+        } else {
+            echo "[OK]  kernel default inet already {$curGw} via {$curIf}\n";
+        }
+    } else {
+        echo "gateways: WARN no WAN IPv4 gateway — cannot install kernel default\n";
+    }
+
+    if (!xray_gateways_ipv6_enabled() || !function_exists('xray_wan_default_gateway6')) {
+        return;
+    }
+    $gw6 = trim((string)xray_wan_default_gateway6());
+    if ($gw6 === '') {
+        return;
+    }
+    $wantDev6 = function_exists('xray_bird_wan6_dev') ? trim((string)xray_bird_wan6_dev()) : '';
+    if ($wantDev6 === '') {
+        $wantDev6 = $wantDev4;
+    }
+    $info6 = xray_route_default_info('inet6');
+    $curGw6 = trim((string)($info6['gw'] ?? ''));
+    $curIf6 = trim((string)($info6['if'] ?? ''));
+    $viaTun6 = $curIf6 !== '' && function_exists('xray_is_instance_tun_device')
+        && xray_is_instance_tun_device($curIf6);
+    $missing6 = ($curGw6 === '');
+    if ($missing6 || $viaTun6) {
+        if (!$missing6) {
+            exec('/sbin/route delete -inet6 default >/dev/null 2>&1');
+        }
+        $target = $gw6;
+        // Link-local needs scope
+        if (stripos($gw6, 'fe80:') === 0 && $wantDev6 !== '') {
+            $target = $gw6 . '%' . $wantDev6;
+        }
+        $out = [];
+        $rc = 0;
+        exec('/sbin/route add -inet6 default ' . escapeshellarg($target) . ' 2>&1', $out, $rc);
+        if ($rc === 0) {
+            echo "[OK]  kernel default inet6 → {$target}\n";
+        } else {
+            echo 'gateways: WARN route add default inet6 failed'
+                . (count($out) ? (' ' . implode(' ', $out)) : '') . "\n";
+        }
     }
 }
 
@@ -1073,11 +1222,15 @@ function xray_gateways_ensure_all(): void
  * Force WAN Upstream back (defaultgw=1, priority=100) and clear instance Upstream.
  * Used on uninstall and when leaving PROXY-first mode.
  *
+ * @param bool $applyRouting run configctl routes configure + kernel default check
+ * @param bool $offlineInstances force_down instance GWs (uninstall: TUN will vanish)
  * @return bool true if config.xml changed
  */
-function xray_gateways_restore_wan_default(bool $applyRouting = true): bool
+function xray_gateways_restore_wan_default(bool $applyRouting = true, bool $offlineInstances = false): bool
 {
-    echo "==> Restoring WAN Upstream (defaultgw=1, priority=100); clear instance Upstream...\n";
+    echo "==> Restoring WAN Upstream (defaultgw=1, priority=100); clear instance Upstream"
+        . ($offlineInstances ? '; mark instance GWs force_down' : '')
+        . "...\n";
     $changed = false;
     if (xray_gateways_ensure_wan(100, true)) {
         $changed = true;
@@ -1091,6 +1244,9 @@ function xray_gateways_restore_wan_default(bool $applyRouting = true): bool
         'wan_defaultgw' => true,
     ];
     if (xray_gateways_ensure_instances($plan)) {
+        $changed = true;
+    }
+    if ($offlineInstances && xray_gateways_mark_instance_gateways_offline()) {
         $changed = true;
     }
     if ($applyRouting) {
@@ -1226,9 +1382,11 @@ if (PHP_SAPI === 'cli' && isset($argv[0]) && @realpath($argv[0]) === @realpath(_
     } elseif ($cmd === 'ensure') {
         xray_gateways_ensure_all();
     } elseif ($cmd === 'restore-wan') {
-        xray_gateways_restore_wan_default(true);
+        xray_gateways_restore_wan_default(true, false);
+    } elseif ($cmd === 'restore-wan-uninstall') {
+        xray_gateways_restore_wan_default(true, true);
     } else {
-        echo "Usage: xray-gateways.php [repair|ensure|restore-wan]\n";
+        echo "Usage: xray-gateways.php [repair|ensure|restore-wan|restore-wan-uninstall]\n";
         exit(1);
     }
 }

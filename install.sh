@@ -860,18 +860,18 @@ xray_stop_plugin_services() {
     service bird onestop >/dev/null 2>&1 || true
 }
 
-# Before removing plugin scripts: put WAN back as Upstream default gateway.
+# Put WAN back as Upstream and ensure kernel default exists (UI active ≠ netstat).
 xray_restore_wan_defaultgw() {
     local script="/usr/local/opnsense/scripts/Xray/xray-gateways.php"
     if [ ! -f "$script" ]; then
         echo "[INFO] gateways script missing — skip WAN defaultgw restore"
         return 0
     fi
-    echo "==> Restoring WAN Upstream (defaultgw) before uninstall..."
+    echo "==> Restoring WAN Upstream (defaultgw) + kernel default route..."
     if command -v php >/dev/null 2>&1; then
-        php "$script" restore-wan 2>&1 || warn "WAN defaultgw restore failed"
+        php "$script" restore-wan-uninstall 2>&1 || warn "WAN defaultgw restore failed"
     elif [ -x /usr/local/bin/php ]; then
-        /usr/local/bin/php "$script" restore-wan 2>&1 || warn "WAN defaultgw restore failed"
+        /usr/local/bin/php "$script" restore-wan-uninstall 2>&1 || warn "WAN defaultgw restore failed"
     else
         warn "php not found — skip WAN defaultgw restore"
     fi
@@ -1016,6 +1016,9 @@ xray_fulluninstall_all() {
 }
 
 if [ "${1:-}" = "uninstall" ]; then
+    # WAN Upstream + kernel default BEFORE stop (TUN may still hold default),
+    # then again AFTER stop so netstat matches UI once TUN is gone.
+    xray_restore_wan_defaultgw
     xray_stop_plugin_services
     xray_restore_wan_defaultgw
     xray_uninstall_runtime_files
@@ -1052,6 +1055,7 @@ if [ "${1:-}" = "uninstall" ]; then
 fi
 
 if [ "${1:-}" = "fulluninstall" ]; then
+    xray_restore_wan_defaultgw
     xray_stop_plugin_services
     xray_restore_wan_defaultgw
     xray_uninstall_runtime_files
