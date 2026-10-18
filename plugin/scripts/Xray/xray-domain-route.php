@@ -75,6 +75,20 @@ function xray_domain_route_general_if(string $key, string $default): string
     return $default;
 }
 
+function xray_domain_route_active_tun(bool $v6): string
+{
+    $file = '/usr/local/etc/bird/' . ($v6 ? 'active_tun_v6.inc' : 'active_tun_v4.inc');
+    $sym  = $v6 ? 'ACTIVE_TUN6_IF' : 'ACTIVE_TUN4_IF';
+    if (!is_readable($file)) {
+        return '';
+    }
+    $text = (string)file_get_contents($file);
+    if (preg_match('/define\s+' . preg_quote($sym, '/') . '\s*=\s*"([^"]+)"/', $text, $m)) {
+        return trim($m[1]);
+    }
+    return '';
+}
+
 function xray_domain_route_if_label(string $dev, string $ip): string
 {
     $v6    = xray_domain_route_is_ip6($ip);
@@ -91,6 +105,40 @@ function xray_domain_route_if_label(string $dev, string $ip): string
         return $v6 ? 'WAN6' : 'WAN4';
     }
     return $dev;
+}
+
+/**
+ * Extract iface from a BIRD route line: "dev IF", "via IP on IF", 'on "IF"'.
+ */
+function xray_domain_route_extract_dev(string $line): string
+{
+    if (preg_match('/\bdev\s+"?([A-Za-z][A-Za-z0-9._-]*)"?/', $line, $m)) {
+        return $m[1];
+    }
+    if (preg_match('/\bon\s+"?([A-Za-z][A-Za-z0-9._-]*)"?/', $line, $m)) {
+        return $m[1];
+    }
+    if (preg_match('/^\s*Interface:\s+"?([A-Za-z][A-Za-z0-9._-]*)"?/i', $line, $m)) {
+        return $m[1];
+    }
+    return '';
+}
+
+/**
+ * DNStap community class from BGP.community lines: 777=proxy, 555=direct, 888=block.
+ */
+function xray_domain_route_dnstap_class(string $text): string
+{
+    if (preg_match('/\b(\d+)\s*[,:]\s*888\b/', $text) || preg_match('/\(\s*\d+\s*,\s*888\s*\)/', $text)) {
+        return 'block';
+    }
+    if (preg_match('/\b(\d+)\s*[,:]\s*777\b/', $text) || preg_match('/\(\s*\d+\s*,\s*777\s*\)/', $text)) {
+        return 'proxy';
+    }
+    if (preg_match('/\b(\d+)\s*[,:]\s*555\b/', $text) || preg_match('/\(\s*\d+\s*,\s*555\s*\)/', $text)) {
+        return 'direct';
+    }
+    return '';
 }
 
 function xray_domain_route_is_host(string $s): bool
@@ -181,7 +229,7 @@ function xray_domain_route_line_active(string $line): bool
 }
 
 /**
- * Разбор `show route for <ip> all`: протокол в [name …], устройство в dev, * = active.
+ * Разбор `show route for <ip> all`: протокол в [name …], iface (dev / via…on), * = active.
  */
 function xray_domain_route_parse(string $text, string $ip): array
 {
@@ -196,26 +244,43 @@ function xray_domain_route_parse(string $text, string $ip): array
     foreach (preg_split("/\r\n|\n|\r/", $text) as $line) {
         if (preg_match('/^([0-9a-fA-F:.]+\/\d+)\s+(unicast|blackhole)\s+\[(\S+)/', $line, $m)) {
             $flush();
+            $dev = ($m[2] === 'blackhole') ? 'blackhole' : xray_domain_route_extract_dev($line);
             $cur = [
-                'prefix' => $m[1],
-                'peer'   => $m[3],
-                'dev'    => ($m[2] === 'blackhole') ? 'blackhole' : '',
-                'active' => xray_domain_route_line_active($line),
+                'prefix'    => $m[1],
+                'peer'      => $m[3],
+                'dev'       => $dev,
+                'active'    => xray_domain_route_line_active($line),
+                'community' => '',
             ];
             continue;
         }
         if (preg_match('/^\s+(unicast|blackhole)\s+\[(\S+)/', $line, $m)) {
             $flush();
+            $dev = ($m[1] === 'blackhole') ? 'blackhole' : xray_domain_route_extract_dev($line);
             $cur = [
-                'prefix' => $ip,
-                'peer'   => $m[2],
-                'dev'    => ($m[1] === 'blackhole') ? 'blackhole' : '',
-                'active' => xray_domain_route_line_active($line),
+                'prefix'    => $ip,
+                'peer'      => $m[2],
+                'dev'       => $dev,
+                'active'    => xray_domain_route_line_active($line),
+                'community' => '',
             ];
             continue;
         }
-        if ($cur !== null && preg_match('/^\s+dev\s+(\S+)/', $line, $m)) {
-            $cur['dev'] = $m[1];
+        if ($cur === null) {
+            continue;
+        }
+        $dev = xray_domain_route_extract_dev($line);
+        if ($dev !== '') {
+            if ($cur['dev'] === '' || $cur['dev'] === 'blackhole') {
+                $cur['dev'] = $dev;
+            } elseif (preg_match('/^\s+dev\s+/', $line)) {
+                // Prefer explicit "dev IF" over earlier "via … on IF"
+                $cur['dev'] = $dev;
+            }
+        }
+        if (preg_match('/BGP\.community|community:/i', $line)
+            || preg_match('/\(\s*\d+\s*,\s*\d+\s*\)/', $line)) {
+            $cur['community'] .= ' ' . $line;
         }
     }
     $flush();
@@ -270,12 +335,37 @@ foreach ($ips as $ip) {
     }
     foreach ($paths as $p) {
         $dev = trim((string)($p['dev'] ?? ''));
-        $iface = $dev !== '' ? xray_domain_route_if_label($dev, $ip) : (xray_domain_route_is_ip6($ip) ? 'WAN6' : 'WAN4');
+        $peer = trim((string)($p['peer'] ?? ''));
+        $v6 = xray_domain_route_is_ip6($ip);
+        $dnstapClass = xray_domain_route_dnstap_class((string)($p['community'] ?? ''));
+        // Empty iface used to fall back to WAN — wrong for dnstap PROXY (AS:777 → ACTIVE_TUN).
+        if ($dev === '' && strcasecmp($peer, 'dnstap') === 0) {
+            if ($dnstapClass === 'block') {
+                $dev = 'blackhole';
+            } elseif ($dnstapClass === 'direct') {
+                $dev = $v6
+                    ? xray_domain_route_general_if('bgp_if_wan6', '')
+                    : xray_domain_route_general_if('bgp_if_wan4', '');
+            } elseif ($dnstapClass === 'proxy' || $dnstapClass === '') {
+                // PROXY (777) or unknown dnstap community → active proxy TUN
+                $dev = xray_domain_route_active_tun($v6);
+            }
+        }
+        $iface = $dev !== ''
+            ? xray_domain_route_if_label($dev, $ip)
+            : ($v6 ? 'WAN6' : 'WAN4');
+        // If BIRD still shows WAN for a PROXY community route, prefer ACTIVE_TUN label.
+        if ($dnstapClass === 'proxy' && ($iface === 'WAN4' || $iface === 'WAN6')) {
+            $tun = xray_domain_route_active_tun($v6);
+            if ($tun !== '') {
+                $dev = $tun;
+                $iface = xray_domain_route_if_label($tun, $ip);
+            }
+        }
         $inst = 'N/A';
         if ($dev !== '' && isset($tunMap[$dev])) {
             $inst = $tunMap[$dev];
         }
-        $peer = trim((string)($p['peer'] ?? ''));
         $rows[] = [
             'domain'   => $domainLabel,
             'ip'       => $ip,
