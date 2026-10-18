@@ -587,8 +587,16 @@ function xray_gateways_ensure_instances(array $plan): bool
             $base = xray_gateways_sanitize_name($name !== '' ? $name : $logical, 'INST');
 
             // Instance GWs: fargw always; defaultgw only for BLOCK→PROXY→DIRECT.
+            // If peer cannot be derived from if/config (common for IPv6 ≠ /126|/127),
+            // fall back to the gateway IP already stored on an existing gateway_item —
+            // otherwise strategy changes never sync defaultgw on that family.
+            $parent = xray_gateways_parent(\OPNsense\Core\Config::getInstance()->object());
             if ($use4) {
+                $existing4 = xray_gateways_find_item($parent, $logical, 'inet');
                 $peer4 = xray_gateways_instance_peer($logical, $tun, false);
+                if ($peer4 === '' && $existing4 !== null) {
+                    $peer4 = explode('%', trim((string)($existing4->gateway ?? '')))[0];
+                }
                 if ($peer4 !== '') {
                     $prio4 = ($prefer && $active4 !== '' && strcasecmp($tun, $active4) === 0)
                         ? 100
@@ -603,14 +611,27 @@ function xray_gateways_ensure_instances(array $plan): bool
                         $prio4
                     )) {
                         $changed = true;
+                        $parent = xray_gateways_parent(\OPNsense\Core\Config::getInstance()->object());
                     }
                 } else {
                     echo "gateways: skip {$base} IPv4 — no peer IP (set Static /30 on {$logical})\n";
                 }
             }
-            if ($use6 && $ipv6On) {
+            if ($use6) {
+                $existing6 = xray_gateways_find_item($parent, $logical, 'inet6');
                 $peer6 = xray_gateways_instance_peer($logical, $tun, true);
-                if ($peer6 !== '') {
+                if ($peer6 === '' && $existing6 !== null) {
+                    $peer6 = explode('%', trim((string)($existing6->gateway ?? '')))[0];
+                }
+                if ($peer6 === '') {
+                    if ($ipv6On || $existing6 !== null) {
+                        echo "gateways: skip {$base} IPv6 — no peer IP on {$logical}\n";
+                    } elseif (!$ipv6On) {
+                        echo "gateways: skip {$base} IPv6 — General WAN6 not set\n";
+                    }
+                } elseif ($existing6 === null && !$ipv6On) {
+                    echo "gateways: skip {$base} IPv6 — General WAN6 not set\n";
+                } else {
                     $prio6 = ($prefer && $active6 !== '' && strcasecmp($tun, $active6) === 0)
                         ? 100
                         : $instPrio;
@@ -625,11 +646,7 @@ function xray_gateways_ensure_instances(array $plan): bool
                     )) {
                         $changed = true;
                     }
-                } else {
-                    echo "gateways: skip {$base} IPv6 — no peer IP on {$logical}\n";
                 }
-            } elseif ($use6 && !$ipv6On) {
-                echo "gateways: skip {$base} IPv6 — General WAN6 not set\n";
             }
         }
     } catch (\Throwable $e) {
