@@ -7,6 +7,9 @@ Format: [Semantic Versioning](https://semver.org/).
 
 ## [3.1.0] - TBD
 ### Fixed
+- Domain check — колонки Class/List (community vs proxy/direct/block.txt); подсказка при CDN/stale DIRECT vs List PROXY
+- DNStap summarize — subdomain из DIRECT/URL не остаётся, если родитель уже в PROXY/BLOCK (Extra PROXY `xboxservices.com` перекрывает `fern.xboxservices.com` из DIRECT)
+- `filter_dnstap_v*` — seed блоков PROXY→ACTIVE_TUN, DIRECT→WAN, BLOCK→Null
 - tun2socks v2 — старт с `--config` (pflag: `-config` читается как `-c onfig` и падает `open onfig`)
 - BIRD filter dnstap — `print` net и `bgp_community` входящего маршрута в лог (bird2: `echo` — syntax error)
 - full help на всех вкладках справа, как на General

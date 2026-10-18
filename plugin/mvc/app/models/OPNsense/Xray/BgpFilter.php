@@ -157,12 +157,20 @@ class BgpFilter extends BaseModel
     public function ensureDnstapFilters(): void
     {
         $commMdl = new BgpCommunity();
-        $commUuid = $commMdl->ensureDnstapBlockedCommunity();
-        $commMdl->ensureDnstapDirectCommunity();
-        $commMdl->ensureDnstapBlockCommunity();
+        $proxyUuid = $commMdl->ensureDnstapBlockedCommunity();
+        $directUuid = $commMdl->ensureDnstapDirectCommunity();
+        $blockUuid = $commMdl->ensureDnstapBlockCommunity();
         $want = [
-            'filter_dnstap_v4' => ['family' => 'ipv4', 'tun_if' => 'ACTIVE_TUN4_IF'],
-            'filter_dnstap_v6' => ['family' => 'ipv6', 'tun_if' => 'ACTIVE_TUN6_IF'],
+            'filter_dnstap_v4' => [
+                'family' => 'ipv4',
+                'tun_if' => 'ACTIVE_TUN4_IF',
+                'wan_if' => 'WAN4',
+            ],
+            'filter_dnstap_v6' => [
+                'family' => 'ipv6',
+                'tun_if' => 'ACTIVE_TUN6_IF',
+                'wan_if' => 'WAN6',
+            ],
         ];
         $have = [];
         $changed = false;
@@ -177,12 +185,62 @@ class BgpFilter extends BaseModel
                     $item->enabled = '1';
                     $changed = true;
                 }
-                if ($commUuid !== '' && (string)$item->community !== $commUuid) {
-                    $item->community = $commUuid;
+                if ($proxyUuid !== '' && (string)$item->community !== $proxyUuid) {
+                    $item->community = $proxyUuid;
                     $changed = true;
                 }
                 if ((string)$item->family !== $want[$n]['family']) {
                     $item->family = $want[$n]['family'];
+                    $changed = true;
+                }
+                // Seed PROXY→TUN, DIRECT→WAN, BLOCK→Null when DIRECT/BLOCK blocks are missing.
+                $blocks = self::parseBlocks($item);
+                $ids = [];
+                foreach ($blocks as $b) {
+                    $c = trim((string)($b['community'] ?? ''));
+                    if ($c !== '') {
+                        $ids[$c] = true;
+                    }
+                }
+                $needDirect = $directUuid !== '' && !isset($ids[$directUuid]);
+                $needBlock = $blockUuid !== '' && !isset($ids[$blockUuid]);
+                if ($needDirect || $needBlock) {
+                    $proxyTun = trim((string)($item->tun_if ?? '')) !== ''
+                        ? (string)$item->tun_if
+                        : $want[$n]['tun_if'];
+                    $full = [
+                        [
+                            'community' => $proxyUuid !== '' ? $proxyUuid : 'community_DNSTAP_PROXY',
+                            'tun_if'    => $proxyTun,
+                        ],
+                    ];
+                    foreach ($blocks as $b) {
+                        $c = trim((string)($b['community'] ?? ''));
+                        if ($c === '' || $c === $proxyUuid) {
+                            continue;
+                        }
+                        if ($c === $directUuid || $c === $blockUuid) {
+                            continue;
+                        }
+                        $full[] = [
+                            'community' => $c,
+                            'tun_if'    => (string)($b['tun_if'] ?? $proxyTun),
+                        ];
+                    }
+                    if ($directUuid !== '') {
+                        $full[] = [
+                            'community' => $directUuid,
+                            'tun_if'    => $want[$n]['wan_if'],
+                        ];
+                    }
+                    if ($blockUuid !== '') {
+                        $full[] = [
+                            'community' => $blockUuid,
+                            'tun_if'    => 'Null',
+                        ];
+                    }
+                    $item->blocks = json_encode($full);
+                    $item->tun_if = $proxyTun;
                     $changed = true;
                 }
             }
@@ -197,12 +255,31 @@ class BgpFilter extends BaseModel
             $uuid = $this->filter->add();
             $node = $this->filter->{$uuid};
             if ($node !== null && method_exists($node, 'setNodes')) {
+                $blocks = [
+                    [
+                        'community' => $proxyUuid !== '' ? $proxyUuid : 'community_DNSTAP_PROXY',
+                        'tun_if'    => $meta['tun_if'],
+                    ],
+                ];
+                if ($directUuid !== '') {
+                    $blocks[] = [
+                        'community' => $directUuid,
+                        'tun_if'    => $meta['wan_if'],
+                    ];
+                }
+                if ($blockUuid !== '') {
+                    $blocks[] = [
+                        'community' => $blockUuid,
+                        'tun_if'    => 'Null',
+                    ];
+                }
                 $node->setNodes([
                     'enabled'   => '1',
                     'name'      => $name,
-                    'community' => $commUuid !== '' ? $commUuid : 'community_DNSTAP_PROXY',
+                    'community' => $proxyUuid !== '' ? $proxyUuid : 'community_DNSTAP_PROXY',
                     'family'    => $meta['family'],
                     'tun_if'    => $meta['tun_if'],
+                    'blocks'    => json_encode($blocks),
                 ]);
                 $changed = true;
             }

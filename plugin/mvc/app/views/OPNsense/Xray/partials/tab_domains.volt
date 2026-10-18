@@ -64,7 +64,7 @@
                     </tbody>
                 </table>
                 <div class="hidden" data-for="help_for_domains_check" style="padding: 8px 0 0;">
-                    <small class="text-muted">{{ lang._('Enter a domain or an IPv4/IPv6 address. Domains are resolved; for each IP birdcl show route for IP all is run. For a direct IP the Domain column stays empty. Active is the BIRD * route. If Network not found: peer N/A, instance N/A, interface WAN4/WAN6, Active yes.') }}</small>
+                    <small class="text-muted">{{ lang._('Enter a domain or an IPv4/IPv6 address. Domains are resolved; for each IP birdcl show route for IP all is run. Class is the dnstap BGP community (PROXY=777→TUN, DIRECT=555→WAN, BLOCK=888→Null). List is the class from proxy/direct/block.txt. Active is the BIRD * route. If Network not found: peer N/A, instance N/A, interface WAN4/WAN6, Active yes.') }}</small>
                 </div>
                 <table class="table table-condensed table-hover table-striped" id="domainsCheckTable" style="display: none; margin-top: 8px;">
                     <thead>
@@ -72,6 +72,8 @@
                             <th>{{ lang._('Domain') }}</th>
                             <th>{{ lang._('IP address') }}</th>
                             <th>{{ lang._('BGP peer') }}</th>
+                            <th>{{ lang._('Class') }}</th>
+                            <th>{{ lang._('List') }}</th>
                             <th>{{ lang._('Instance') }}</th>
                             <th>{{ lang._('Interface') }}</th>
                             <th>{{ lang._('Active') }}</th>

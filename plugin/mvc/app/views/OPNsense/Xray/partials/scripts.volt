@@ -1841,6 +1841,8 @@
                     '<tr><td>' + escAttr(r.domain || '') + '</td>'
                     + '<td>' + escAttr(r.ip || '') + '</td>'
                     + '<td>' + escAttr(r.peer || 'N/A') + '</td>'
+                    + '<td>' + escAttr(r.class || '') + '</td>'
+                    + '<td>' + escAttr(r.list_class || '') + '</td>'
                     + '<td>' + escAttr(r.instance || 'N/A') + '</td>'
                     + '<td>' + escAttr(r.dev || 'WAN4') + '</td>'
                     + '<td>' + (r.active ? '{{ lang._("yes") }}' : '{{ lang._("no") }}') + '</td></tr>'
@@ -1866,7 +1868,11 @@
                 domainsRenderRouteRows(rows);
                 if (rows.length) {
                     $tbl.show();
-                    $msg.hide();
+                    if (data && data.hint) {
+                        $msg.text(data.hint).show();
+                    } else {
+                        $msg.hide();
+                    }
                 } else {
                     $tbl.hide();
                     $msg.text((data && data.message) ? data.message : '{{ lang._("No routes") }}').show();

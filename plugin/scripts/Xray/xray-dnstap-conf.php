@@ -771,12 +771,37 @@ function xray_dnstap_read_first(array $paths): string
     return '';
 }
 
+/**
+ * True if $domain equals or is a subdomain of any name in $higherSet (block/proxy parents).
+ */
+function xray_dnstap_covered_by(string $domain, array $higherSet): bool
+{
+    if ($domain === '' || $higherSet === []) {
+        return false;
+    }
+    if (isset($higherSet[$domain])) {
+        return true;
+    }
+    foreach ($higherSet as $parent => $_) {
+        $parent = (string)$parent;
+        if ($parent === '') {
+            continue;
+        }
+        $suffix = '.' . $parent;
+        $len = strlen($suffix);
+        if (strlen($domain) > $len && substr($domain, -$len) === $suffix) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function xray_dnstap_merge_domains(array $extraRows, array $urlRows, string $kind = 'proxy', array $exclude = [], array $more = []): array
 {
     $set = [];
     foreach ($extraRows as $row) {
         $d = xray_dnstap_normalize_domain((string)($row['value'] ?? ''));
-        if ($d !== '' && !isset($exclude[$d])) {
+        if ($d !== '' && !xray_dnstap_covered_by($d, $exclude)) {
             $set[$d] = true;
         }
     }
@@ -789,14 +814,14 @@ function xray_dnstap_merge_domains(array $extraRows, array $urlRows, string $kin
             continue;
         }
         foreach (xray_dnstap_parse_domain_text($body) as $d => $_) {
-            if (!isset($exclude[$d])) {
+            if (!xray_dnstap_covered_by($d, $exclude)) {
                 $set[$d] = true;
             }
         }
     }
     foreach ($more as $raw) {
         $d = xray_dnstap_normalize_domain((string)$raw);
-        if ($d !== '' && !isset($exclude[$d])) {
+        if ($d !== '' && !xray_dnstap_covered_by($d, $exclude)) {
             $set[$d] = true;
         }
     }

@@ -141,6 +141,57 @@ function xray_domain_route_dnstap_class(string $text): string
     return '';
 }
 
+function xray_domain_route_class_rank(string $class): int
+{
+    switch (strtolower($class)) {
+        case 'block':
+            return 3;
+        case 'proxy':
+            return 2;
+        case 'direct':
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+/**
+ * Class from summarized dnstap domain lists (block > proxy > direct, parent match).
+ */
+function xray_domain_route_list_class(string $host): string
+{
+    if ($host === '' || xray_domain_route_is_ip($host)) {
+        return '';
+    }
+    $host = strtolower(rtrim($host, '.'));
+    $files = [
+        'block'  => '/usr/local/etc/dnstap-bgp/block.txt',
+        'proxy'  => '/usr/local/etc/dnstap-bgp/proxy.txt',
+        'direct' => '/usr/local/etc/dnstap-bgp/direct.txt',
+    ];
+    foreach ($files as $class => $path) {
+        if (!is_readable($path)) {
+            continue;
+        }
+        $fh = fopen($path, 'r');
+        if ($fh === false) {
+            continue;
+        }
+        while (($line = fgets($fh)) !== false) {
+            $d = strtolower(trim($line));
+            if ($d === '' || $d[0] === '#') {
+                continue;
+            }
+            if ($host === $d || (strlen($host) > strlen($d) + 1 && substr($host, -(strlen($d) + 1)) === '.' . $d)) {
+                fclose($fh);
+                return $class;
+            }
+        }
+        fclose($fh);
+    }
+    return '';
+}
+
 function xray_domain_route_is_host(string $s): bool
 {
     if ($s === '' || strlen($s) > 253) {
@@ -318,18 +369,22 @@ if ($birdcl === '') {
 }
 
 $tunMap = xray_domain_route_tun_map();
+$listClass = $isIp ? '' : xray_domain_route_list_class($query);
 $rows = [];
+$hint = '';
 foreach ($ips as $ip) {
     $text = xray_domain_route_query($birdcl, $ip);
     $paths = xray_domain_route_parse($text, $ip);
     if ($paths === [] || xray_domain_route_not_found($text)) {
         $rows[] = [
-            'domain'   => $domainLabel,
-            'ip'       => $ip,
-            'peer'     => 'N/A',
-            'instance' => 'N/A',
-            'dev'      => xray_domain_route_is_ip6($ip) ? 'WAN6' : 'WAN4',
-            'active'   => true,
+            'domain'     => $domainLabel,
+            'ip'         => $ip,
+            'peer'       => 'N/A',
+            'instance'   => 'N/A',
+            'dev'        => xray_domain_route_is_ip6($ip) ? 'WAN6' : 'WAN4',
+            'active'     => true,
+            'class'      => '',
+            'list_class' => $listClass,
         ];
         continue;
     }
@@ -366,20 +421,32 @@ foreach ($ips as $ip) {
         if ($dev !== '' && isset($tunMap[$dev])) {
             $inst = $tunMap[$dev];
         }
+        if ($listClass !== '' && $dnstapClass !== ''
+            && xray_domain_route_class_rank($listClass) > xray_domain_route_class_rank($dnstapClass)
+            && $hint === '') {
+            $hint = 'List says ' . strtoupper($listClass)
+                . ' but BIRD has ' . strtoupper($dnstapClass)
+                . ' for this IP (CDN/shared IP or stale dnstap cache). '
+                . 'Query the domain via Unbound or: service dnstap_bgp reload';
+        }
         $rows[] = [
-            'domain'   => $domainLabel,
-            'ip'       => $ip,
-            'peer'     => $peer !== '' ? $peer : 'N/A',
-            'instance' => $inst,
-            'dev'      => $iface,
-            'active'   => !empty($p['active']),
+            'domain'     => $domainLabel,
+            'ip'         => $ip,
+            'peer'       => $peer !== '' ? $peer : 'N/A',
+            'instance'   => $inst,
+            'dev'        => $iface,
+            'active'     => !empty($p['active']),
+            'class'      => $dnstapClass !== '' ? strtoupper($dnstapClass) : '',
+            'list_class' => $listClass !== '' ? strtoupper($listClass) : '',
         ];
     }
 }
 
 echo json_encode([
-    'result' => 'ok',
-    'domain' => $domainLabel,
-    'query'  => $query,
-    'rows'   => $rows,
+    'result'     => 'ok',
+    'domain'     => $domainLabel,
+    'query'      => $query,
+    'list_class' => $listClass !== '' ? strtoupper($listClass) : '',
+    'hint'       => $hint,
+    'rows'       => $rows,
 ], JSON_UNESCAPED_SLASHES) . "\n";
