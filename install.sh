@@ -2658,12 +2658,37 @@ echo (string)($cfg->OPNsense->xray->general->enabled ?? "0");
 if [ "$_XRAY_EN" = "1" ]; then
     echo "    Enable Xray is on — starting instances via configctl..."
     if /usr/local/sbin/configctl xray start 2>&1; then
-        echo "[OK]  xray start completed"
+        echo "[OK]  xray start completed (BGP/DNStap follow General flags)"
     else
         echo "[WARN] configctl xray start failed — use Start All in the GUI"
     fi
 else
-    echo "    Enable Xray is off — skipping auto-start"
+    echo "    Enable Xray is off — skipping instance auto-start"
+fi
+
+# ── Шаг 9b: DNStap если Enable DNStap BGP, а Step 9 не бегал (Xray off) ───────
+echo ""
+echo "==> Step 9b: Sync DNStap BGP with General → Enable DNStap BGP..."
+_DTAP_EN=$(php -r '
+set_include_path("/usr/local/etc/inc" . PATH_SEPARATOR . get_include_path());
+require_once("config.inc");
+$cfg = OPNsense\Core\Config::getInstance()->object();
+echo (string)($cfg->OPNsense->xray->general->dnstap_bgp_enabled ?? "0");
+' 2>/dev/null) || true
+if [ "$_DTAP_EN" = "1" ]; then
+    if [ "$_XRAY_EN" = "1" ]; then
+        echo "    Enable DNStap BGP is on — already applied via xray start"
+    elif [ -f /usr/local/opnsense/scripts/Xray/xray-dnstap-conf.php ]; then
+        if /usr/local/sbin/configctl xray dnstapstart 2>&1; then
+            echo "[OK]  dnstap-bgp started (Unbound DNSTap include applied)"
+        else
+            echo "[WARN] dnstapstart failed — use DNStap tab Start"
+        fi
+    else
+        echo "[WARN] dnstap scripts missing"
+    fi
+else
+    echo "    Enable DNStap BGP is off — skip"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────

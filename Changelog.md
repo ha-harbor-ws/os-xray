@@ -7,6 +7,8 @@ Format: [Semantic Versioning](https://semver.org/).
 
 ## [3.1.0] - TBD
 ### Fixed
+- reinstall — `xray start` снова поднимает DNStap/BGP по флагам General (раньше только Apply/reconfigure); install Step 9b для DNStap если Xray off
+- Instances — Test result синхронизируется с ACTIVE TUN SOCKS-пробами (после uninstall колонка не пустая до cron ifhealth)
 - uninstall — WAN Upstream в UI без default в `netstat`: restore до и после stop TUN, `force_down` на instance GW, явная установка kernel default
 - Domain check — колонки Class/List (community vs proxy/direct/block.txt); подсказка при CDN/stale DIRECT vs List PROXY
 - DNStap summarize — subdomain из DIRECT/URL не остаётся, если родитель уже в PROXY/BLOCK (Extra PROXY `xboxservices.com` перекрывает `fern.xboxservices.com` из DIRECT)

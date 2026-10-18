@@ -822,6 +822,27 @@ function do_status_all(): void
                 'source'    => (string)($T['source'] ?? ''),
                 'tested_at' => (int)($T['tested_at'] ?? 0),
             ];
+        } elseif ($L !== null) {
+            // Fallback: ACTIVE TUN latency present but IF-test store empty (post-uninstall).
+            $v4ok = !empty($L['v4_ok']);
+            $v6ok = !empty($L['v6_ok']);
+            $ok = $v4ok || $v6ok;
+            $parts = [];
+            if ($v4ok) {
+                $parts[] = 'v4 ' . sprintf('%.3fs', (float)($L['v4_time'] ?? 0));
+            }
+            if ($v6ok) {
+                $parts[] = 'v6 ' . sprintf('%.3fs', (float)($L['v6_time'] ?? 0));
+            }
+            $row['test_result'] = [
+                'result'    => $ok ? 'ok' : 'failed',
+                'message'   => $ok
+                    ? ('OK — ' . implode(', ', $parts))
+                    : 'Could not connect — SOCKS probe failed',
+                'http_code' => $ok ? 200 : 0,
+                'source'    => 'active_tun',
+                'tested_at' => (int)($lat['updated_at'] ?? 0),
+            ];
         }
         $result[$inst_uuid] = $row;
     }
@@ -1097,6 +1118,12 @@ switch ($action) {
                 $exitCode = $anyFailed ? 1 : 0;
             }
         }
+        // Same as reconfigure: honor General → Enable BGP / DNStap (install Step 9 uses start).
+        if (function_exists('xray_gateways_ensure_all')) {
+            xray_gateways_ensure_all();
+        }
+        xray_bird_apply_general_bgp();
+        xray_dnstap_apply_general();
         xray_bird_sync_async();
         exit($exitCode);
 

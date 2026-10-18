@@ -113,6 +113,36 @@ function xray_bird_latency_save(array $byUuid, string $active4, string $active6)
         json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n"
     );
     @chmod(XRAY_ACTIVE_TUN_LATENCY, 0644);
+
+    // Keep Instances → Test result in sync with the same SOCKS probes as ACTIVE TUN.
+    // (IF-health cron is every 5 min and was empty after uninstall until then.)
+    $ifInc = __DIR__ . '/xray-if-test.inc.php';
+    if ($instances !== [] && is_readable($ifInc)) {
+        require_once $ifInc;
+        if (function_exists('xray_if_test_save_many')) {
+            $ifRows = [];
+            foreach ($instances as $uuid => $row) {
+                $v4ok = !empty($row['v4_ok']);
+                $v6ok = !empty($row['v6_ok']);
+                $ok = $v4ok || $v6ok;
+                $parts = [];
+                if ($v4ok) {
+                    $parts[] = 'v4 ' . sprintf('%.3fs', (float)($row['v4_time'] ?? 0));
+                }
+                if ($v6ok) {
+                    $parts[] = 'v6 ' . sprintf('%.3fs', (float)($row['v6_time'] ?? 0));
+                }
+                $ifRows[$uuid] = [
+                    'ok'        => $ok,
+                    'http_code' => $ok ? 200 : 0,
+                    'message'   => $ok
+                        ? ('OK — ' . implode(', ', $parts))
+                        : 'Could not connect — SOCKS probe failed',
+                ];
+            }
+            xray_if_test_save_many($ifRows, 'autoroute');
+        }
+    }
 }
 
 function xray_bird_latency_load(): array
